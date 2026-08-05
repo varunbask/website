@@ -239,6 +239,22 @@ viewport.addEventListener("pointerup", (e) => {
 goTo(0);
 
 /* ------------------------------------------------------------
+   AP exam list — hide the bottom fade once scrolled to the end
+   ------------------------------------------------------------ */
+const svcScroll = document.getElementById("svc-scroll");
+
+if (svcScroll) {
+  const wrap = svcScroll.parentElement;
+  const updateFade = () => {
+    const atEnd =
+      svcScroll.scrollTop + svcScroll.clientHeight >= svcScroll.scrollHeight - 2;
+    wrap.classList.toggle("at-end", atEnd);
+  };
+  svcScroll.addEventListener("scroll", updateFade);
+  updateFade();
+}
+
+/* ------------------------------------------------------------
    Mobile nav
    ------------------------------------------------------------ */
 const navToggle = document.getElementById("nav-toggle");

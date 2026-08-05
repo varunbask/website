@@ -397,6 +397,58 @@ h3 { font-size: 1.22rem; font-weight: 700; }
   font-weight: 700;
 }
 
+/* AP column: many exams, grouped by subject area, scrolling in place */
+.svc-scroll-wrap { position: relative; }
+.svc-scroll-wrap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 6px;
+  bottom: 0;
+  height: 44px;
+  background: linear-gradient(rgba(251, 248, 245, 0), var(--paper));
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+.svc-scroll-wrap.at-end::after { opacity: 0; }
+
+.svc-scroll {
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--grid) transparent;
+}
+.svc-scroll:focus-visible {
+  outline: 3px solid var(--pen);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.svc-scroll::-webkit-scrollbar { width: 6px; }
+.svc-scroll::-webkit-scrollbar-track { background: transparent; }
+.svc-scroll::-webkit-scrollbar-thumb {
+  background: var(--grid);
+  border-radius: 99px;
+}
+.svc-scroll:hover::-webkit-scrollbar-thumb { background: var(--pen); }
+
+.svc-group + .svc-group { margin-top: 18px; }
+.svc-group-label {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--slate);
+  margin-bottom: 4px;
+}
+.svc-col-ap li {
+  font-size: 0.94rem;
+  padding: 3px 0 3px 18px;
+}
+
 /* ---------- how it works ---------- */
 
 .how { background: var(--card); border-top: 1px solid var(--grid); border-bottom: 1px solid var(--grid); }
@@ -871,6 +923,10 @@ h3 { font-size: 1.22rem; font-weight: 700; }
   .carousel-viewport { padding: 0 16px; }
 
   .sticky-cta.visible { display: block; }
+}
+
+@media (max-width: 560px) {
+  .svc-columns { grid-template-columns: 1fr; gap: 30px; }
 }
 
 @media (max-width: 480px) {
