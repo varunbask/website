@@ -7,7 +7,7 @@
   <meta name="description" content="One-on-one tutoring in math, science, English, test prep, and competition math. Six years of experience helping students move from catching up to years ahead. Free consultation.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Caveat:wght@500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600&family=IBM+Plex+Mono:wght@400;500;600&family=Caveat:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -26,6 +26,11 @@
         <a href="#about">About Us</a>
         <a href="#contact">Contact</a>
       </nav>
+      <button class="lang-toggle" id="lang-toggle" type="button" data-no-translate
+              aria-label="切换到中文 / Switch to Chinese">
+        <span class="lang-flag" aria-hidden="true">🇨🇳</span>
+        <span class="lang-label">中文</span>
+      </button>
       <a class="btn btn-primary header-cta" href="#contact">Book a free consultation</a>
       <button class="nav-toggle" id="nav-toggle" aria-expanded="false" aria-controls="site-nav" aria-label="Menu">
         <span></span><span></span><span></span>
@@ -385,11 +390,11 @@
 
       <div class="carousel" id="carousel" aria-roledescription="carousel" aria-label="Family testimonials">
         <div class="carousel-viewport" id="carousel-viewport">
-          <div class="carousel-track" id="carousel-track"><!-- cards injected by script.js --></div>
+          <div class="carousel-track" id="carousel-track" data-no-translate><!-- cards injected by script.js --></div>
         </div>
         <div class="carousel-controls">
           <button class="carousel-btn" id="carousel-prev" aria-label="Previous review">←</button>
-          <div class="carousel-dots" id="carousel-dots" role="tablist" aria-label="Choose review"></div>
+          <div class="carousel-dots" id="carousel-dots" role="tablist" aria-label="Choose review" data-no-translate></div>
           <button class="carousel-btn" id="carousel-next" aria-label="Next review">→</button>
         </div>
       </div>
@@ -499,6 +504,7 @@
     <a class="btn btn-primary" href="#contact">Book a free consultation</a>
   </div>
 
+  <script src="i18n.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

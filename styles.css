@@ -199,6 +199,25 @@ h3 { font-size: 1.22rem; font-weight: 700; }
 
 .header-cta { padding: 10px 18px; font-size: 0.92rem; }
 
+.lang-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 8px 14px;
+  border-radius: 99px;
+  border: 1.5px solid var(--grid);
+  background: var(--card);
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.lang-toggle:hover { border-color: var(--pen); color: var(--pen); }
+.lang-flag { font-size: 1.05rem; line-height: 1; }
+
 .nav-toggle {
   display: none;
   flex-direction: column;
@@ -918,6 +937,8 @@ h3 { font-size: 1.22rem; font-weight: 700; }
   .site-nav.open { display: flex; }
   .nav-toggle { display: flex; }
   .header-cta { display: none; }
+  .header-inner { gap: 12px; }
+  .lang-toggle { padding: 10px 14px; min-height: 44px; }
 
   .review-card { padding: 28px 24px; min-height: 420px; }
   .carousel-viewport { padding: 0 16px; }
@@ -930,7 +951,68 @@ h3 { font-size: 1.22rem; font-weight: 700; }
 }
 
 @media (max-width: 480px) {
+  .lang-label { display: none; }
+  .lang-toggle { padding: 10px; min-width: 44px; min-height: 44px; justify-content: center; }
   .results-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
   .result-figure { font-size: 2rem; }
   .hero-actions { gap: 16px; }
 }
+
+
+/* ============================================================
+   Chinese typography
+   The Latin faces have no CJK glyphs, so swap them out and undo
+   the Latin-only devices: italics, letterspaced caps, ch measures.
+   ============================================================ */
+
+html[lang^="zh"] {
+  --font-display: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-script: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+/* these stay Latin, so they keep the handwritten face */
+html[lang^="zh"] .wordmark-mark,
+html[lang^="zh"] .step-num,
+html[lang^="zh"] .portrait-monogram,
+html[lang^="zh"] .tutor-initials,
+html[lang^="zh"] .pen-note text { font-family: "Caveat", cursive; }
+
+html[lang^="zh"] h1,
+html[lang^="zh"] h2,
+html[lang^="zh"] h3 { letter-spacing: 0; line-height: 1.25; }
+html[lang^="zh"] h1 { font-weight: 900; }
+
+/* Chinese has no italic; browsers fake it badly */
+html[lang^="zh"] .section-sub,
+html[lang^="zh"] .empathy-bridge,
+html[lang^="zh"] .growth-card figcaption,
+html[lang^="zh"] .results-note,
+html[lang^="zh"] .review-attrib span { font-style: normal; }
+
+/* letterspaced uppercase is a Latin device */
+html[lang^="zh"] .eyebrow,
+html[lang^="zh"] .svc-col-tag,
+html[lang^="zh"] .svc-group-label,
+html[lang^="zh"] .tutor-role {
+  text-transform: none;
+  letter-spacing: 0.06em;
+}
+
+/* ch units assume Latin width; CJK glyphs are about twice as wide */
+html[lang^="zh"] h2 { max-width: 17em; }
+html[lang^="zh"] .hero-sub { max-width: 30em; }
+html[lang^="zh"] .section-sub { max-width: 32em; }
+html[lang^="zh"] .empathy-bridge { max-width: 32em; }
+html[lang^="zh"] .about-copy p:not(.eyebrow) { max-width: 32em; }
+html[lang^="zh"] .faq-list details p { max-width: 34em; }
+html[lang^="zh"] .contact h2 { max-width: 20em; }
+
+/* accent sizes tuned for Latin need toning down for CJK */
+html[lang^="zh"] .script-accent { font-size: 1em; font-weight: 900; }
+html[lang^="zh"] .about-pull { font-size: 1.3rem; font-weight: 500; line-height: 1.55; }
+html[lang^="zh"] .review-highlight { font-size: 1.02rem; font-weight: 700; }
+html[lang^="zh"] .result-figure { font-size: 2rem; font-weight: 900; }
+html[lang^="zh"] .chart-axis text { font-size: 11px; }
+html[lang^="zh"] .milestone text { font-size: 12px; }
