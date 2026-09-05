@@ -337,46 +337,6 @@ h3 { font-size: 1.22rem; font-weight: 700; }
 }
 .growth-card figcaption a { color: var(--pen); font-weight: 600; }
 
-/* ---------- empathy ---------- */
-
-.empathy { background: var(--card); border-bottom: 1px solid var(--grid); }
-
-.empathy-grid {
-  display: grid;
-  grid-template-columns: 0.9fr 1.1fr;
-  gap: 56px;
-  align-items: start;
-}
-
-.empathy-list { list-style: none; display: grid; gap: 22px; }
-.empathy-list li {
-  padding-left: 34px;
-  position: relative;
-  color: var(--slate);
-  font-size: 1.05rem;
-}
-.empathy-list li strong { color: var(--ink); }
-.empathy-list li::before {
-  content: "✎";
-  position: absolute;
-  left: 0;
-  top: 0;
-  color: var(--pen);
-  font-size: 1.15rem;
-}
-
-.empathy-bridge {
-  margin-top: 48px;
-  padding: 26px 30px;
-  background: var(--paper);
-  border-left: 4px solid var(--pen);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  font-size: 1.14rem;
-  font-weight: 500;
-  font-style: italic;
-  max-width: 62ch;
-}
-
 /* ---------- services columns ---------- */
 
 .svc-columns {
@@ -468,40 +428,9 @@ h3 { font-size: 1.22rem; font-weight: 700; }
   padding: 3px 0 3px 18px;
 }
 
-/* ---------- how it works ---------- */
-
-.how { background: var(--card); border-top: 1px solid var(--grid); border-bottom: 1px solid var(--grid); }
-
-.steps {
-  list-style: none;
-  margin-top: 44px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 26px;
-}
-
-.step {
-  background: var(--paper);
-  border: 1px solid var(--grid);
-  border-radius: var(--radius);
-  padding: 30px 26px;
-  position: relative;
-}
-.step-num {
-  display: block;
-  font-family: var(--font-script);
-  font-weight: 700;
-  font-size: 2.4rem;
-  line-height: 1;
-  color: var(--pen);
-  margin-bottom: 14px;
-  transform: rotate(-3deg);
-  width: max-content;
-}
-.step h3 { margin-bottom: 10px; }
-.step p { color: var(--slate); font-size: 0.98rem; }
-
 /* ---------- about us ---------- */
+
+.services { background: var(--card); border-bottom: 1px solid var(--grid); }
 
 .about-grid {
   display: grid;
@@ -569,10 +498,12 @@ h3 { font-size: 1.22rem; font-weight: 700; }
 
 /* tutors */
 
-.tutors { margin-top: 72px; }
+.tutors { margin-top: 52px; }
 .tutors-heading {
-  font-size: 1.5rem;
-  margin-bottom: 24px;
+  font-size: 1.15rem;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--grid);
 }
 .tutor-grid {
   display: grid;
@@ -797,45 +728,6 @@ h3 { font-size: 1.22rem; font-weight: 700; }
   transform: scale(1.25);
 }
 
-/* ---------- FAQ ---------- */
-
-.faq-list { margin-top: 40px; max-width: 760px; }
-
-.faq-list details {
-  background: var(--card);
-  border: 1px solid var(--grid);
-  border-radius: 12px;
-  margin-bottom: 12px;
-  overflow: hidden;
-}
-.faq-list summary {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 1.05rem;
-  padding: 20px 24px;
-  cursor: pointer;
-  list-style: none;
-  position: relative;
-  padding-right: 52px;
-}
-.faq-list summary::-webkit-details-marker { display: none; }
-.faq-list summary::after {
-  content: "+";
-  position: absolute;
-  right: 24px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-family: var(--font-mono);
-  font-size: 1.3rem;
-  color: var(--pen);
-}
-.faq-list details[open] summary::after { content: "−"; }
-.faq-list details p {
-  padding: 0 24px 22px;
-  color: var(--slate);
-  max-width: 65ch;
-}
-
 /* ---------- contact ---------- */
 
 .contact {
@@ -911,9 +803,7 @@ h3 { font-size: 1.22rem; font-weight: 700; }
 
 @media (max-width: 960px) {
   .hero-inner { grid-template-columns: 1fr; gap: 44px; }
-  .empathy-grid { grid-template-columns: 1fr; gap: 32px; }
   .svc-columns { grid-template-columns: repeat(2, 1fr); gap: 32px; }
-  .steps { grid-template-columns: 1fr; }
   .about-grid { grid-template-columns: 1fr; gap: 40px; }
   .about-portrait { max-width: 340px; }
   .results-grid { grid-template-columns: repeat(2, 1fr); }
@@ -974,7 +864,6 @@ html[lang^="zh"] {
 
 /* these stay Latin, so they keep the handwritten face */
 html[lang^="zh"] .wordmark-mark,
-html[lang^="zh"] .step-num,
 html[lang^="zh"] .portrait-monogram,
 html[lang^="zh"] .tutor-initials,
 html[lang^="zh"] .pen-note text { font-family: "Caveat", cursive; }
@@ -986,7 +875,6 @@ html[lang^="zh"] h1 { font-weight: 900; }
 
 /* Chinese has no italic; browsers fake it badly */
 html[lang^="zh"] .section-sub,
-html[lang^="zh"] .empathy-bridge,
 html[lang^="zh"] .growth-card figcaption,
 html[lang^="zh"] .results-note,
 html[lang^="zh"] .review-attrib span { font-style: normal; }
@@ -1004,9 +892,7 @@ html[lang^="zh"] .tutor-role {
 html[lang^="zh"] h2 { max-width: 17em; }
 html[lang^="zh"] .hero-sub { max-width: 30em; }
 html[lang^="zh"] .section-sub { max-width: 32em; }
-html[lang^="zh"] .empathy-bridge { max-width: 32em; }
 html[lang^="zh"] .about-copy p:not(.eyebrow) { max-width: 32em; }
-html[lang^="zh"] .faq-list details p { max-width: 34em; }
 html[lang^="zh"] .contact h2 { max-width: 20em; }
 
 /* accent sizes tuned for Latin need toning down for CJK */

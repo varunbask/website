@@ -55,22 +55,6 @@ const ZH = {
     "一位学生的真实历程：跟随 Varun 五年，从五年级数学到代数2荣誉课程。",
   "His mom tells it better ↓": "他妈妈讲得更好 ↓",
 
-  /* ---------- the problem ---------- */
-  "Sound familiar?": "是不是很熟悉？",
-  "The school system shouldn't feel like a puzzle you solve alone.":
-    "美国的教育体系，不该让您独自摸索。",
-  "Your child is capable of more,": "您的孩子本可以走得更远，",
-  "but classes move at one speed and nobody is challenging them to go further.":
-    "但课堂只有一种节奏，没有人推着他们更进一步。",
-  "Grades are slipping and stress is rising:": "成绩在下滑，压力在上升：",
-  "homework battles, lost confidence, and you're not sure how to help.":
-    "为作业争执，孩子失去自信，而您不确定该怎么帮。",
-  "You're navigating an unfamiliar system.": "您面对的是一套陌生的体系。",
-  "Course tracks, honors placement, state tests, AP. It's a lot, especially if you didn't grow up with American schools.":
-    "课程分层、荣誉班分班、州统考、AP 课程，信息量很大，尤其当您并非在美国学校长大。",
-  "I grew up as an immigrant figuring out this system firsthand. My job is to take that puzzle off your plate, so you can relax and your child can excel.":
-    "作为移民，我亲身摸索过这套体系。我的工作，就是把这道难题从您肩上接过来，让您安心，让孩子专心把成绩提上去。",
-
   /* ---------- services ---------- */
   "One tutor, from third-grade math to AP exam day.":
     "一位老师，从三年级数学一路陪到 AP 考场。",
@@ -118,20 +102,6 @@ const ZH = {
   "Competition math": "数学竞赛",
   "Enrichment": "拓展提高",
 
-  /* ---------- how it works ---------- */
-  "How it works": "上课流程",
-  "Three steps, and the first one is free.": "三个步骤，第一步免费。",
-  "A free consultation": "一次免费咨询",
-  "We talk for 20-30 minutes: you, your child, and me. I learn where they are, where they want to be, and what's getting in the way. No obligation, no pressure.":
-    "我们聊 20 到 30 分钟：您、孩子和我。我会了解孩子现在的水平、想达到的目标，以及卡在哪里。没有任何义务，也没有压力。",
-  "A plan built for your child": "为孩子量身定制的方案",
-  "Every student gets their own roadmap: the right pace, the right material, and homework that reinforces without overwhelming (usually under 30 minutes).":
-    "每个学生都有自己的学习路线：合适的节奏、合适的材料，以及能巩固知识又不会压垮孩子的作业（通常 30 分钟以内）。",
-  "Weekly lessons, and you're never in the dark": "每周上课，进展您全程掌握",
-  "After every single lesson you get a note from me: what we covered, how your child is progressing, and what comes next. Parents tell me this is their favorite part.":
-    "每一节课后，我都会给您一份反馈：这节课讲了什么、孩子进步如何、接下来学什么。家长们说，这是他们最喜欢的部分。",
-  "Start with step one, it's free": "从第一步开始，完全免费",
-
   /* ---------- about us ---------- */
   "About us": "关于我们",
   "Good tutoring raises grades. Great tutoring raises people.":
@@ -176,26 +146,6 @@ const ZH = {
   "Next review": "下一条评价",
   "Choose review": "选择评价",
 
-  /* ---------- FAQ ---------- */
-  "Questions parents ask": "家长常问的问题",
-  "Everything you'd want to know first.": "您最想先了解的一切。",
-  "Where do lessons happen?": "课程在哪里进行？",
-  "What ages and subjects do you cover?": "您教哪些年级和科目？",
-  "Kindergarten through 12th grade: math, science, English, history, and programming, plus AP exams in math, science, English, and history, SAT/ACT/ISEE prep, and AMC competition math. Most families start with one subject and add more over time.":
-    "从幼儿园到 12 年级：数学、科学、英语、历史和编程；此外还有数学、科学、英语和历史方向的 AP 考试，SAT/ACT/ISEE 备考，以及 AMC 数学竞赛。大多数家庭从一门科目开始，之后逐渐增加。",
-  "How will I know it's working?": "我怎么知道辅导有效果？",
-  "Two ways. First, you'll hear it from us: after every single lesson we send you a note on what we covered and how your child is doing. Second, you'll see it in their grades, and in how they carry themselves. Homework is light by design, usually under 30 minutes.":
-    "两个方面。第一，您会从我们这里听到：每节课后我们都会发给您一份反馈，说明讲了什么、孩子表现如何。第二，您会亲眼看到：从成绩上，也从孩子的状态上。作业刻意保持轻量，通常 30 分钟以内。",
-  "What happens in the free consultation?": "免费咨询会聊些什么？",
-  "A relaxed 20-30 minute conversation. We get to know your child, pinpoint where they are and where they want to go, and tell you honestly whether and how we can help. You'll leave with a clear plan either way. There's no obligation.":
-    "一次轻松的 20 到 30 分钟交流。我们会认识您的孩子，弄清他现在的位置和想去的方向，并坦诚告诉您我们是否以及如何能帮上忙。无论结果如何，您都会带走一份清晰的规划，没有任何义务。",
-  "My English isn't strong. Will that be a problem?": "我的英语不太好，会有影响吗？",
-  "Not at all. Several of our longest-standing families speak limited English. We keep every note and conversation clear and simple, and we help you understand the school system itself: course tracks, honors placement, state tests, and what's coming next for your child.":
-    "完全不会。我们几个合作最久的家庭，英语都很有限。我们会把每一份反馈、每一次沟通都写得清楚简单，也会帮您理解教育体系本身：课程分层、荣誉班分班、州统考，以及孩子接下来会面对什么。",
-  "What do lessons cost?": "课程费用是多少？",
-  "Rates depend on subject and schedule, so we'll discuss them in your consultation. We'd rather you meet us first and decide with full information. No packages to buy up front.":
-    "费用取决于科目和课时安排，我们会在免费咨询中详谈。我们更希望您先认识我们，在信息充分的情况下再做决定。无需提前购买课时包。",
-
   /* ---------- contact ---------- */
   "Free consultation": "免费咨询",
   "The best time to start was the beginning of the school year.": "开始的最佳时机是开学那天。",
@@ -223,8 +173,6 @@ const ZH = {
 ZH['"Varun is not just a teacher, he is like a brother and a friend to my son."'] =
   '“Varun 不只是一位老师，他就像我儿子的兄长和朋友。”';
 ZH["Angel, parent of a 5-year student"] = "Angel，跟随五年的学生家长";
-ZH['Over live video, which is how we teach families across the US, China, and Japan. Scheduling is flexible across time zones, and students tell us the sessions feel personal and relaxed, "more like talking about math than sitting in class."'] =
-  "通过实时视频授课，我们正是以这种方式教美国、中国和日本的家庭。排课可以灵活配合不同时区。学生们说，上课的感觉很轻松、很亲近，用他们的话说，更像是在聊数学，而不是坐在教室里。";
 
 /* ------------------------------------------------------------
    Swap the page between languages
