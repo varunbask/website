@@ -1,16 +1,16 @@
 /* ============================================================
-   Varun Baskaran Tutoring — interactions
+   Varun Baskaran Tutoring: interactions
    ============================================================ */
 
 /* ------------------------------------------------------------
-   CONFIG — paste your Google Form link between the quotes below
-   and the "fill out the intake form" button will appear.
+   CONFIG: paste your Google Form link between the quotes below
+   and the "fill out the intake form" link will appear.
    ------------------------------------------------------------ */
 const INTAKE_FORM_URL = "";
 
 /* ------------------------------------------------------------
-   Testimonials — real reviews, lightly trimmed for length.
-   voices: parent review + that parent's own child's review.
+   Reviews: real, lightly trimmed for length.
+   parent = the parent's review, student = their own child's.
    ------------------------------------------------------------ */
 const TESTIMONIALS = [
   {
@@ -262,300 +262,78 @@ const TESTIMONIALS_ZH = [
   }
 ];
 
-/* Labels inside the carousel, per language */
-const CAROUSEL_UI = {
-  en: {
-    parent: "Parent",
-    student: "Student",
-    stars: "5 out of 5 stars",
-    voice: "Choose who you hear from",
-    slide: (i, n) => `Review ${i} of ${n}`,
-    dot: (i) => `Go to review ${i}`
-  },
-  zh: {
-    parent: "家长",
-    student: "学生",
-    stars: "5 星，满分 5 星",
-    voice: "选择想听谁的评价",
-    slide: (i, n) => `第 ${i} 条评价，共 ${n} 条`,
-    dot: (i) => `跳到第 ${i} 条评价`
-  }
+/* ------------------------------------------------------------
+   Reviews: a Parents tab and a Students tab
+   ------------------------------------------------------------ */
+const REVIEW_UI = {
+  en: { stars: "5 out of 5 stars" },
+  zh: { stars: "5 星，满分 5 星" }
 };
 
 function currentLang() {
   return document.documentElement.lang.startsWith("zh") ? "zh" : "en";
 }
 
-/* ------------------------------------------------------------
-   Build the carousel
-   ------------------------------------------------------------ */
-const track = document.getElementById("carousel-track");
-const dotsWrap = document.getElementById("carousel-dots");
-const prevBtn = document.getElementById("carousel-prev");
-const nextBtn = document.getElementById("carousel-next");
-const viewport = document.getElementById("carousel-viewport");
-
-function reviewCard(t, i, ui, total) {
-  const hasBoth = t.parent && t.student;
-  const first = t.parent || t.student;
-
-  const card = document.createElement("article");
-  card.className = "review-card";
-  card.setAttribute("role", "group");
-  card.setAttribute("aria-roledescription", "slide");
-  card.setAttribute("aria-label", ui.slide(i + 1, total));
-
-  card.innerHTML = `
-    <div class="review-stars" aria-label="${ui.stars}">★★★★★</div>
-    <div class="review-subjects">${t.subjects}</div>
-    <blockquote class="review-quote"><p>${first.quote}</p></blockquote>
-    <div class="review-highlight">${t.highlight}</div>
-    <div class="review-footer">
-      <div class="review-attrib">
-        <strong class="attrib-name">${first.name}</strong>
-        <span class="attrib-role">${first.role}</span>
-      </div>
-      ${hasBoth ? `
-      <div class="voice-toggle" role="group" aria-label="${ui.voice}">
-        <button type="button" aria-pressed="true" data-voice="parent">${ui.parent}</button>
-        <button type="button" aria-pressed="false" data-voice="student">${ui.student}</button>
-      </div>` : ""}
-    </div>
+function reviewFigure(voice, subjects, ui) {
+  /* subject lists read as plain text, not dot-separated tags */
+  subjects = subjects.replace(/\s*·\s*/g, currentLang() === "zh" ? "、" : ", ");
+  const fig = document.createElement("figure");
+  fig.className = "review";
+  fig.innerHTML = `
+    <div class="stars" aria-label="${ui.stars}">★★★★★</div>
+    <blockquote><p>${voice.quote}</p></blockquote>
+    <figcaption>
+      <strong>${voice.name}</strong>
+      <span>${voice.role}</span>
+      <span class="review-subjects mono">${subjects}</span>
+    </figcaption>
   `;
-
-  if (hasBoth) {
-    const quoteEl = card.querySelector(".review-quote p");
-    const nameEl = card.querySelector(".attrib-name");
-    const roleEl = card.querySelector(".attrib-role");
-    card.querySelectorAll(".voice-toggle button").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const voice = t[btn.dataset.voice];
-        quoteEl.textContent = voice.quote;
-        nameEl.textContent = voice.name;
-        roleEl.textContent = voice.role;
-        card.querySelectorAll(".voice-toggle button").forEach((b) =>
-          b.setAttribute("aria-pressed", String(b === btn))
-        );
-      });
-    });
-  }
-
-  return card;
+  return fig;
 }
 
-let index = 0;
-
-/* Rebuilt from scratch whenever the language changes. */
-function buildCarousel() {
+/* Rebuilt whenever the language changes. */
+function buildReviews() {
   const lang = currentLang();
   const data = lang === "zh" ? TESTIMONIALS_ZH : TESTIMONIALS;
-  const ui = CAROUSEL_UI[lang];
+  const ui = REVIEW_UI[lang];
+  const parents = document.getElementById("panel-parents");
+  const students = document.getElementById("panel-students");
 
-  track.textContent = "";
-  dotsWrap.textContent = "";
-
-  data.forEach((t, i) => track.appendChild(reviewCard(t, i, ui, data.length)));
-
-  data.forEach((_, i) => {
-    const dot = document.createElement("button");
-    dot.type = "button";
-    dot.setAttribute("role", "tab");
-    dot.setAttribute("aria-label", ui.dot(i + 1));
-    dot.addEventListener("click", () => goTo(i));
-    dotsWrap.appendChild(dot);
+  parents.textContent = "";
+  students.textContent = "";
+  data.forEach((t) => {
+    if (t.parent) parents.appendChild(reviewFigure(t.parent, t.subjects, ui));
+    if (t.student) students.appendChild(reviewFigure(t.student, t.subjects, ui));
   });
 
-  goTo(index);
+  document.getElementById("count-parents").textContent = parents.children.length;
+  document.getElementById("count-students").textContent = students.children.length;
 }
 
-function goTo(i) {
-  index = (i + TESTIMONIALS.length) % TESTIMONIALS.length;
-  track.style.transform = `translateX(-${index * 100}%)`;
-  [...dotsWrap.children].forEach((d, di) =>
-    d.setAttribute("aria-selected", String(di === index))
-  );
-  [...track.children].forEach((c, ci) =>
-    c.setAttribute("aria-hidden", String(ci !== index))
-  );
-}
+buildReviews();
+document.addEventListener("langchange", buildReviews);
 
-prevBtn.addEventListener("click", () => goTo(index - 1));
-nextBtn.addEventListener("click", () => goTo(index + 1));
+const tabs = [...document.querySelectorAll('.tabs [role="tab"]')];
 
-viewport.setAttribute("tabindex", "0");
-viewport.addEventListener("keydown", (e) => {
-  if (e.key === "ArrowLeft") { e.preventDefault(); goTo(index - 1); }
-  if (e.key === "ArrowRight") { e.preventDefault(); goTo(index + 1); }
-});
-
-/* touch / pointer swipe */
-let startX = null;
-viewport.addEventListener("pointerdown", (e) => { startX = e.clientX; });
-viewport.addEventListener("pointerup", (e) => {
-  if (startX === null) return;
-  const dx = e.clientX - startX;
-  if (Math.abs(dx) > 48) goTo(dx < 0 ? index + 1 : index - 1);
-  startX = null;
-});
-
-buildCarousel();
-document.addEventListener("langchange", buildCarousel);
-
-/* ------------------------------------------------------------
-   AP exam list — hide the bottom fade once scrolled to the end
-   ------------------------------------------------------------ */
-const svcScroll = document.getElementById("svc-scroll");
-
-if (svcScroll) {
-  const wrap = svcScroll.parentElement;
-  const updateFade = () => {
-    const atEnd =
-      svcScroll.scrollTop + svcScroll.clientHeight >= svcScroll.scrollHeight - 2;
-    wrap.classList.toggle("at-end", atEnd);
-  };
-  svcScroll.addEventListener("scroll", updateFade);
-  updateFade();
-}
-
-/* ------------------------------------------------------------
-   Hero quote card
-
-   Short verbatim excerpts from the full reviews further down the
-   page. It advances on its own, and stops as soon as someone
-   hovers, focuses, or takes control of it.
-   ------------------------------------------------------------ */
-const HERO_ROTATE_MS = 6500;
-
-const HERO_QUOTES = [
-  { quote: "Our son scored perfectly on the state math test and is now working three years ahead of his grade level.",
-    name: "Quin", role: "Parent of Nathaniel" },
-  { quote: "Varun is not just a teacher, he is like a brother and a friend to my son.",
-    name: "Angel", role: "Parent of Jerry, 5 years with Varun" },
-  { quote: "Varun didn't just help me do better in class. He helped me believe in myself.",
-    name: "Enoch", role: "Student, 2 years with Varun" },
-  { quote: "He gives me feedback after every single lesson, so I know exactly what my son learned.",
-    name: "Michelle", role: "Parent of Stanley" },
-  { quote: "I managed to maintain a 4.0 GPA in middle school and was able to double accelerate in math.",
-    name: "Jerry", role: "Student, entering grade 9" },
-  { quote: "Not only have the grades gone up, but my child has also gained more confidence and interest in the subject.",
-    name: "Grace", role: "Parent of Chloe, 3 years with Varun" }
-];
-
-const HERO_QUOTES_ZH = [
-  { quote: "在他的指导下，儿子的州数学统考拿到了满分，如今学的内容已经领先所在年级三年。",
-    name: "Quin", role: "Nathaniel 的家长" },
-  { quote: "Varun 不只是一位老师，他就像我儿子的兄长和朋友。",
-    name: "Angel", role: "Jerry 的家长，跟随 Varun 五年" },
-  { quote: "Varun 不只是让我在课堂上表现更好，他让我开始相信自己。",
-    name: "Enoch", role: "学生，跟随 Varun 两年" },
-  { quote: "他会在每一节课后给我反馈，所以我很清楚儿子学到了什么。",
-    name: "Michelle", role: "Stanley 的家长" },
-  { quote: "我在初中一直保持 4.0 的 GPA，数学也连跳了两级。",
-    name: "Jerry", role: "学生，即将升入九年级" },
-  { quote: "孩子不只是成绩提高了，对数学也更有信心、更有兴趣。",
-    name: "Grace", role: "Chloe 的家长，跟随 Varun 三年" }
-];
-
-const HERO_UI = {
-  en: { stars: "5 out of 5 stars", dot: (i) => `Go to quote ${i}`,
-        pause: "Pause the quotes", play: "Play the quotes" },
-  zh: { stars: "5 星，满分 5 星", dot: (i) => `跳到第 ${i} 条`,
-        pause: "暂停轮播", play: "继续轮播" }
-};
-
-const heroTrack = document.getElementById("hero-quote-track");
-const heroDots = document.getElementById("hero-quote-dots");
-const heroPause = document.getElementById("hero-quote-pause");
-const heroCard = document.getElementById("hero-quote");
-
-const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-
-let heroIndex = 0;
-let heroTimer = null;
-let heroPaused = false;
-
-function heroGoTo(i) {
-  const total = HERO_QUOTES.length;
-  heroIndex = (i + total) % total;
-  heroTrack.style.transform = `translateX(-${heroIndex * 100}%)`;
-  [...heroDots.children].forEach((d, di) =>
-    d.setAttribute("aria-selected", String(di === heroIndex))
-  );
-  [...heroTrack.children].forEach((c, ci) =>
-    c.setAttribute("aria-hidden", String(ci !== heroIndex))
-  );
-}
-
-function heroStart() {
-  heroStop();
-  if (heroPaused || reduceMotion.matches) return;
-  heroTimer = setInterval(() => heroGoTo(heroIndex + 1), HERO_ROTATE_MS);
-}
-
-function heroStop() {
-  if (heroTimer) clearInterval(heroTimer);
-  heroTimer = null;
-}
-
-function buildHeroQuotes() {
-  const lang = currentLang();
-  const data = lang === "zh" ? HERO_QUOTES_ZH : HERO_QUOTES;
-  const ui = HERO_UI[lang];
-
-  heroTrack.textContent = "";
-  heroDots.textContent = "";
-
-  data.forEach((q, i) => {
-    const card = document.createElement("figure");
-    card.className = "hero-quote-card";
-    card.setAttribute("role", "group");
-    card.setAttribute("aria-roledescription", "slide");
-    card.innerHTML = `
-      <div class="hero-quote-stars" aria-label="${ui.stars}">★★★★★</div>
-      <blockquote class="hero-quote-text">${q.quote}</blockquote>
-      <figcaption class="hero-quote-attrib">
-        ${q.name}<span>${q.role}</span>
-      </figcaption>
-    `;
-    heroTrack.appendChild(card);
-
-    const dot = document.createElement("button");
-    dot.type = "button";
-    dot.setAttribute("role", "tab");
-    dot.setAttribute("aria-label", ui.dot(i + 1));
-    dot.addEventListener("click", () => {
-      heroGoTo(i);
-      heroSetPaused(true);
-    });
-    heroDots.appendChild(dot);
+function selectTab(tab) {
+  tabs.forEach((t) => {
+    const on = t === tab;
+    t.setAttribute("aria-selected", String(on));
+    t.tabIndex = on ? 0 : -1;
+    document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
   });
-
-  heroPause.setAttribute("aria-label", heroPaused ? ui.play : ui.pause);
-  heroGoTo(heroIndex);
 }
 
-function heroSetPaused(paused) {
-  heroPaused = paused;
-  const ui = HERO_UI[currentLang()];
-  heroPause.setAttribute("aria-label", paused ? ui.play : ui.pause);
-  heroPause.firstElementChild.textContent = paused ? "▶" : "‖";
-  if (paused) heroStop();
-  else heroStart();
-}
-
-heroPause.addEventListener("click", () => heroSetPaused(!heroPaused));
-
-/* hovering or tabbing into the card holds it still */
-heroCard.addEventListener("mouseenter", heroStop);
-heroCard.addEventListener("mouseleave", () => { if (!heroPaused) heroStart(); });
-heroCard.addEventListener("focusin", heroStop);
-heroCard.addEventListener("focusout", () => { if (!heroPaused) heroStart(); });
-
-reduceMotion.addEventListener("change", heroStart);
-
-buildHeroQuotes();
-heroStart();
-document.addEventListener("langchange", buildHeroQuotes);
+tabs.forEach((tab, i) => {
+  tab.addEventListener("click", () => selectTab(tab));
+  tab.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+    next.focus();
+    selectTab(next);
+  });
+});
 
 /* ------------------------------------------------------------
    Mobile nav
@@ -575,17 +353,18 @@ siteNav.querySelectorAll("a").forEach((a) =>
 );
 
 /* ------------------------------------------------------------
-   Sticky mobile CTA — show after hero, hide at contact
+   Sticky mobile CTA: shows after the hero, hides once the
+   closing consultation note is on screen
    ------------------------------------------------------------ */
 const stickyCta = document.getElementById("sticky-cta");
 const hero = document.querySelector(".hero");
-const contact = document.getElementById("contact");
+const closingNote = document.getElementById("svc-more");
 
 let heroVisible = true;
-let contactVisible = false;
+let closingVisible = false;
 
 function updateSticky() {
-  const show = !heroVisible && !contactVisible;
+  const show = !heroVisible && !closingVisible;
   stickyCta.hidden = !show;
   stickyCta.classList.toggle("visible", show);
 }
@@ -596,9 +375,9 @@ new IntersectionObserver(
 ).observe(hero);
 
 new IntersectionObserver(
-  ([e]) => { contactVisible = e.isIntersecting; updateSticky(); },
+  ([e]) => { closingVisible = e.isIntersecting; updateSticky(); },
   { threshold: 0.05 }
-).observe(contact);
+).observe(closingNote);
 
 /* ------------------------------------------------------------
    Intake form link (appears once INTAKE_FORM_URL is set)
