@@ -38,23 +38,6 @@ const ZH = {
   "every lesson": "每节课",
   "ends with a note to you": " 后都有反馈发给您",
 
-  /* ---------- hero chart ---------- */
-  "Year 1": "第 1 年",
-  "Year 3": "第 3 年",
-  "Year 5": "第 5 年",
-  "Gr 5": "五年级",
-  "Alg 2H": "代数2H",
-  "Starts with Varun, grade 5 math": "开始跟随 Varun，五年级数学",
-  "School average climbs past 90": "校内平均分突破 90",
-  "Double-accelerates in math": "数学连跳两级",
-  "Algebra 2 Honors, grade 9": "九年级修读代数2荣誉",
-  "A real student's five-year path: from grade 5 math to Algebra 2 Honors with a 4.0 GPA":
-    "一位真实学生的五年历程：从五年级数学到代数2荣誉课程，GPA 4.0",
-  "Chart of one student's five-year progress with Varun": "一位学生跟随 Varun 五年的进步曲线",
-  "One student's actual path: five years with Varun, grade 5 math to Algebra 2 Honors.":
-    "一位学生的真实历程：跟随 Varun 五年，从五年级数学到代数2荣誉课程。",
-  "His mom tells it better ↓": "他妈妈讲得更好 ↓",
-
   /* ---------- services ---------- */
   "One tutor, from third-grade math to AP exam day.":
     "一位老师，从三年级数学一路陪到 AP 考场。",

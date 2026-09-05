@@ -63,56 +63,21 @@
           </p>
         </div>
 
-        <!-- Signature: a real student's growth, charted -->
-        <figure class="growth-card" aria-label="Chart of one student's five-year progress with Varun">
-          <svg viewBox="0 0 520 400" role="img" aria-labelledby="growth-title">
-            <title id="growth-title">A real student's five-year path: from grade 5 math to Algebra 2 Honors with a 4.0 GPA</title>
-            <!-- grid -->
-            <g class="chart-grid">
-              <line x1="60" y1="40" x2="60" y2="330"/>
-              <line x1="60" y1="330" x2="490" y2="330"/>
-              <line x1="60" y1="257.5" x2="490" y2="257.5" class="faint"/>
-              <line x1="60" y1="185" x2="490" y2="185" class="faint"/>
-              <line x1="60" y1="112.5" x2="490" y2="112.5" class="faint"/>
-              <line x1="60" y1="40" x2="490" y2="40" class="faint"/>
-            </g>
-            <!-- axis labels -->
-            <g class="chart-axis">
-              <text x="60" y="352">Year 1</text>
-              <text x="255" y="352">Year 3</text>
-              <text x="450" y="352">Year 5</text>
-              <text x="48" y="334" text-anchor="end">Gr 5</text>
-              <text x="48" y="116" text-anchor="end">Alg 2H</text>
-            </g>
-            <!-- the path -->
-            <path class="growth-line" d="M 75 315 C 130 300, 150 275, 190 245 C 235 212, 260 205, 300 175 C 345 142, 390 120, 455 92"/>
-            <!-- milestones -->
-            <g class="milestone">
-              <circle cx="75" cy="315" r="6"/>
-              <text x="88" y="308">Starts with Varun, grade 5 math</text>
-            </g>
-            <g class="milestone">
-              <circle cx="190" cy="245" r="6"/>
-              <text x="203" y="238">School average climbs past 90</text>
-            </g>
-            <g class="milestone">
-              <circle cx="300" cy="175" r="6"/>
-              <text x="313" y="168">Double-accelerates in math</text>
-            </g>
-            <g class="milestone milestone-final">
-              <circle cx="455" cy="92" r="6"/>
-              <text x="443" y="72" text-anchor="end">Algebra 2 Honors, grade 9</text>
-            </g>
-            <!-- handwritten note on the outcome -->
-            <g class="pen-note">
-              <text x="455" y="126" text-anchor="middle">4.0 GPA!</text>
-            </g>
-          </svg>
-          <figcaption>
-            One student's actual path: five years with Varun, grade 5 math to
-            Algebra&nbsp;2 Honors. <a href="#testimonials">His mom tells it better ↓</a>
-          </figcaption>
-        </figure>
+        <!-- Signature: what families say, rotating on its own -->
+        <div class="hero-quote" id="hero-quote" aria-roledescription="carousel"
+             aria-label="What families say">
+          <div class="hero-quote-viewport">
+            <div class="hero-quote-track" id="hero-quote-track" data-no-translate></div>
+          </div>
+          <div class="hero-quote-controls">
+            <div class="hero-quote-dots" id="hero-quote-dots" role="tablist"
+                 aria-label="Choose a quote" data-no-translate></div>
+            <button class="hero-quote-pause" id="hero-quote-pause" type="button"
+                    data-no-translate aria-label="Pause the quotes">
+              <span aria-hidden="true">‖</span>
+            </button>
+          </div>
+        </div>
       </div>
     </section>
 

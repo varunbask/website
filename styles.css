@@ -277,65 +277,107 @@ h3 { font-size: 1.22rem; font-weight: 700; }
 }
 .hero-trust .mono { color: var(--pen); font-weight: 600; }
 
-/* ---------- growth chart card ---------- */
+/* ---------- hero quote card (rotates on its own) ---------- */
 
-.growth-card {
+.hero-quote {
+  min-width: 0;
   background: var(--card);
   border: 1px solid var(--grid);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 22px 18px 16px;
+  padding: 34px 34px 22px;
   transform: rotate(0.6deg);
 }
-.growth-card svg { width: 100%; height: auto; }
 
-.chart-grid line { stroke: var(--ink); stroke-width: 1.5; }
-.chart-grid line.faint { stroke: var(--grid); stroke-width: 1; }
+.hero-quote-viewport { overflow: hidden; min-width: 0; }
 
-.chart-axis text {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  fill: var(--slate);
+.hero-quote-track {
+  display: flex;
+  align-items: stretch;
+  transition: transform 0.6s cubic-bezier(0.25, 0.8, 0.35, 1);
 }
-
-.growth-line {
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 3;
-  stroke-linecap: round;
-  stroke-dasharray: 700;
-  stroke-dashoffset: 700;
-  animation: draw 1.6s ease-out 0.3s forwards;
-}
-@keyframes draw { to { stroke-dashoffset: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .growth-line { stroke-dashoffset: 0; }
+  .hero-quote-track { transition: none; }
 }
 
-.milestone circle { fill: var(--card); stroke: var(--ink); stroke-width: 2.5; }
-.milestone text {
-  font-family: var(--font-body);
-  font-size: 13px;
+.hero-quote-card {
+  flex: 0 0 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 250px;
+}
+.hero-quote-card[aria-hidden="true"] { visibility: hidden; }
+
+.hero-quote-stars {
+  color: var(--marigold);
+  font-size: 1rem;
+  letter-spacing: 3px;
+  margin-bottom: 16px;
+}
+
+.hero-quote-text {
+  font-family: var(--font-display);
   font-weight: 600;
-  fill: var(--ink-2);
-}
-.milestone-final circle { stroke: var(--pen); }
-
-.pen-note text {
-  font-family: var(--font-script);
-  font-weight: 700;
-  font-size: 26px;
-  fill: var(--pen);
+  font-size: clamp(1.15rem, 1.9vw, 1.45rem);
+  line-height: 1.4;
+  color: var(--ink);
+  flex: 1;
 }
 
-.growth-card figcaption {
-  margin-top: 12px;
-  font-size: 0.88rem;
+.hero-quote-attrib {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--grid);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.hero-quote-attrib span {
+  display: block;
+  font-weight: 400;
+  font-size: 0.85rem;
   font-style: italic;
   color: var(--slate);
-  padding: 0 6px 6px;
 }
-.growth-card figcaption a { color: var(--pen); font-weight: 600; }
+
+.hero-quote-controls {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.hero-quote-dots { display: flex; gap: 8px; }
+.hero-quote-dots button {
+  width: 9px;
+  height: 9px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1.5px solid var(--slate);
+  background: transparent;
+  cursor: pointer;
+}
+.hero-quote-dots button[aria-selected="true"] {
+  background: var(--pen);
+  border-color: var(--pen);
+  transform: scale(1.25);
+}
+
+.hero-quote-pause {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--grid);
+  background: transparent;
+  color: var(--slate);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.hero-quote-pause:hover { border-color: var(--pen); color: var(--pen); }
 
 /* ---------- services columns ---------- */
 
@@ -865,8 +907,7 @@ html[lang^="zh"] {
 /* these stay Latin, so they keep the handwritten face */
 html[lang^="zh"] .wordmark-mark,
 html[lang^="zh"] .portrait-monogram,
-html[lang^="zh"] .tutor-initials,
-html[lang^="zh"] .pen-note text { font-family: "Caveat", cursive; }
+html[lang^="zh"] .tutor-initials { font-family: "Caveat", cursive; }
 
 html[lang^="zh"] h1,
 html[lang^="zh"] h2,
@@ -875,8 +916,8 @@ html[lang^="zh"] h1 { font-weight: 900; }
 
 /* Chinese has no italic; browsers fake it badly */
 html[lang^="zh"] .section-sub,
-html[lang^="zh"] .growth-card figcaption,
 html[lang^="zh"] .results-note,
+html[lang^="zh"] .hero-quote-attrib span,
 html[lang^="zh"] .review-attrib span { font-style: normal; }
 
 /* letterspaced uppercase is a Latin device */
@@ -900,5 +941,3 @@ html[lang^="zh"] .script-accent { font-size: 1em; font-weight: 900; }
 html[lang^="zh"] .about-pull { font-size: 1.3rem; font-weight: 500; line-height: 1.55; }
 html[lang^="zh"] .review-highlight { font-size: 1.02rem; font-weight: 700; }
 html[lang^="zh"] .result-figure { font-size: 2rem; font-weight: 900; }
-html[lang^="zh"] .chart-axis text { font-size: 11px; }
-html[lang^="zh"] .milestone text { font-size: 12px; }

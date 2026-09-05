@@ -418,6 +418,146 @@ if (svcScroll) {
 }
 
 /* ------------------------------------------------------------
+   Hero quote card
+
+   Short verbatim excerpts from the full reviews further down the
+   page. It advances on its own, and stops as soon as someone
+   hovers, focuses, or takes control of it.
+   ------------------------------------------------------------ */
+const HERO_ROTATE_MS = 6500;
+
+const HERO_QUOTES = [
+  { quote: "Our son scored perfectly on the state math test and is now working three years ahead of his grade level.",
+    name: "Quin", role: "Parent of Nathaniel" },
+  { quote: "Varun is not just a teacher, he is like a brother and a friend to my son.",
+    name: "Angel", role: "Parent of Jerry, 5 years with Varun" },
+  { quote: "Varun didn't just help me do better in class. He helped me believe in myself.",
+    name: "Enoch", role: "Student, 2 years with Varun" },
+  { quote: "He gives me feedback after every single lesson, so I know exactly what my son learned.",
+    name: "Michelle", role: "Parent of Stanley" },
+  { quote: "I managed to maintain a 4.0 GPA in middle school and was able to double accelerate in math.",
+    name: "Jerry", role: "Student, entering grade 9" },
+  { quote: "Not only have the grades gone up, but my child has also gained more confidence and interest in the subject.",
+    name: "Grace", role: "Parent of Chloe, 3 years with Varun" }
+];
+
+const HERO_QUOTES_ZH = [
+  { quote: "在他的指导下，儿子的州数学统考拿到了满分，如今学的内容已经领先所在年级三年。",
+    name: "Quin", role: "Nathaniel 的家长" },
+  { quote: "Varun 不只是一位老师，他就像我儿子的兄长和朋友。",
+    name: "Angel", role: "Jerry 的家长，跟随 Varun 五年" },
+  { quote: "Varun 不只是让我在课堂上表现更好，他让我开始相信自己。",
+    name: "Enoch", role: "学生，跟随 Varun 两年" },
+  { quote: "他会在每一节课后给我反馈，所以我很清楚儿子学到了什么。",
+    name: "Michelle", role: "Stanley 的家长" },
+  { quote: "我在初中一直保持 4.0 的 GPA，数学也连跳了两级。",
+    name: "Jerry", role: "学生，即将升入九年级" },
+  { quote: "孩子不只是成绩提高了，对数学也更有信心、更有兴趣。",
+    name: "Grace", role: "Chloe 的家长，跟随 Varun 三年" }
+];
+
+const HERO_UI = {
+  en: { stars: "5 out of 5 stars", dot: (i) => `Go to quote ${i}`,
+        pause: "Pause the quotes", play: "Play the quotes" },
+  zh: { stars: "5 星，满分 5 星", dot: (i) => `跳到第 ${i} 条`,
+        pause: "暂停轮播", play: "继续轮播" }
+};
+
+const heroTrack = document.getElementById("hero-quote-track");
+const heroDots = document.getElementById("hero-quote-dots");
+const heroPause = document.getElementById("hero-quote-pause");
+const heroCard = document.getElementById("hero-quote");
+
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+let heroIndex = 0;
+let heroTimer = null;
+let heroPaused = false;
+
+function heroGoTo(i) {
+  const total = HERO_QUOTES.length;
+  heroIndex = (i + total) % total;
+  heroTrack.style.transform = `translateX(-${heroIndex * 100}%)`;
+  [...heroDots.children].forEach((d, di) =>
+    d.setAttribute("aria-selected", String(di === heroIndex))
+  );
+  [...heroTrack.children].forEach((c, ci) =>
+    c.setAttribute("aria-hidden", String(ci !== heroIndex))
+  );
+}
+
+function heroStart() {
+  heroStop();
+  if (heroPaused || reduceMotion.matches) return;
+  heroTimer = setInterval(() => heroGoTo(heroIndex + 1), HERO_ROTATE_MS);
+}
+
+function heroStop() {
+  if (heroTimer) clearInterval(heroTimer);
+  heroTimer = null;
+}
+
+function buildHeroQuotes() {
+  const lang = currentLang();
+  const data = lang === "zh" ? HERO_QUOTES_ZH : HERO_QUOTES;
+  const ui = HERO_UI[lang];
+
+  heroTrack.textContent = "";
+  heroDots.textContent = "";
+
+  data.forEach((q, i) => {
+    const card = document.createElement("figure");
+    card.className = "hero-quote-card";
+    card.setAttribute("role", "group");
+    card.setAttribute("aria-roledescription", "slide");
+    card.innerHTML = `
+      <div class="hero-quote-stars" aria-label="${ui.stars}">★★★★★</div>
+      <blockquote class="hero-quote-text">${q.quote}</blockquote>
+      <figcaption class="hero-quote-attrib">
+        ${q.name}<span>${q.role}</span>
+      </figcaption>
+    `;
+    heroTrack.appendChild(card);
+
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.setAttribute("role", "tab");
+    dot.setAttribute("aria-label", ui.dot(i + 1));
+    dot.addEventListener("click", () => {
+      heroGoTo(i);
+      heroSetPaused(true);
+    });
+    heroDots.appendChild(dot);
+  });
+
+  heroPause.setAttribute("aria-label", heroPaused ? ui.play : ui.pause);
+  heroGoTo(heroIndex);
+}
+
+function heroSetPaused(paused) {
+  heroPaused = paused;
+  const ui = HERO_UI[currentLang()];
+  heroPause.setAttribute("aria-label", paused ? ui.play : ui.pause);
+  heroPause.firstElementChild.textContent = paused ? "▶" : "‖";
+  if (paused) heroStop();
+  else heroStart();
+}
+
+heroPause.addEventListener("click", () => heroSetPaused(!heroPaused));
+
+/* hovering or tabbing into the card holds it still */
+heroCard.addEventListener("mouseenter", heroStop);
+heroCard.addEventListener("mouseleave", () => { if (!heroPaused) heroStart(); });
+heroCard.addEventListener("focusin", heroStop);
+heroCard.addEventListener("focusout", () => { if (!heroPaused) heroStart(); });
+
+reduceMotion.addEventListener("change", heroStart);
+
+buildHeroQuotes();
+heroStart();
+document.addEventListener("langchange", buildHeroQuotes);
+
+/* ------------------------------------------------------------
    Mobile nav
    ------------------------------------------------------------ */
 const navToggle = document.getElementById("nav-toggle");
