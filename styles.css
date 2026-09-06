@@ -203,6 +203,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 1.05rem;
+  white-space: nowrap;
 }
 .wordmark-text em { font-style: normal; color: var(--pen); }
 
@@ -540,7 +541,8 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .svc-ap-groups { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (max-width: 760px) {
+/* compact header: the full desktop header needs ~875px in English */
+@media (max-width: 900px) {
   .site-nav {
     display: none;
     position: absolute;
@@ -559,7 +561,9 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .header-inner { gap: 12px; }
   .lang-toggle { padding: 10px 14px; min-height: 44px; }
   .theme-toggle { padding: 10px; min-width: 44px; min-height: 44px; justify-content: center; }
+}
 
+@media (max-width: 760px) {
   .hero { padding: 32px 0 72px; }
   .hero-inner { grid-template-columns: 1fr; gap: 28px; }
   .hero-portrait { max-width: 320px; }
