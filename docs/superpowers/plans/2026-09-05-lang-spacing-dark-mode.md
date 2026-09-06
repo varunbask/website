@@ -173,3 +173,155 @@ Commit with a message describing the feature. Report the exact checks you ran an
 ### Task 3: Whole-site browser verification (controller)
 
 Run by the controller with the browser tools, not a subagent. Re-run the language-switch measurement at 1280px, 768px, and 375px; confirm the Task 1 acceptance criteria; screenshot light and dark at desktop and mobile.
+
+### Task 4: Reserve the inactive language's size so nothing moves on switch
+
+Measured at 1280px after Tasks 1-3, 37 elements still move between languages: the header's nav links, toggles, and CTA shift horizontally because their widths follow the text; the four stat rows change height (99/100/147px in English vs 82/83/100px in Chinese) so their divider rules and numbers move; the tab labels resize; every review tile reflows because quotes are shorter in Chinese; and the closing "Book a free consultation" button moves because it is vertically centred against a paragraph whose line count changes. At 375px the hero paragraph's line count shifts everything below it.
+
+Mechanism: for every element whose size depends on translated text, render the inactive language's string invisibly inside the same box, so the box is always the larger of the two. `i18n.js` already knows both strings; it writes the inactive one to `data-i18n-alt`. CSS turns that attribute into a hidden pseudo-element. Two flavours:
+- `.i18n-w` (width, single-line labels): `::before` is a zero-height block containing the alt text, so the element's shrink-to-fit width is the wider of the two. No markup change beyond the class.
+- `.i18n-h` (height, wrapping copy): the element becomes a one-cell grid; its text lives in one inner `<span>` and `::before` (the alt text) overlaps it in the same cell, so the height is the taller of the two. The text must be wrapped in a `<span>`.
+
+Files: `styles.css`, `index.html`, `i18n.js`, `script.js`. Exact changes:
+
+#### styles.css
+
+1. Insert this section directly after the `.text-link:hover { color: var(--pen); }` line (end of the "buttons and links" section):
+
+```css
+/* ---------- fixed-size text across languages ----------
+   i18n.js writes the inactive language's string to data-i18n-alt.
+   .i18n-w reserves the wider of the two widths (single-line labels).
+   .i18n-h reserves the taller of the two heights (wrapping copy; its
+   text sits in one inner <span>). The hidden copy takes space but
+   never paints, so switching language cannot move anything. */
+.i18n-w { display: inline-block; text-align: center; }
+.i18n-w::before {
+  content: attr(data-i18n-alt);
+  display: block;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: nowrap;
+}
+.i18n-h { display: grid; }
+.i18n-h > span,
+.i18n-h::before { grid-area: 1 / 1; }
+.i18n-h::before { content: attr(data-i18n-alt); visibility: hidden; }
+```
+
+2. In the `@media (max-width: 900px)` block, add `text-align: left;` to the `.site-nav` rule's sibling: add a new rule `.site-nav a { text-align: left; }` right after `.site-nav.open { display: flex; }` (the dropdown links must stay left-aligned; `.i18n-w` centres them otherwise).
+
+3. In the "Chinese typography" section at the end of the file, delete these two lines (both languages must wrap in the same box width so the reserved height matches):
+```css
+html[lang^="zh"] .hero-line { max-width: 18em; }
+html[lang^="zh"] .svc-more p { max-width: 28em; }
+```
+
+#### index.html
+
+Add the cache-busting query `?v=2` to all four asset URLs: `styles.css?v=2`, `i18n.js?v=2`, `script.js?v=2`, `theme.js?v=2` (the python preview server lets browsers cache these; viewers otherwise keep the old stylesheet).
+
+Width reservations (add the class, nothing else changes):
+- both nav links: `<a class="i18n-w" href="#testimonials">Testimonials</a>` and `<a class="i18n-w" href="#services">Services</a>`
+- `<span class="lang-label i18n-w">中文</span>`
+- header CTA: `class="btn btn-primary header-cta i18n-w"`
+- hero CTA (inside `.hero-actions`): `class="btn btn-primary i18n-w"`
+- closing CTA (inside `.svc-more-actions`): `class="btn btn-primary i18n-w"`
+- tab labels: wrap only the word, keeping the count span outside: `<span class="i18n-w">Parents</span> <span class="tab-count mono" id="count-parents" data-no-translate>6</span>` and likewise `<span class="i18n-w">Students</span> ...`
+
+Height reservations (add the class and wrap the text in one `<span>`):
+- `<p class="hero-line i18n-h"><span>One-on-one tutoring from third grade to AP exam day, for families across five countries.</span></p>`
+- each of the four `<dd>`: `<dd class="i18n-h"><span>students tutored across 5+ countries</span></dd>` (same for the other three sentences, text unchanged)
+- `.svc-more` paragraph: `<p class="i18n-h"><span>Don't see your subject? These are the areas we specialize in, not the limits of what we teach. Book a consultation anyway and we'll talk it through.</span></p>`
+
+#### i18n.js
+
+1. In `applyLanguage`, inside the `for (const node of collectTextNodes())` loop, after the line `node.nodeValue = toChinese && translated ? translated : original;` add:
+
+```js
+    /* Elements that reserve room for the other language get its string. */
+    const host = node.parentElement.closest(".i18n-w, .i18n-h");
+    if (host) host.dataset.i18nAlt = translated ? (toChinese ? original.replace(/\s+/g, " ").trim() : translated) : "";
+```
+
+2. In the language-toggle block, after `btn.querySelector(".lang-label").textContent = toChinese ? "English" : "中文";` add:
+```js
+  btn.querySelector(".lang-label").dataset.i18nAlt = toChinese ? "中文" : "English";
+```
+
+3. Extend the header comment's last paragraph with one sentence: "Elements marked .i18n-w / .i18n-h also receive the inactive language's string in data-i18n-alt so their boxes stay the same size in both languages (see styles.css)."
+
+#### script.js
+
+Replace `reviewFigure` and `buildReviews` (keep `REVIEW_UI` and `currentLang`) with:
+
+```js
+function formatSubjects(subjects, lang) {
+  /* subject lists read as plain text, not dot-separated tags */
+  return subjects.replace(/\s*·\s*/g, lang === "zh" ? "、" : ", ");
+}
+
+/* Each figure carries the other language's text invisibly (data-i18n-alt,
+   see styles.css .i18n-h) so the tile is the same height in both. */
+function reviewFigure(voice, altVoice, subjects, altSubjects, lang, ui) {
+  const altLang = lang === "zh" ? "en" : "zh";
+  const fig = document.createElement("figure");
+  fig.className = "review";
+  fig.innerHTML = `
+    <div class="stars" aria-label="${ui.stars}">★★★★★</div>
+    <blockquote><p class="i18n-h"><span>${voice.quote}</span></p></blockquote>
+    <figcaption>
+      <strong>${voice.name}</strong>
+      <span class="i18n-h"><span>${voice.role}</span></span>
+      <span class="review-subjects mono i18n-h"><span>${formatSubjects(subjects, lang)}</span></span>
+    </figcaption>
+  `;
+  fig.querySelector("blockquote p").dataset.i18nAlt = altVoice.quote;
+  fig.querySelector("figcaption .i18n-h").dataset.i18nAlt = altVoice.role;
+  fig.querySelector(".review-subjects").dataset.i18nAlt = formatSubjects(altSubjects, altLang);
+  return fig;
+}
+
+/* Rebuilt whenever the language changes. */
+function buildReviews() {
+  const lang = currentLang();
+  const data = lang === "zh" ? TESTIMONIALS_ZH : TESTIMONIALS;
+  const alt = lang === "zh" ? TESTIMONIALS : TESTIMONIALS_ZH;
+  const ui = REVIEW_UI[lang];
+  const parents = document.getElementById("panel-parents");
+  const students = document.getElementById("panel-students");
+
+  parents.textContent = "";
+  students.textContent = "";
+  data.forEach((t, i) => {
+    const a = alt[i] || t;
+    if (t.parent) parents.appendChild(reviewFigure(t.parent, a.parent || t.parent, t.subjects, a.subjects, lang, ui));
+    if (t.student) students.appendChild(reviewFigure(t.student, a.student || t.student, t.subjects, a.subjects, lang, ui));
+  });
+
+  document.getElementById("count-parents").textContent = parents.children.length;
+  document.getElementById("count-students").textContent = students.children.length;
+}
+```
+
+#### Verification (required, in a browser)
+
+Preview server: http://localhost:4173 (check `curl -sI http://localhost:4173 | head -1`; if down, start `python3 -m http.server 4173 --directory "/Users/varunbaskaran/Desktop/varun website" &` and stop it when done). Load the page, force fresh assets (`for (const f of ['/styles.css','/i18n.js','/script.js','/index.html']) await fetch(f,{cache:'reload'}); location.reload()`), then at each of 1280px, 768px, and 375px viewport widths run this script and record its output:
+
+```js
+await document.fonts.ready;
+const Q = '.site-nav a, .lang-toggle, .theme-toggle, .header-cta, .hero h1, .hero-line, .hero-actions .btn, .hero-actions .text-link, .record-row, .record dt, .reviews h2, .tabs [role=tab], #panel-parents .review, #panel-parents .review blockquote, #panel-parents figcaption, .svc-col, .svc-ap, .svc-ap-groups > div, .svc-more p, .svc-more .btn, .site-footer';
+const label = el => el.tagName.toLowerCase() + '.' + String(el.className).split(' ')[0] + '#' + [...el.parentElement.children].indexOf(el);
+const measure = () => [...document.querySelectorAll(Q)].map(el => { const r = el.getBoundingClientRect(); return [label(el), Math.round(r.left), Math.round(r.top+scrollY), Math.round(r.width), Math.round(r.height)]; });
+const setLang = l => { if (document.documentElement.lang.startsWith('zh') !== (l==='zh')) document.getElementById('lang-toggle').click(); };
+setLang('en'); await new Promise(r=>setTimeout(r,100)); const en = measure();
+setLang('zh'); await document.fonts.ready; await new Promise(r=>setTimeout(r,500)); const zh = measure(); setLang('en');
+const moved = [], resized = [];
+for (let i=0;i<en.length;i++){ const a=en[i], b=zh[i]||[]; if (a[1]!==b[1]||a[2]!==b[2]) moved.push(`${a[0]}: left ${a[1]}->${b[1]} top ${a[2]}->${b[2]}`); if (a[3]!==b[3]||a[4]!==b[4]) resized.push(`${a[0]}: w ${a[3]}->${b[3]} h ${a[4]}->${b[4]}`); }
+({viewport: innerWidth, total: en.length, moved, resized, overflow: document.documentElement.scrollWidth > innerWidth});
+```
+
+Acceptance at all three widths: `moved` is an empty array, `overflow` is false, and `resized` contains at most the `.text-link` width (the only element that may legitimately differ). Also confirm visually (screenshot) that in Chinese the hidden reserved text is not painted anywhere (no ghost English text), that the header buttons show their labels centred, and that the review tiles still read correctly. Also confirm the console has no new errors.
+
+Commit the four files with a descriptive message. End the commit message with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`. Do not add `.superpowers/`, `skills-lock.json`, or `.agents/`.
