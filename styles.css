@@ -4,21 +4,60 @@
    ============================================================ */
 
 :root {
+  color-scheme: light;
   --ink: #241619;
   --ink-2: #3A2429;
   --paper: #FBF8F5;
   --slate: #6E585C;
   --pen: #B3282D;
   --pen-dark: #8F1F24;
+  --btn-bg: #B3282D;
+  --btn-bg-hover: #8F1F24;
+  --btn-fg: #FFFFFF;
   --marigold: #F0B93B;
   --rule: #E6D9D2;
   --radius: 6px;
-  --font-display: "Bricolage Grotesque", sans-serif;
-  --font-body: "Public Sans", sans-serif;
-  --font-mono: "IBM Plex Mono", monospace;
-  --font-script: "Caveat", cursive;
+  /* Latin faces first, Noto Sans SC as the CJK fallback. Latin text keeps
+     its face in both languages; only CJK glyphs fall through to Noto. */
+  --cjk: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei";
+  --font-display: "Bricolage Grotesque", var(--cjk), sans-serif;
+  --font-body: "Public Sans", var(--cjk), sans-serif;
+  --font-mono: "IBM Plex Mono", var(--cjk), monospace;
+  --font-script: "Caveat", var(--cjk), cursive;
   --max: 1120px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ---------- dark theme ----------
+   Same warm palette, inverted. The system preference applies unless the
+   viewer has picked a theme with the header toggle (data-theme). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --ink: #F4EDE8;
+    --ink-2: #E2D6CF;
+    --paper: #1B1417;
+    --slate: #A8969B;
+    --pen: #E4575D;
+    --pen-dark: #F07176;
+    --btn-bg: #D4383E;
+    --btn-bg-hover: #E4575D;
+    --marigold: #F2C15A;
+    --rule: #3B2D31;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ink: #F4EDE8;
+  --ink-2: #E2D6CF;
+  --paper: #1B1417;
+  --slate: #A8969B;
+  --pen: #E4575D;
+  --pen-dark: #F07176;
+  --btn-bg: #D4383E;
+  --btn-bg-hover: #E4575D;
+  --marigold: #F2C15A;
+  --rule: #3B2D31;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -65,7 +104,7 @@ a:focus-visible, button:focus-visible {
   left: 16px;
   padding: 10px 14px;
   background: var(--ink);
-  color: #fff;
+  color: var(--paper);
   border-radius: var(--radius);
   text-decoration: none;
   z-index: 100;
@@ -74,13 +113,15 @@ a:focus-visible, button:focus-visible {
 
 /* ---------- type ---------- */
 
+/* Line-heights are explicit numbers everywhere so a box is the same height
+   whichever font ends up drawing the glyphs. */
 h1, h2, h3, h4 {
   font-family: var(--font-display);
   letter-spacing: -0.02em;
-  line-height: 1.05;
+  line-height: 1.2;
   text-wrap: balance;
 }
-h1 { font-size: clamp(2.6rem, 4.6vw, 3.9rem); font-weight: 800; }
+h1 { font-size: clamp(2.6rem, 4.6vw, 3.9rem); font-weight: 800; line-height: 1.05; }
 h2 { font-size: clamp(1.9rem, 3.2vw, 2.6rem); font-weight: 700; margin-bottom: 44px; }
 h3 { font-size: 1.25rem; font-weight: 700; }
 h4 { font-size: 0.95rem; font-weight: 700; }
@@ -98,6 +139,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 1rem;
+  line-height: 1.6;
   text-decoration: none;
   padding: 14px 24px;
   border-radius: var(--radius);
@@ -108,8 +150,8 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 .btn:active { transform: translateY(1px); }
 
-.btn-primary { background: var(--pen); color: #fff; }
-.btn-primary:hover { background: var(--pen-dark); }
+.btn-primary { background: var(--btn-bg); color: var(--btn-fg); }
+.btn-primary:hover { background: var(--btn-bg-hover); }
 
 .text-link {
   font-weight: 600;
@@ -176,13 +218,15 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 
 .header-cta { padding: 10px 18px; font-size: 0.92rem; }
 
-.lang-toggle {
+.lang-toggle,
+.theme-toggle {
   display: inline-flex;
   align-items: center;
   gap: 7px;
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 0.88rem;
+  line-height: 1.4;
   padding: 8px 14px;
   border-radius: var(--radius);
   border: 1.5px solid var(--rule);
@@ -192,8 +236,15 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   white-space: nowrap;
   transition: border-color 0.2s var(--ease), color 0.2s var(--ease);
 }
-.lang-toggle:hover { border-color: var(--pen); color: var(--pen); }
+.lang-toggle:hover,
+.theme-toggle:hover { border-color: var(--pen); color: var(--pen); }
 .lang-flag { font-size: 1.05rem; line-height: 1; }
+
+.theme-toggle { padding: 8px 10px; }
+.theme-toggle svg { width: 18px; height: 18px; display: block; }
+.theme-toggle .icon-sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+:root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
 
 .nav-toggle {
   display: none;
@@ -260,17 +311,19 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   max-width: 28ch;
 }
 
+/* Always stacked, so the block is the same height whatever the labels say. */
 .hero-actions {
   margin-top: 32px;
   display: flex;
-  align-items: center;
-  gap: 22px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 20px;
 }
 
-/* the record: ruled rows, number left, plain sentence right */
+/* the record: ruled rows, number left, plain sentence right.
+   Pinned to the top so its rule lines up with the portrait in both languages. */
 .record {
-  align-self: end;
+  align-self: start;
   border-top: 2px solid var(--ink);
 }
 
@@ -320,6 +373,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 1.2rem;
+  line-height: 1.4;
   color: var(--slate);
   cursor: pointer;
   transition: color 0.2s var(--ease), border-color 0.2s var(--ease);
@@ -502,6 +556,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .header-cta { display: none; }
   .header-inner { gap: 12px; }
   .lang-toggle { padding: 10px 14px; min-height: 44px; }
+  .theme-toggle { padding: 10px; min-width: 44px; min-height: 44px; justify-content: center; }
 
   .hero { padding: 32px 0 72px; }
   .hero-inner { grid-template-columns: 1fr; gap: 28px; }
@@ -521,6 +576,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 
 @media (max-width: 480px) {
+  .wordmark-text { display: none; }
   .lang-label { display: none; }
   .lang-toggle { padding: 10px; min-width: 44px; justify-content: center; }
   .record-row { grid-template-columns: 76px 1fr; }
@@ -530,26 +586,17 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 
 /* ============================================================
    Chinese typography
-   The Latin faces have no CJK glyphs; swap them and drop the
-   Latin-only tricks (tight tracking, ch measures).
+   The font stacks already fall through to Noto Sans SC for CJK
+   glyphs, so nothing here changes a font or a box height. Only
+   Latin-specific tricks (tight tracking, ch measures) are dropped.
+   The h1 stays Latin in both languages and is left alone.
    ============================================================ */
 
-html[lang^="zh"] {
-  --font-display: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --font-body: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --font-mono: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-  --font-script: "Noto Sans SC", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-}
-
-html[lang^="zh"] .wordmark-mark { font-family: "Caveat", cursive; }
-html[lang^="zh"] .record dt { font-family: "IBM Plex Mono", monospace; }
-
-html[lang^="zh"] h1,
 html[lang^="zh"] h2,
 html[lang^="zh"] h3,
-html[lang^="zh"] h4 { letter-spacing: 0; line-height: 1.25; }
-html[lang^="zh"] h1 { font-weight: 900; }
+html[lang^="zh"] h4 { letter-spacing: 0; }
 
-html[lang^="zh"] .hero-note { transform: none; font-size: 1.25rem; }
+/* Same 28.16px line box as the Caveat note (1.6rem * 1.1). */
+html[lang^="zh"] .hero-note { transform: none; font-size: 1.25rem; line-height: 1.76rem; }
 html[lang^="zh"] .hero-line { max-width: 18em; }
 html[lang^="zh"] .svc-more p { max-width: 28em; }
