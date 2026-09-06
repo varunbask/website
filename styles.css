@@ -163,6 +163,26 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 .text-link:hover { color: var(--pen); }
 
+/* ---------- fixed-size text across languages ----------
+   i18n.js writes the inactive language's string to data-i18n-alt.
+   .i18n-w reserves the wider of the two widths (single-line labels).
+   .i18n-h reserves the taller of the two heights (wrapping copy; its
+   text sits in one inner <span>). The hidden copy takes space but
+   never paints, so switching language cannot move anything. */
+.i18n-w { display: inline-block; text-align: center; }
+.i18n-w::before {
+  content: attr(data-i18n-alt);
+  display: block;
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  white-space: nowrap;
+}
+.i18n-h { display: grid; }
+.i18n-h > span,
+.i18n-h::before { grid-area: 1 / 1; }
+.i18n-h::before { content: attr(data-i18n-alt); visibility: hidden; }
+
 /* ---------- header ---------- */
 
 .site-header {
@@ -556,6 +576,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
     gap: 16px;
   }
   .site-nav.open { display: flex; }
+  .site-nav a { text-align: left; }
   .nav-toggle { display: flex; justify-content: center; min-width: 44px; min-height: 44px; }
   .header-cta { display: none; }
   .header-inner { gap: 12px; }
@@ -604,5 +625,3 @@ html[lang^="zh"] h4 { letter-spacing: 0; }
 
 /* Same 28.16px line box as the Caveat note (1.6rem * 1.1). */
 html[lang^="zh"] .hero-note { transform: none; font-size: 1.25rem; line-height: 1.76rem; }
-html[lang^="zh"] .hero-line { max-width: 18em; }
-html[lang^="zh"] .svc-more p { max-width: 28em; }

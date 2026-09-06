@@ -9,7 +9,9 @@
    Adding copy later: add it to index.html as usual, then add one
    line here. Anything without a translation stays in English.
    The reviews are translated in script.js instead, since that
-   file builds them.
+   file builds them. Elements marked .i18n-w / .i18n-h also receive
+   the inactive language's string in data-i18n-alt so their boxes
+   stay the same size in both languages (see styles.css).
    ============================================================ */
 
 const ZH = {
@@ -133,6 +135,10 @@ function applyLanguage(lang) {
     const original = originalText.get(node);
     const translated = ZH[original.replace(/\s+/g, " ").trim()];
     node.nodeValue = toChinese && translated ? translated : original;
+
+    /* Elements that reserve room for the other language get its string. */
+    const host = node.parentElement.closest(".i18n-w, .i18n-h");
+    if (host) host.dataset.i18nAlt = translated ? (toChinese ? original.replace(/\s+/g, " ").trim() : translated) : "";
   }
 
   for (const el of document.querySelectorAll("body *, head meta[name='description']")) {
@@ -157,6 +163,7 @@ function applyLanguage(lang) {
   const btn = document.getElementById("lang-toggle");
   btn.querySelector(".lang-flag").textContent = toChinese ? "🇺🇸" : "🇨🇳";
   btn.querySelector(".lang-label").textContent = toChinese ? "English" : "中文";
+  btn.querySelector(".lang-label").dataset.i18nAlt = toChinese ? "中文" : "English";
   btn.setAttribute("aria-label", toChinese ? "Switch to English" : "切换到中文 / Switch to Chinese");
 
   try {

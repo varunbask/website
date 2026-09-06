@@ -274,20 +274,29 @@ function currentLang() {
   return document.documentElement.lang.startsWith("zh") ? "zh" : "en";
 }
 
-function reviewFigure(voice, subjects, ui) {
+function formatSubjects(subjects, lang) {
   /* subject lists read as plain text, not dot-separated tags */
-  subjects = subjects.replace(/\s*·\s*/g, currentLang() === "zh" ? "、" : ", ");
+  return subjects.replace(/\s*·\s*/g, lang === "zh" ? "、" : ", ");
+}
+
+/* Each figure carries the other language's text invisibly (data-i18n-alt,
+   see styles.css .i18n-h) so the tile is the same height in both. */
+function reviewFigure(voice, altVoice, subjects, altSubjects, lang, ui) {
+  const altLang = lang === "zh" ? "en" : "zh";
   const fig = document.createElement("figure");
   fig.className = "review";
   fig.innerHTML = `
     <div class="stars" aria-label="${ui.stars}">★★★★★</div>
-    <blockquote><p>${voice.quote}</p></blockquote>
+    <blockquote><p class="i18n-h"><span>${voice.quote}</span></p></blockquote>
     <figcaption>
       <strong>${voice.name}</strong>
-      <span>${voice.role}</span>
-      <span class="review-subjects mono">${subjects}</span>
+      <span class="i18n-h"><span>${voice.role}</span></span>
+      <span class="review-subjects mono i18n-h"><span>${formatSubjects(subjects, lang)}</span></span>
     </figcaption>
   `;
+  fig.querySelector("blockquote p").dataset.i18nAlt = altVoice.quote;
+  fig.querySelector("figcaption .i18n-h").dataset.i18nAlt = altVoice.role;
+  fig.querySelector(".review-subjects").dataset.i18nAlt = formatSubjects(altSubjects, altLang);
   return fig;
 }
 
@@ -295,15 +304,17 @@ function reviewFigure(voice, subjects, ui) {
 function buildReviews() {
   const lang = currentLang();
   const data = lang === "zh" ? TESTIMONIALS_ZH : TESTIMONIALS;
+  const alt = lang === "zh" ? TESTIMONIALS : TESTIMONIALS_ZH;
   const ui = REVIEW_UI[lang];
   const parents = document.getElementById("panel-parents");
   const students = document.getElementById("panel-students");
 
   parents.textContent = "";
   students.textContent = "";
-  data.forEach((t) => {
-    if (t.parent) parents.appendChild(reviewFigure(t.parent, t.subjects, ui));
-    if (t.student) students.appendChild(reviewFigure(t.student, t.subjects, ui));
+  data.forEach((t, i) => {
+    const a = alt[i] || t;
+    if (t.parent) parents.appendChild(reviewFigure(t.parent, a.parent || t.parent, t.subjects, a.subjects, lang, ui));
+    if (t.student) students.appendChild(reviewFigure(t.student, a.student || t.student, t.subjects, a.subjects, lang, ui));
   });
 
   document.getElementById("count-parents").textContent = parents.children.length;
