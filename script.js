@@ -72,7 +72,7 @@ const TESTIMONIALS = [
     highlight: "A 7th grader working years ahead, without the frustration",
     parent: {
       name: "Yedda",
-      quote: "Since my son Andrew started working with Varun, he's become noticeably more confident and interested in math. He approaches problems with greater clarity and no longer feels as frustrated as he once did. I truly appreciate Varun's patience and the way he makes each session easy to follow."
+      quote: "Since my son started working with Varun, he's become noticeably more confident and interested in math. He approaches problems with greater clarity and no longer feels as frustrated as he once did. I truly appreciate Varun's patience and the way he makes each session easy to follow."
     },
     student: {
       name: "Andrew",
@@ -173,7 +173,7 @@ const TESTIMONIALS_ZH = [
     highlight: "七年级就学得超前，却不再感到挫败",
     parent: {
       name: "Yedda",
-      quote: "自从儿子 Andrew 开始跟 Varun 学习，他明显更自信，也对数学更感兴趣了。他解题时思路更清晰，也不再像以前那样容易受挫。我很感激 Varun 的耐心，以及他把每节课讲得清楚易懂的方式。"
+      quote: "自从儿子开始跟 Varun 学习，他明显更自信，也对数学更感兴趣了。他解题时思路更清晰，也不再像以前那样容易受挫。我很感激 Varun 的耐心，以及他把每节课讲得清楚易懂的方式。"
     },
     student: {
       name: "Andrew",
