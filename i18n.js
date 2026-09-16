@@ -1,5 +1,5 @@
 /* ============================================================
-   Varun Baskaran Tutoring: English / Chinese toggle
+   VP Education Group: English / Chinese toggle
 
    The English lives in index.html. This file holds the Chinese,
    keyed by the exact English string. Switching to Chinese walks
@@ -17,7 +17,7 @@
 const ZH = {
   /* header */
   "Skip to content": "跳到正文",
-  "Tutoring": "辅导",
+  "Education Group": "教育集团",
   "Testimonials": "家长评价",
   "Services": "课程服务",
   "Book a free consultation": "预约免费咨询",
@@ -92,9 +92,9 @@ const ZH = {
   "Or fill out the intake form": "或填写报名表单",
 
   /* footer and page metadata */
-  "Varun Baskaran Tutoring": "Varun Baskaran 辅导",
-  "Varun Baskaran Tutoring | One-on-One Tutoring, K-12 through AP":
-    "Varun Baskaran 辅导 | 一对一辅导，K-12 至 AP",
+  "VP Education Group": "VP 教育集团",
+  "VP Education Group | One-on-One Tutoring, K-12 through AP":
+    "VP 教育集团 | 一对一辅导，K-12 至 AP",
   "One-on-one tutoring in math, science, English, test prep, and competition math. 100+ students across 5+ countries. Free consultation.":
     "数学、科学、英语、标化考试与数学竞赛的一对一辅导。100 多名学生，来自 5 个以上国家。提供免费咨询。"
 };

@@ -1,5 +1,5 @@
 /* ============================================================
-   Varun Baskaran Tutoring: light / dark theme
+   VP Education Group: light / dark theme
 
    The inline script in <head> sets data-theme before first paint.
    This file owns the header toggle, follows the system preference
