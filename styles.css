@@ -516,6 +516,63 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   justify-self: end;
 }
 
+/* ---------- 4. team ---------- */
+
+.team {
+  padding: 96px 0 112px;
+  border-top: 1px solid var(--rule);
+}
+
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 56px 40px;
+}
+
+.member-photo {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  max-width: 280px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--rule);
+  display: grid;
+  place-items: center;
+}
+.member-photo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+.member-initials {
+  font-family: var(--font-script);
+  font-weight: 700;
+  font-size: 3rem;
+  color: var(--pen);
+}
+
+.member h3 { margin-top: 18px; }
+.member-role {
+  margin-top: 4px;
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--pen);
+}
+.member-meta {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  color: var(--slate);
+}
+.member-bio {
+  margin-top: 12px;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
 /* ---------- footer ---------- */
 
 .site-footer {
@@ -561,7 +618,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 
 /* compact header: the full desktop header needs ~875px in English */
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .site-nav {
     display: none;
     position: absolute;

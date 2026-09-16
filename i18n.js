@@ -91,6 +91,13 @@ const ZH = {
     "没找到您需要的科目？这里列出的是我们的专长，而不是我们能教的全部。请照样预约一次咨询，我们会和您详细聊聊。",
   "Or fill out the intake form": "或填写报名表单",
 
+  /* team */
+  "Meet the team": "认识我们的团队",
+  "Founder and lead tutor": "创办人兼主讲老师",
+  "Teaches math, science, test prep, and competition math": "教授数学、科学、标化考试与数学竞赛",
+  "Math major with six years of one-on-one teaching. Known for patience, detailed notes home after every lesson, and students who stay for years.":
+    "数学专业，六年一对一教学经验。以耐心、每节课后详尽的家长反馈，以及长期跟随的学生而著称。",
+
   /* footer and page metadata */
   "VP Education Group": "VP 教育集团",
   "VP Education Group | One-on-One Tutoring, K-12 through AP":
