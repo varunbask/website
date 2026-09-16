@@ -97,6 +97,12 @@ const ZH = {
   "Teaches math, science, test prep, and competition math": "教授数学、科学、标化考试与数学竞赛",
   "Math major with six years of one-on-one teaching. Known for patience, detailed notes home after every lesson, and students who stay for years.":
     "数学专业，六年一对一教学经验。以耐心、每节课后详尽的家长反馈，以及长期跟随的学生而著称。",
+  "Math and English tutor": "数学与英语老师",
+  "UC Santa Barbara, Statistics and Data Science": "加州大学圣塔芭芭拉分校，统计与数据科学专业",
+  "Teaches math and English, in person and online. Fluent English, proficient Mandarin.":
+    "教授数学与英语，可线下或线上授课。英语流利，普通话熟练。",
+  "Marcus has helped more than 30 students with math and English over the past two years, adapting each lesson to whatever approach works best for the student. The goal is simple: every student truly understands the material and feels confident in their abilities.":
+    "Marcus 在过去两年帮助过 30 多名学生学习数学和英语，会根据每个学生的情况调整教学方式，找到最适合的方法。目标很简单：让每个学生真正理解所学内容，并对自己的能力有信心。",
 
   /* footer and page metadata */
   "VP Education Group": "VP 教育集团",
