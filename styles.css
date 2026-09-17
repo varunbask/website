@@ -29,23 +29,8 @@
 }
 
 /* ---------- dark theme ----------
-   Same warm palette, inverted. The system preference applies unless the
-   viewer has picked a theme with the header toggle (data-theme). */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --ink: #F4EDE8;
-    --ink-2: #E2D6CF;
-    --paper: #1B1417;
-    --slate: #A8969B;
-    --pen: #E4575D;
-    --pen-dark: #F07176;
-    --btn-bg: #D4383E;
-    --btn-bg-hover: #E4575D;
-    --marigold: #F2C15A;
-    --rule: #3B2D31;
-  }
-}
+   Same warm palette, inverted. Light is the default; dark applies only
+   when the viewer picks it with the header toggle (data-theme). */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --ink: #F4EDE8;
