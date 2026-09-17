@@ -103,6 +103,12 @@ const ZH = {
     "教授数学与英语，可线下或线上授课。英语流利，普通话熟练。",
   "Marcus has helped more than 30 students with math and English over the past two years, adapting each lesson to whatever approach works best for the student. The goal is simple: every student truly understands the material and feels confident in their abilities.":
     "Marcus 在过去两年帮助过 30 多名学生学习数学和英语，会根据每个学生的情况调整教学方式，找到最适合的方法。目标很简单：让每个学生真正理解所学内容，并对自己的能力有信心。",
+  "Math tutor": "数学老师",
+  "UCLA, Linguistics and Computer Science": "加州大学洛杉矶分校，语言学与计算机科学专业",
+  "Teaches math from grade level through AP Calculus, in person and online. Proficient English, beginner Cantonese.":
+    "教授从年级数学到 AP 微积分的各级数学，可线下或线上授课。英语熟练，粤语初级。",
+  "Ethan has tutored PreK through 12th grade students for four years, at every level of math from grade-level work to AP Calculus, and manages the curricula of more than 400 students at a math center based on their skill gaps and proficiencies. Lessons are built on scaffolding and guiding questions, so students learn to think and solve problems on their own.":
+    "Ethan 有四年辅导学前班至 12 年级学生的经验，教授从年级数学到 AP 微积分的各级课程，并在一家数学中心根据 400 多名学生的知识薄弱点和掌握程度管理他们的课程。课堂以搭建支架和引导式提问为主，让学生学会独立思考和解决问题。",
 
   /* footer and page metadata */
   "VP Education Group": "VP 教育集团",
