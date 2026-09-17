@@ -106,6 +106,20 @@ const TESTIMONIALS = [
       name: "Enoch",
       quote: "When I first started, I was struggling with math and didn't feel confident in my abilities. Varun never made me feel bad for not understanding something. He always took the time to explain things clearly and calmly, no matter how many questions I asked. My grades improved, and what used to be confusing became manageable and even enjoyable. Varun didn't just help me do better in class. He helped me believe in myself."
     }
+  },
+  {
+    highlight: "An A in both AP Computer Science and Precalculus",
+    parent: {
+      name: "Regina",
+      quote: "Under Varun's guidance, our son has grown noticeably more confident in solving problems. Varun makes sure he truly understands the material and has also taught him valuable exam-taking strategies. The results speak for themselves: his grades have been improving, and he earned an A in both AP Computer Science and Precalculus."
+    }
+  },
+  {
+    highlight: "An A in AP CSP and a 4 on the exam",
+    student: {
+      name: "Jason",
+      quote: "With the help of Varun's classes, I managed to maintain my A grade in my AP CSP class and was able to get a 4 on the AP exam. The lessons were very pleasant and helpful, and they go according to your own learning pace. The tutoring also improved my general ability to take tests across all classes."
+    }
   }
 ];
 
@@ -206,6 +220,20 @@ const TESTIMONIALS_ZH = [
     student: {
       name: "Enoch",
       quote: "刚开始的时候，我的数学很吃力，对自己也没有信心。但 Varun 从来没有因为我不懂而让我难堪。不管我问多少遍，他都会耐心、平静地讲清楚。我的成绩提高了，曾经让我困惑的内容变得可以掌握，甚至开始变得有趣。Varun 不只是让我在课堂上表现更好，他让我开始相信自己。"
+    }
+  },
+  {
+    highlight: "AP 计算机科学和微积分预备课都拿到 A",
+    parent: {
+      name: "Regina",
+      quote: "在 Varun 的指导下，我们的儿子解题时明显更有自信了。Varun 会确保他真正理解所学内容，还教了他很实用的考试策略。成绩说明了一切：他的分数一直在进步，AP 计算机科学和微积分预备课都拿到了 A。"
+    }
+  },
+  {
+    highlight: "AP 计算机科学原理拿到 A，AP 考试 4 分",
+    student: {
+      name: "Jason",
+      quote: "在 Varun 的课程帮助下，我的 AP 计算机科学原理课一直保持 A，AP 考试也拿到了 4 分。课上得很愉快、很有帮助，进度会按照你自己的学习节奏来。这些辅导也提升了我在所有科目上的应试能力。"
     }
   }
 ];

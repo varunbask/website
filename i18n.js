@@ -96,17 +96,17 @@ const ZH = {
   "Graduated from UCLA, major in Linguistics and Computer Science": "毕业于加州大学洛杉矶分校，主修语言学与计算机科学",
   "Languages: English and beginner Cantonese": "语言：英语及初级粤语",
   "Available online and in person": "可线上或线下授课",
-  "Bio: Ethan has tutored PreK through 12th grade students for four years, at every level of math from grade-level work to AP Calculus, and manages the curricula of more than 400 students at a math center based on their skill gaps and proficiencies. Lessons are built on scaffolding and guiding questions, so students learn to think and solve problems on their own.":
-    "简介：Ethan 有四年辅导学前班至 12 年级学生的经验，教授从年级数学到 AP 微积分的各级课程，并在一家数学中心根据 400 多名学生的知识薄弱点和掌握程度管理他们的课程。课堂以搭建支架和引导式提问为主，让学生学会独立思考和解决问题。",
+  "Ethan has tutored PreK through 12th grade students for four years, at every level of math from grade-level work to AP Calculus, and manages the curricula of more than 400 students at a math center based on their skill gaps and proficiencies. Lessons are built on scaffolding and guiding questions, so students learn to think and solve problems on their own.":
+    "Ethan 有四年辅导学前班至 12 年级学生的经验，教授从年级数学到 AP 微积分的各级课程，并在一家数学中心根据 400 多名学生的知识薄弱点和掌握程度管理他们的课程。课堂以搭建支架和引导式提问为主，让学生学会独立思考和解决问题。",
   "Graduated from Johns Hopkins University, major in Molecular and Cellular Biology and Psychology": "毕业于约翰斯·霍普金斯大学，主修分子与细胞生物学及心理学",
   "Languages: English": "语言：英语",
   "Available online": "可线上授课",
-  "Bio: Lauren is pursuing a career in medicine, with the long-term goal of becoming a physician, and tutors to help students build confidence in subjects that can feel intimidating at first. Lessons are patient, encouraging, and highly individualized: first the reasoning behind a concept, then explanations and practice adapted to how each student learns best, so students become independent, confident problem-solvers rather than memorizing steps.":
-    "简介：Lauren 正在朝医学方向发展，长期目标是成为一名医生，做辅导是为了帮助学生在起初令人望而生畏的科目上建立信心。课堂耐心、鼓励、高度个性化：先讲清概念背后的道理，再根据每个学生的学习方式调整讲解和练习，让学生成为独立、自信的问题解决者，而不是只会背步骤。",
+  "Lauren is pursuing a career in medicine, with the long-term goal of becoming a physician, and tutors to help students build confidence in subjects that can feel intimidating at first. Lessons are patient, encouraging, and highly individualized: first the reasoning behind a concept, then explanations and practice adapted to how each student learns best, so students become independent, confident problem-solvers rather than memorizing steps.":
+    "Lauren 正在朝医学方向发展，长期目标是成为一名医生，做辅导是为了帮助学生在起初令人望而生畏的科目上建立信心。课堂耐心、鼓励、高度个性化：先讲清概念背后的道理，再根据每个学生的学习方式调整讲解和练习，让学生成为独立、自信的问题解决者，而不是只会背步骤。",
   "Graduated from UC Santa Barbara, major in Statistics and Data Science": "毕业于加州大学圣塔芭芭拉分校，主修统计与数据科学",
   "Languages: English and Mandarin": "语言：英语与普通话",
-  "Bio: Marcus has helped more than 30 students with math and English over the past two years, adapting each lesson to whatever approach works best for the student. The goal is simple: every student truly understands the material and feels confident in their abilities.":
-    "简介：Marcus 在过去两年帮助过 30 多名学生学习数学和英语，会根据每个学生的情况调整教学方式，找到最适合的方法。目标很简单：让每个学生真正理解所学内容，并对自己的能力有信心。",
+  "Marcus has helped more than 30 students with math and English over the past two years, adapting each lesson to whatever approach works best for the student. The goal is simple: every student truly understands the material and feels confident in their abilities.":
+    "Marcus 在过去两年帮助过 30 多名学生学习数学和英语，会根据每个学生的情况调整教学方式，找到最适合的方法。目标很简单：让每个学生真正理解所学内容，并对自己的能力有信心。",
 
   /* footer and page metadata */
   "VP Education Group": "VP 教育集团",
