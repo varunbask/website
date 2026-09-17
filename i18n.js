@@ -109,6 +109,11 @@ const ZH = {
     "教授从年级数学到 AP 微积分的各级数学，可线下或线上授课。英语熟练，粤语初级。",
   "Ethan has tutored PreK through 12th grade students for four years, at every level of math from grade-level work to AP Calculus, and manages the curricula of more than 400 students at a math center based on their skill gaps and proficiencies. Lessons are built on scaffolding and guiding questions, so students learn to think and solve problems on their own.":
     "Ethan 有四年辅导学前班至 12 年级学生的经验，教授从年级数学到 AP 微积分的各级课程，并在一家数学中心根据 400 多名学生的知识薄弱点和掌握程度管理他们的课程。课堂以搭建支架和引导式提问为主，让学生学会独立思考和解决问题。",
+  "Tutor": "辅导老师",
+  "Johns Hopkins University, Molecular and Cellular Biology and Psychology": "约翰斯·霍普金斯大学，分子与细胞生物学及心理学专业",
+  "Online lessons. English.": "线上授课。英语。",
+  "Lauren is pursuing a career in medicine, with the long-term goal of becoming a physician, and tutors to help students build confidence in subjects that can feel intimidating at first. Lessons are patient, encouraging, and highly individualized: first the reasoning behind a concept, then explanations and practice adapted to how each student learns best, so students become independent, confident problem-solvers rather than memorizing steps.":
+    "Lauren 正在朝医学方向发展，长期目标是成为一名医生，做辅导是为了帮助学生在起初令人望而生畏的科目上建立信心。课堂耐心、鼓励、高度个性化：先讲清概念背后的道理，再根据每个学生的学习方式调整讲解和练习，让学生成为独立、自信的问题解决者，而不是只会背步骤。",
 
   /* footer and page metadata */
   "VP Education Group": "VP 教育集团",
