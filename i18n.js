@@ -110,6 +110,7 @@ const ZH = {
 
   /* footer and page metadata */
   "VP Education Group": "VP 教育集团",
+  "© 2026 VP Education Group. All rights reserved.": "© 2026 VP 教育集团。保留所有权利。",
   "VP Education Group | One-on-One Tutoring, K-12 through AP":
     "VP 教育集团 | 一对一辅导，K-12 至 AP",
   "One-on-one tutoring in math, science, English, test prep, and competition math. 100+ students across 5+ countries. Free consultation.":

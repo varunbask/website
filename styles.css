@@ -572,6 +572,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   flex-wrap: wrap;
 }
 .footer-inner strong { color: var(--ink); font-family: var(--font-display); }
+.footer-copyright { margin-top: 6px; font-size: 0.85rem; line-height: 1.5; }
 
 /* ---------- sticky mobile CTA ---------- */
 
