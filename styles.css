@@ -555,17 +555,13 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 
 .member h3 { margin-top: 18px; }
-.member-role {
-  margin-top: 4px;
-  font-weight: 600;
-  font-size: 0.92rem;
-  color: var(--pen);
-}
 .member-meta {
   margin-top: 8px;
   font-size: 0.9rem;
+  line-height: 1.5;
   color: var(--slate);
 }
+.member-meta + .member-meta { margin-top: 4px; }
 .member-bio {
   margin-top: 12px;
   font-size: 0.98rem;
