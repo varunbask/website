@@ -120,6 +120,20 @@ const TESTIMONIALS = [
       name: "Jason",
       quote: "With the help of Varun's classes, I managed to maintain my A grade in my AP CSP class and was able to get a 4 on the AP exam. The lessons were very pleasant and helpful, and they go according to your own learning pace. The tutoring also improved my general ability to take tests across all classes."
     }
+  },
+  {
+    highlight: "Noticeable improvement after one month",
+    parent: {
+      name: "Phoebe",
+      quote: "Communication with Mr. Varun is effortless and always straight to the point. After just a month of classes, the improvement in my son has been very noticeable. I would absolutely recommend him to anyone looking for a tutor."
+    }
+  },
+  {
+    highlight: "Never assumes you already know it",
+    student: {
+      name: "Baron",
+      quote: "The classes are fun and easy to understand. What stands out most is that Mr. Varun never assumes you already know something. He will explain it clearly no matter how simple it may seem. He's definitely someone we'll turn to again for help in the future."
+    }
   }
 ];
 
@@ -234,6 +248,20 @@ const TESTIMONIALS_ZH = [
     student: {
       name: "Jason",
       quote: "在 Varun 的课程帮助下，我的 AP 计算机科学原理课一直保持 A，AP 考试也拿到了 4 分。课上得很愉快、很有帮助，进度会按照你自己的学习节奏来。这些辅导也提升了我在所有科目上的应试能力。"
+    }
+  },
+  {
+    highlight: "一个月就有明显进步",
+    parent: {
+      name: "Phoebe",
+      quote: "和 Varun 老师沟通非常顺畅，总是直截了当。上课才一个月，儿子的进步就已经很明显了。我一定会把他推荐给任何在找家教的人。"
+    }
+  },
+  {
+    highlight: "从不假设你已经懂了",
+    student: {
+      name: "Baron",
+      quote: "课程有趣又容易理解。最难得的是，Varun 老师从不假设你已经懂了什么。不管内容看起来多简单，他都会讲得清清楚楚。以后有需要，我们一定还会再找他帮忙。"
     }
   }
 ];
