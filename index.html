@@ -19,7 +19,7 @@
       document.documentElement.dataset.theme = theme;
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=5">
+  <link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 
@@ -36,11 +36,27 @@
         <a class="i18n-w" href="#services">Services</a>
         <a class="i18n-w" href="#team">Meet the team</a>
       </nav>
-      <button class="lang-toggle" id="lang-toggle" type="button" data-no-translate
-              aria-label="切换到中文 / Switch to Chinese">
-        <span class="lang-flag" aria-hidden="true">🇨🇳</span>
-        <span class="lang-label i18n-w">中文</span>
-      </button>
+      <div class="lang-menu" id="lang-menu" data-no-translate>
+        <button class="lang-toggle" id="lang-toggle" type="button"
+                aria-haspopup="listbox" aria-expanded="false" aria-controls="lang-list" aria-label="Language: English">
+          <span class="lang-flag" aria-hidden="true">🇺🇸</span>
+          <span class="lang-label">
+            <span data-lang="en" class="current">English</span>
+            <span data-lang="zh">中文</span>
+            <span data-lang="es">Español</span>
+            <span data-lang="fr">Français</span>
+            <span data-lang="ko">한국어</span>
+          </span>
+          <svg class="lang-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <ul class="lang-list" id="lang-list" role="listbox" aria-label="Language" hidden>
+          <li role="option" data-lang="en" tabindex="-1" aria-selected="true"><span class="lang-flag" aria-hidden="true">🇺🇸</span>English</li>
+          <li role="option" data-lang="zh" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇨🇳</span>中文</li>
+          <li role="option" data-lang="es" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇪🇸</span>Español</li>
+          <li role="option" data-lang="fr" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇫🇷</span>Français</li>
+          <li role="option" data-lang="ko" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇰🇷</span>한국어</li>
+        </ul>
+      </div>
       <button class="theme-toggle" id="theme-toggle" type="button" data-no-translate
               aria-label="Switch to dark mode">
         <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -66,7 +82,7 @@
 
         <div class="hero-portrait">
           <img src="assets/headshot.png" alt="Varun Baskaran, tutor" width="595" height="589">
-          <p class="hero-note">From catching up to years ahead.</p>
+          <p class="hero-note i18n-h"><span>From catching up to years ahead.</span></p>
         </div>
 
         <div class="hero-intro">
@@ -129,29 +145,29 @@
             <h3>Core academics</h3>
             <p class="svc-sub i18n-h"><span>Kindergarten through 12th grade</span></p>
             <ul>
-              <li>Math</li>
-              <li>Science</li>
-              <li>English</li>
-              <li>History</li>
-              <li>Programming</li>
+              <li><span class="i18n-h"><span>Math</span></span></li>
+              <li><span class="i18n-h"><span>Science</span></span></li>
+              <li><span class="i18n-h"><span>English</span></span></li>
+              <li><span class="i18n-h"><span>History</span></span></li>
+              <li><span class="i18n-h"><span>Programming</span></span></li>
             </ul>
           </div>
           <div class="svc-col">
             <h3>Test prep</h3>
             <p class="svc-sub i18n-h"><span>Admissions exams</span></p>
             <ul>
-              <li>SAT</li>
-              <li>ACT</li>
-              <li>ISEE</li>
+              <li><span class="i18n-h"><span>SAT</span></span></li>
+              <li><span class="i18n-h"><span>ACT</span></span></li>
+              <li><span class="i18n-h"><span>ISEE</span></span></li>
             </ul>
           </div>
           <div class="svc-col">
             <h3>Competition math</h3>
             <p class="svc-sub i18n-h"><span>Enrichment</span></p>
             <ul>
-              <li>AMC 8</li>
-              <li>AMC 10</li>
-              <li>AMC 12</li>
+              <li><span class="i18n-h"><span>AMC 8</span></span></li>
+              <li><span class="i18n-h"><span>AMC 10</span></span></li>
+              <li><span class="i18n-h"><span>AMC 12</span></span></li>
             </ul>
           </div>
         </div>
@@ -161,48 +177,48 @@
           <p class="svc-sub i18n-h"><span>Math, science, English, and history</span></p>
           <div class="svc-ap-groups">
             <div>
-              <h4>Math &amp; Computer Science</h4>
+              <h4 class="i18n-h"><span>Math &amp; Computer Science</span></h4>
               <ul>
-                <li>Calculus AB</li>
-                <li>Calculus BC</li>
-                <li>Statistics</li>
-                <li>Precalculus</li>
-                <li>Computer Science A</li>
-                <li>Computer Science Principles</li>
+                <li><span class="i18n-h"><span>Calculus AB</span></span></li>
+                <li><span class="i18n-h"><span>Calculus BC</span></span></li>
+                <li><span class="i18n-h"><span>Statistics</span></span></li>
+                <li><span class="i18n-h"><span>Precalculus</span></span></li>
+                <li><span class="i18n-h"><span>Computer Science A</span></span></li>
+                <li><span class="i18n-h"><span>Computer Science Principles</span></span></li>
               </ul>
             </div>
             <div>
-              <h4>Sciences</h4>
+              <h4 class="i18n-h"><span>Sciences</span></h4>
               <ul>
-                <li>Biology</li>
-                <li>Chemistry</li>
-                <li>Physics 1</li>
-                <li>Physics 2</li>
-                <li>Physics C: Mechanics</li>
-                <li>Physics C: E &amp; M</li>
-                <li>Environmental Science</li>
+                <li><span class="i18n-h"><span>Biology</span></span></li>
+                <li><span class="i18n-h"><span>Chemistry</span></span></li>
+                <li><span class="i18n-h"><span>Physics 1</span></span></li>
+                <li><span class="i18n-h"><span>Physics 2</span></span></li>
+                <li><span class="i18n-h"><span>Physics C: Mechanics</span></span></li>
+                <li><span class="i18n-h"><span>Physics C: E &amp; M</span></span></li>
+                <li><span class="i18n-h"><span>Environmental Science</span></span></li>
               </ul>
             </div>
             <div>
-              <h4>English</h4>
+              <h4 class="i18n-h"><span>English</span></h4>
               <ul>
-                <li>English Language</li>
-                <li>English Literature</li>
+                <li><span class="i18n-h"><span>English Language</span></span></li>
+                <li><span class="i18n-h"><span>English Literature</span></span></li>
               </ul>
             </div>
             <div>
-              <h4>History &amp; Social Science</h4>
+              <h4 class="i18n-h"><span>History &amp; Social Science</span></h4>
               <ul>
-                <li>US History</li>
-                <li>World History: Modern</li>
-                <li>European History</li>
-                <li>US Government &amp; Politics</li>
-                <li>Comparative Government</li>
-                <li>Human Geography</li>
-                <li>Macroeconomics</li>
-                <li>Microeconomics</li>
-                <li>Psychology</li>
-                <li>African American Studies</li>
+                <li><span class="i18n-h"><span>US History</span></span></li>
+                <li><span class="i18n-h"><span>World History: Modern</span></span></li>
+                <li><span class="i18n-h"><span>European History</span></span></li>
+                <li><span class="i18n-h"><span>US Government &amp; Politics</span></span></li>
+                <li><span class="i18n-h"><span>Comparative Government</span></span></li>
+                <li><span class="i18n-h"><span>Human Geography</span></span></li>
+                <li><span class="i18n-h"><span>Macroeconomics</span></span></li>
+                <li><span class="i18n-h"><span>Microeconomics</span></span></li>
+                <li><span class="i18n-h"><span>Psychology</span></span></li>
+                <li><span class="i18n-h"><span>African American Studies</span></span></li>
               </ul>
             </div>
           </div>
@@ -297,8 +313,9 @@
     <a class="btn btn-primary" href="mailto:vbmgroupsllc@gmail.com?subject=Free%20consultation%20for%20my%20child">Book a free consultation</a>
   </div>
 
-  <script src="i18n.js?v=6"></script>
-  <script src="script.js?v=4"></script>
-  <script src="theme.js?v=3"></script>
+  <script src="translations.js?v=1"></script>
+  <script src="i18n.js?v=7"></script>
+  <script src="script.js?v=5"></script>
+  <script src="theme.js?v=4"></script>
 </body>
 </html>

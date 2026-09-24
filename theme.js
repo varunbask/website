@@ -4,15 +4,11 @@
    The inline script in <head> sets data-theme before first paint.
    Light is the default. This file owns the header toggle, remembers
    the viewer's choice, and keeps the toggle's label in the current
-   language.
+   language (the labels live in translations.js).
    ============================================================ */
 
 const THEME_KEY = "vb-theme";
 const THEME_COLORS = { light: "#FBF8F5", dark: "#1B1417" };
-const THEME_LABELS = {
-  en: { toDark: "Switch to dark mode", toLight: "Switch to light mode" },
-  zh: { toDark: "切换到深色模式", toLight: "切换到浅色模式" }
-};
 
 const themeButton = document.getElementById("theme-toggle");
 const themeColorMeta = document.querySelector('meta[name="theme-color"]');
@@ -26,9 +22,9 @@ function savedTheme() {
 }
 
 function updateThemeLabel() {
-  const lang = document.documentElement.lang.startsWith("zh") ? "zh" : "en";
+  const lang = VB_I18N.currentLang();
   const dark = document.documentElement.dataset.theme === "dark";
-  themeButton.setAttribute("aria-label", dark ? THEME_LABELS[lang].toLight : THEME_LABELS[lang].toDark);
+  themeButton.setAttribute("aria-label", VB_I18N.translate(dark ? "Switch to light mode" : "Switch to dark mode", lang));
 }
 
 function applyTheme(theme) {

@@ -1,122 +1,65 @@
 /* ============================================================
-   VP Education Group: English / Chinese toggle
+   VP Education Group: language switching
 
-   The English lives in index.html. This file holds the Chinese,
-   keyed by the exact English string. Switching to Chinese walks
-   the page and swaps each piece of text; switching back restores
-   the cached original.
+   The English lives in index.html. translations.js holds every
+   other language, keyed by the exact English string. Switching
+   walks the page and swaps each piece of text; switching back to
+   English restores the cached original.
 
-   Adding copy later: add it to index.html as usual, then add one
-   line here. Anything without a translation stays in English.
-   The reviews are translated in script.js instead, since that
-   file builds them. Elements marked .i18n-w / .i18n-h also receive
-   the inactive language's string in data-i18n-alt so their boxes
-   stay the same size in both languages (see styles.css).
+   Layout never moves on switch: every element marked .i18n-w or
+   .i18n-h gets invisible "ghost" copies of the same text in every
+   other language, so its box is already as wide (or tall) as the
+   longest language (see styles.css).
+
+   The reviews are built by script.js, which uses the helpers this
+   file exposes on window.VB_I18N.
    ============================================================ */
 
-const ZH = {
-  /* header */
-  "Skip to content": "跳到正文",
-  "Education Group": "教育集团",
-  "Testimonials": "家长评价",
-  "Services": "课程服务",
-  "Book a free consultation": "预约免费咨询",
-  "Main": "主导航",
-  "Menu": "菜单",
-
-  /* hero */
-  "Varun Baskaran, tutor": "Varun Baskaran，辅导老师",
-  "From catching up to years ahead.": "从追赶进度，到领先数年。",
-  "One-on-one tutoring from third grade to AP exam day, for families across five countries.":
-    "从三年级到 AP 考试的一对一辅导，服务五个国家的家庭。",
-  "Read the reviews": "查看评价",
-  "Track record": "教学成果",
-  "students tutored across 5+ countries": "名学生，来自 5 个以上国家",
-  "of students are in accelerated or AP classes": "的学生在加速班或 AP 课程",
-  "of students hold an A in the class they're tutored in": "的学生在所辅导的课程中拿到 A",
-  "Yes": "是",
-  "Language accommodations through multiple trained and vetted tutors":
-    "多位经过培训和审核的老师，可提供多语言辅导",
-
-  /* reviews */
-  "What parents and students say": "家长和学生怎么说",
-  "Reviews by": "评价来源",
-  "Parents": "家长",
-  "Students": "学生",
-
-  /* services */
-  "What we teach": "我们教什么",
-  "Core academics": "校内课程",
-  "Kindergarten through 12th grade": "幼儿园至 12 年级",
-  "Math": "数学",
-  "Science": "科学",
-  "English": "英语",
-  "History": "历史",
-  "Programming": "编程",
-  "Test prep": "标化考试",
-  "Admissions exams": "升学考试",
-  "Competition math": "数学竞赛",
-  "Enrichment": "拓展提高",
-  "AP exams": "AP 考试",
-  "Math, science, English, and history": "数学、科学、英语与历史",
-  "Math & Computer Science": "数学与计算机",
-  "Calculus AB": "微积分 AB",
-  "Calculus BC": "微积分 BC",
-  "Statistics": "统计学",
-  "Precalculus": "微积分预备",
-  "Computer Science A": "计算机科学 A",
-  "Computer Science Principles": "计算机科学原理",
-  "Sciences": "科学类",
-  "Biology": "生物",
-  "Chemistry": "化学",
-  "Physics 1": "物理 1",
-  "Physics 2": "物理 2",
-  "Physics C: Mechanics": "物理 C：力学",
-  "Physics C: E & M": "物理 C：电磁学",
-  "Environmental Science": "环境科学",
-  "English Language": "英语语言与写作",
-  "English Literature": "英语文学",
-  "History & Social Science": "历史与社会科学",
-  "US History": "美国历史",
-  "World History: Modern": "世界现代史",
-  "European History": "欧洲历史",
-  "US Government & Politics": "美国政府与政治",
-  "Comparative Government": "比较政治",
-  "Human Geography": "人文地理",
-  "Macroeconomics": "宏观经济学",
-  "Microeconomics": "微观经济学",
-  "Psychology": "心理学",
-  "African American Studies": "非裔美国人研究",
-  "Don't see your subject? These are the areas we specialize in, not the limits of what we teach. Book a consultation anyway and we'll talk it through.":
-    "没找到您需要的科目？这里列出的是我们的专长，而不是我们能教的全部。请照样预约一次咨询，我们会和您详细聊聊。",
-  "Or fill out the intake form": "或填写报名表单",
-
-  /* team */
-  "Meet the team": "认识我们的团队",
-  "Graduated from UCLA, major in Linguistics and Computer Science": "毕业于加州大学洛杉矶分校，主修语言学与计算机科学",
-  "Languages: English and beginner Cantonese": "语言：英语及初级粤语",
-  "Available online and in person": "可线上或线下授课",
-  "Available online and in person (San Gabriel Valley area)": "可线上或线下授课（线下限圣盖博谷地区）",
-  "Ethan has tutored PreK through 12th grade students for four years, at every level of math from grade-level work to AP Calculus, and manages the curricula of more than 400 students at a math center based on their skill gaps and proficiencies. Lessons are built on scaffolding and guiding questions, so students learn to think and solve problems on their own.":
-    "Ethan 有四年辅导学前班至 12 年级学生的经验，教授从年级数学到 AP 微积分的各级课程，并在一家数学中心根据 400 多名学生的知识薄弱点和掌握程度管理他们的课程。课堂以搭建支架和引导式提问为主，让学生学会独立思考和解决问题。",
-  "Graduated from Johns Hopkins University, major in Molecular and Cellular Biology and Psychology": "毕业于约翰斯·霍普金斯大学，主修分子与细胞生物学及心理学",
-  "Languages: English": "语言：英语",
-  "Available online": "可线上授课",
-  "Lauren is pursuing a career in medicine, with the long-term goal of becoming a physician, and tutors to help students build confidence in subjects that can feel intimidating at first. Lessons are patient, encouraging, and highly individualized: first the reasoning behind a concept, then explanations and practice adapted to how each student learns best, so students become independent, confident problem-solvers rather than memorizing steps.":
-    "Lauren 正在朝医学方向发展，长期目标是成为一名医生，做辅导是为了帮助学生在起初令人望而生畏的科目上建立信心。课堂耐心、鼓励、高度个性化：先讲清概念背后的道理，再根据每个学生的学习方式调整讲解和练习，让学生成为独立、自信的问题解决者，而不是只会背步骤。",
-  "Graduated from UC Santa Barbara, major in Statistics and Data Science": "毕业于加州大学圣塔芭芭拉分校，主修统计与数据科学",
-  "Languages: English and Mandarin": "语言：英语与普通话",
-  "Marcus has helped more than 30 students with math and English over the past two years, adapting each lesson to whatever approach works best for the student. The goal is simple: every student truly understands the material and feels confident in their abilities.":
-    "Marcus 在过去两年帮助过 30 多名学生学习数学和英语，会根据每个学生的情况调整教学方式，找到最适合的方法。目标很简单：让每个学生真正理解所学内容，并对自己的能力有信心。",
-
-  /* footer and page metadata */
-  "VP Education Group": "VP 教育集团",
-  "© 2026 VP Education Group. All rights reserved.": "© 2026 VP 教育集团。保留所有权利。",
-  "VP Education Group | One-on-One Tutoring, K-12 through AP":
-    "VP 教育集团 | 一对一辅导，K-12 至 AP",
-  "One-on-one tutoring in math, science, English, test prep, and competition math. 100+ students across 5+ countries. Free consultation.":
-    "数学、科学、英语、标化考试与数学竞赛的一对一辅导。100 多名学生，来自 5 个以上国家。提供免费咨询。"
+const LANGS = {
+  en: { tag: "en",    flag: "🇺🇸", name: "English" },
+  zh: { tag: "zh-CN", flag: "🇨🇳", name: "中文" },
+  es: { tag: "es",    flag: "🇪🇸", name: "Español" },
+  fr: { tag: "fr",    flag: "🇫🇷", name: "Français" },
+  ko: { tag: "ko",    flag: "🇰🇷", name: "한국어" }
 };
+const LANG_CODES = Object.keys(LANGS);
+const STORAGE_KEY = "vb-lang";
+
+const normalize = (s) => s.replace(/\s+/g, " ").trim();
+
+/* English key -> that language's string (English itself, or a fallback). */
+function translate(key, lang) {
+  if (lang === "en") return key;
+  const entry = UI[key];
+  return (entry && entry[lang]) || key;
+}
+
+function currentLang() {
+  return document.documentElement.dataset.lang || "en";
+}
+
+/* Invisible copies of the text in every other language, so the host's
+   box is sized for the longest one. `variants` is [{ lang, text }];
+   `visible` is the text already showing, which needs no ghost. */
+function setGhosts(host, variants, visible) {
+  host.querySelectorAll(":scope > .i18n-ghost").forEach((g) => g.remove());
+  const seen = new Set([visible]);
+  for (const v of variants) {
+    if (!v.text || seen.has(v.text)) continue;
+    seen.add(v.text);
+    const ghost = document.createElement("span");
+    ghost.className = "i18n-ghost";
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.setAttribute("data-no-translate", "");
+    ghost.lang = LANGS[v.lang].tag;
+    ghost.textContent = v.text;
+    host.appendChild(ghost);
+  }
+}
+
+function ghostsFor(key, lang) {
+  return LANG_CODES.filter((l) => l !== lang).map((l) => ({ lang: l, text: translate(key, l) }));
+}
 
 /* ------------------------------------------------------------
    Swap the page between languages
@@ -124,7 +67,8 @@ const ZH = {
 const TRANSLATABLE_ATTRS = ["aria-label", "title", "alt", "placeholder", "content"];
 const originalText = new Map();
 
-/* Elements script.js owns (the reviews) are left alone. */
+/* Elements script.js owns (the reviews), the language menu, and the
+   ghosts themselves are left alone. */
 function isBlocked(el) {
   for (; el; el = el.parentElement) {
     if (el.tagName === "SCRIPT" || el.tagName === "STYLE") return true;
@@ -147,17 +91,17 @@ function collectTextNodes() {
 }
 
 function applyLanguage(lang) {
-  const toChinese = lang === "zh";
+  if (!LANGS[lang]) lang = "en";
 
   for (const node of collectTextNodes()) {
     if (!originalText.has(node)) originalText.set(node, node.nodeValue);
     const original = originalText.get(node);
-    const translated = ZH[original.replace(/\s+/g, " ").trim()];
-    node.nodeValue = toChinese && translated ? translated : original;
+    const key = normalize(original);
+    const known = Object.prototype.hasOwnProperty.call(UI, key);
+    node.nodeValue = lang === "en" || !known ? original : translate(key, lang);
 
-    /* Elements that reserve room for the other language get its string. */
     const host = node.parentElement.closest(".i18n-w, .i18n-h");
-    if (host) host.dataset.i18nAlt = translated ? (toChinese ? original.replace(/\s+/g, " ").trim() : translated) : "";
+    if (host) setGhosts(host, known ? ghostsFor(key, lang) : [], normalize(node.nodeValue));
   }
 
   for (const el of document.querySelectorAll("body *, head meta[name='description']")) {
@@ -166,27 +110,21 @@ function applyLanguage(lang) {
       if (!el.hasAttribute(attr)) continue;
       const cacheKey = "i18nOrig" + attr.replace(/(^|-)([a-z])/g, (m, d, c) => c.toUpperCase());
       if (el.dataset[cacheKey] === undefined) el.dataset[cacheKey] = el.getAttribute(attr);
-      const original = el.dataset[cacheKey];
-      const translated = ZH[original.replace(/\s+/g, " ").trim()];
-      el.setAttribute(attr, toChinese && translated ? translated : original);
+      el.setAttribute(attr, translate(normalize(el.dataset[cacheKey]), lang));
     }
   }
 
   const root = document.documentElement;
   if (!root.dataset.titleEn) root.dataset.titleEn = document.title;
-  const titleZh = ZH[root.dataset.titleEn];
-  document.title = toChinese && titleZh ? titleZh : root.dataset.titleEn;
+  document.title = translate(root.dataset.titleEn, lang);
 
-  root.lang = toChinese ? "zh-CN" : "en";
+  root.lang = LANGS[lang].tag;
+  root.dataset.lang = lang;
 
-  const btn = document.getElementById("lang-toggle");
-  btn.querySelector(".lang-flag").textContent = toChinese ? "🇺🇸" : "🇨🇳";
-  btn.querySelector(".lang-label").textContent = toChinese ? "English" : "中文";
-  btn.querySelector(".lang-label").dataset.i18nAlt = toChinese ? "中文" : "English";
-  btn.setAttribute("aria-label", toChinese ? "Switch to English" : "切换到中文 / Switch to Chinese");
+  updateMenu(lang);
 
   try {
-    localStorage.setItem("vb-lang", lang);
+    localStorage.setItem(STORAGE_KEY, lang);
   } catch (e) {
     /* private browsing: the choice just will not persist */
   }
@@ -195,18 +133,101 @@ function applyLanguage(lang) {
 }
 
 /* ------------------------------------------------------------
-   Wire up the toggle and pick the starting language
+   The language menu
    ------------------------------------------------------------ */
-let saved = null;
-try {
-  saved = localStorage.getItem("vb-lang");
-} catch (e) {
-  /* storage blocked */
+const menu = document.getElementById("lang-menu");
+const menuButton = document.getElementById("lang-toggle");
+const menuList = document.getElementById("lang-list");
+const options = [...menuList.querySelectorAll("[role='option']")];
+
+function updateMenu(lang) {
+  const label = translate("Language", lang);
+  menuButton.querySelector(".lang-flag").textContent = LANGS[lang].flag;
+  menuButton.querySelectorAll(".lang-label > span").forEach((s) => {
+    s.classList.toggle("current", s.dataset.lang === lang);
+  });
+  menuButton.setAttribute("aria-label", label + ": " + LANGS[lang].name);
+  menuList.setAttribute("aria-label", label);
+  options.forEach((o) => o.setAttribute("aria-selected", String(o.dataset.lang === lang)));
 }
 
-document.getElementById("lang-toggle").addEventListener("click", () => {
-  applyLanguage(document.documentElement.lang.startsWith("zh") ? "en" : "zh");
+function openMenu() {
+  menuList.hidden = false;
+  menuButton.setAttribute("aria-expanded", "true");
+  (options.find((o) => o.dataset.lang === currentLang()) || options[0]).focus();
+}
+
+function closeMenu(refocus) {
+  if (menuList.hidden) return;
+  menuList.hidden = true;
+  menuButton.setAttribute("aria-expanded", "false");
+  if (refocus) menuButton.focus();
+}
+
+menuButton.addEventListener("click", () => (menuList.hidden ? openMenu() : closeMenu(false)));
+menuButton.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    openMenu();
+  }
 });
 
-const browserPrefersChinese = (navigator.language || "").toLowerCase().startsWith("zh");
-applyLanguage(saved === "zh" || (!saved && browserPrefersChinese) ? "zh" : "en");
+options.forEach((o) => {
+  o.addEventListener("click", () => {
+    applyLanguage(o.dataset.lang);
+    closeMenu(true);
+  });
+});
+
+menuList.addEventListener("keydown", (e) => {
+  const i = options.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    options[(i + 1) % options.length].focus();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    options[(i - 1 + options.length) % options.length].focus();
+  } else if (e.key === "Home") {
+    e.preventDefault();
+    options[0].focus();
+  } else if (e.key === "End") {
+    e.preventDefault();
+    options[options.length - 1].focus();
+  } else if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    if (i >= 0) options[i].click();
+  } else if (e.key === "Escape") {
+    closeMenu(true);
+  } else if (e.key === "Tab") {
+    closeMenu(false);
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (!menu.contains(e.target)) closeMenu(false);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeMenu(true);
+});
+
+/* ------------------------------------------------------------
+   Pick the starting language: saved choice, else the browser's
+   language if we have it, else English.
+   ------------------------------------------------------------ */
+function startingLang() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (LANGS[saved]) return saved;
+  } catch (e) {
+    /* storage blocked */
+  }
+  for (const tag of navigator.languages || [navigator.language || ""]) {
+    const code = tag.toLowerCase().slice(0, 2);
+    if (LANGS[code]) return code;
+  }
+  return "en";
+}
+
+window.VB_I18N = { LANGS, LANG_CODES, translate, currentLang, setGhosts, ghostsFor, applyLanguage };
+
+applyLanguage(startingLang());
