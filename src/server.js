@@ -8,6 +8,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { startScheduler } from './worker/scheduler.js';
+import { authMiddleware } from './middleware/auth.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -16,7 +17,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Database connection
-import knexfile from './db/knexfile.js';
+import knexfile from './db/knexfile.cjs';
 const db = knex(knexfile);
 
 // Middleware
@@ -52,7 +53,7 @@ startScheduler({ cronExpression: '*/5 * * * *', threshold: 5 }).then(s => {
 });
 
 // POST /api/submit
-app.post('/api/submit', upload.single('file'), async (req, res) => {
+app.post('/api/submit', authMiddleware, upload.single('file'), async (req, res) => {
   try {
     const { student_id } = req.body;
     const file = req.file;
@@ -61,10 +62,12 @@ app.post('/api/submit', upload.single('file'), async (req, res) => {
       return res.status(400).json({ error: 'Missing file or student_id' });
     }
 
+        const content_text = await fs.readFile(file.path, 'utf-8').catch(() => '');
     await db('submissions').insert({
       student_id,
       file_path: file.path,
       file_type: file.mimetype,
+      content_text,
       status: 'pending',
       created_at: new Date()
     });
