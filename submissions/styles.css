@@ -1,0 +1,80 @@
+/* ============================================================
+   Submission UI Styles
+   ============================================================ */
+
+/* Reuse root variables from main styles */
+/* (Note: The HTML includes ../styles.css which handles :root) */
+
+.submission-card {
+  background: var(--paper);
+  padding: 40px;
+  border: 1.5px solid var(--rule);
+  border-radius: var(--radius);
+}
+
+.form-group {
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.form-group input[type="text"],
+.form-group textarea {
+  padding: 12px;
+  border: 1.5px solid var(--rule);
+  border-radius: var(--radius);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  background: transparent;
+  color: var(--ink);
+  width: 100%;
+}
+
+.form-group input[type="text"]:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--pen);
+}
+
+.form-group input[type="file"] {
+  padding: 8px 0;
+}
+
+#submit-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.form-message {
+  margin-top: 20px;
+  padding: 12px;
+  border-radius: var(--radius);
+  text-align: center;
+  font-weight: 600;
+}
+
+.form-message.success {
+  background: #e6fffa;
+  color: #2c7a7b;
+  border: 1px solid #81e6d9;
+}
+
+.form-message.error {
+  background: #fff5f5;
+  color: #c53030;
+  border: 1px solid #feb2b2;
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .submission-card {
+    padding: 24px;
+  }
+}

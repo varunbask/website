@@ -1,0 +1,48 @@
+/* ============================================================
+   Submission UI Logic
+   ============================================================ */
+
+document.addEventListener('DOMContentLoaded', () => {
+  const form = document.getElementById('submission-form');
+  const submitBtn = document.getElementById('submit-btn');
+  const messageDiv = document.getElementById('form-message');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    // Reset state
+    messageDiv.hidden = true;
+    messageDiv.className = 'form-message';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting...';
+
+    const formData = new FormData(form);
+
+    try {
+      // In Phase 4.3, this will point to the actual backend.
+      // For now, we simulate/mock the endpoint.
+      const response = await fetch('/api/submit', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (response.ok) {
+        messageDiv.textContent = 'Homework submitted successfully!';
+        messageDiv.classList.add('success');
+        messageDiv.hidden = false;
+        form.reset();
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Submission failed');
+      }
+    } catch (err) {
+      console.error('Submission error:', err);
+      messageDiv.textContent = err.message || 'An error occurred while submitting.';
+      messageDiv.classList.add('error');
+      messageDiv.hidden = false;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Assignment';
+    }
+  });
+});

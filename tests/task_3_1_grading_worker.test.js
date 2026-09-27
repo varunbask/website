@@ -1,0 +1,110 @@
+import { test, expect, describe, beforeEach, vi } from 'vitest';
+import { gradeBatch, db } from '../src/worker/grader.js';
+import { execSync } from 'child_process';
+
+// Helper to reset DB
+function resetDb() {
+  // Use the .cjs file specifically for the CLI
+  execSync('npx knex migrate:latest --knexfile src/db/knexfile.cjs', { stdio: 'inherit' });
+  // Clear the table
+  execSync('node -e "import knex from \'knex\'; const db = knex({client: \'sqlite3\', connection: {filename: \'./src/db/db.sqlite\'}, useNullAsDefault: true}); db(\'submissions\').truncate().then(() => process.exit(0));"', { stdio: 'inherit' });
+}
+
+describe('Grading Worker', () => {
+  const DB_PATH = './src/db/db.sqlite';
+  const LLM_ENDPOINT = 'http://localhost:8080/v1/chat/completions';
+  const LLM_KEY = 'test-key';
+
+  beforeEach(async () => {
+    resetDb();
+    process.env.LLM_ENDPOINT = LLM_ENDPOINT;
+    process.env.LLM_KEY = LLM_KEY;
+    process.env.DB_PATH = DB_PATH;
+    process.env.BATCH_SIZE = '5';
+    
+    // Mock fetch globally
+    global.fetch = vi.fn();
+  });
+
+  test('should fail if LLM config is missing', async () => {
+    delete process.env.LLM_ENDPOINT;
+    await expect(gradeBatch()).rejects.toThrow('LLM_ENDPOINT and LLM_KEY must be set');
+  });
+
+  test('should return 0 processed if no pending submissions', async () => {
+    const result = await gradeBatch();
+    expect(result.processed).toBe(0);
+  });
+
+  test('should correctly process a batch of submissions (Mocked)', async () => {
+    // 1. Insert dummy data
+    await db('submissions').insert([
+      { student_id: 's1', content_text: 'Hello, this is my homework.', status: 'pending' },
+      { student_id: 's2', content_text: 'Second homework.', status: 'pending' }
+    ]);
+
+    // 2. Mock fetch response
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        results: [
+          { id: 1, feedback: 'Good work!', score: 95 },
+          { id: 2, feedback: 'Needs more detail.', score: 70 }
+        ]
+      })
+    });
+
+    // 3. Run grading
+    const result = await gradeBatch();
+
+    // 4. Verify
+    expect(result.processed).toBe(2);
+
+    const graded = await db('submissions').where('status', 'graded').select();
+    expect(graded).toHaveLength(2);
+    
+    // Check one of them
+    const firstGraded = graded.find(g => g.id === 1);
+    expect(JSON.parse(firstGraded.grading_result).score).toBe(95);
+  });
+
+  test('should mark as failed if LLM fails to return results for some IDs', async () => {
+    await db('submissions').insert([
+      { student_id: 's1', content_text: 'HW 1', status: 'pending' },
+      { student_id: 's2', content_text: 'HW 2', status: 'pending' }
+    ]);
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        results: [
+          { id: 1, feedback: 'Great!', score: 100 }
+          // Missing ID 2
+        ]
+      })
+    });
+
+    await gradeBatch();
+
+    const failed = await db('submissions').where('status', 'failed').select();
+    expect(failed).toHaveLength(1);
+    expect(failed[0].id).toBe(2);
+  });
+
+  test('should rollback to pending if fetch fails', async () => {
+    await db('submissions').insert([
+      { student_id: 's1', content_text: 'HW 1', status: 'pending' }
+    ]);
+
+    global.fetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => 'Internal Server Error'
+    });
+
+    await expect(gradeBatch()).rejects.toThrow();
+
+    const submissions = await db('submissions').where('id', 1).select();
+    expect(submissions[0].status).toBe('pending');
+  });
+});

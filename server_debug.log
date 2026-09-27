@@ -1,0 +1,6 @@
+◇ injected env (4) from .env
+Server running on port 3000
+[Error: insert into `submissions` (`created_at`, `file_path`, `file_type`, `status`, `student_id`) values ('2026-09-26 14:14:40.177', '/Users/alectandoc/repos/website-varun/uploads/1790457280173-772942378.txt', 'text/plain', 'pending', 'test_student_python') - SQLITE_ERROR: no such table: submissions] {
+  errno: 1,
+  code: 'SQLITE_ERROR'
+}

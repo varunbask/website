@@ -1,0 +1,37 @@
+{
+  "name": "website-varun",
+  "version": "1.0.0",
+  "description": "",
+  "main": "i18n.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/varunbask/website.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/varunbask/website/issues"
+  },
+  "homepage": "https://github.com/varunbask/website#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "knex": "^3.3.0",
+    "multer": "^2.4.0",
+    "node-cron": "^4.6.0",
+    "sqlite3": "^6.0.1"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.2"
+  }
+}

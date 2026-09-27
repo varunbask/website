@@ -1,0 +1,92 @@
+/* ============================================================
+   Tutor Dashboard Styles
+   ============================================================ */
+
+.dashboard-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 16px;
+}
+
+.submissions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.submission-item {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 20px;
+  transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease);
+}
+
+.submission-item:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+.submission-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.submission-student {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.submission-meta {
+  font-size: 0.85rem;
+  color: var(--slate);
+}
+
+.status-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--rule);
+  color: var(--ink-2);
+}
+
+.status-pending { background: var(--marigold); color: #fff; }
+.status-processing { background: var(--slate); color: #fff; }
+.status-graded { background: #81e6d9; color: #2c7a7b; }
+.status-failed { background: #feb2b2; color: #c53030; }
+
+.submission-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn-sm {
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+  .submission-item {
+    grid-template-columns: 1fr;
+    text-align: center;
+  }
+  .submission-actions {
+    justify-content: center;
+  }
+  .dashboard-controls {
+    flex-direction: column;
+    gap: 16px;
+    align-items: flex-start;
+  }
+}
