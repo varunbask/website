@@ -486,7 +486,7 @@ create index tasks_student_due_idx on public.tasks (student_id, due_at);
 create table public.submissions (
   id                bigint generated always as identity primary key,  -- integer ids keep RESULTS_FORMAT unchanged
   student_id        uuid not null default auth.uid() references public.profiles (id) on delete cascade,
-  task_id           bigint not null references public.tasks (id),     -- no cascade: an assignment with work cannot be deleted
+  task_id           bigint not null references public.tasks (id) deferrable initially deferred,  -- checked at commit: an assignment with work still cannot be deleted, but deleting a student cascades cleanly
   storage_path      text not null unique check (char_length(storage_path) <= 200),
   file_type         text not null check (file_type in ('application/pdf', 'image/png', 'image/jpeg', 'text/plain')),
   note              text check (char_length(note) <= 1000),
@@ -621,6 +621,12 @@ $$;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function private.handle_new_user();
+
+-- Accounts created before this migration get a pending profile too
+insert into public.profiles (id, email, full_name)
+select u.id, u.email, left(coalesce(btrim(u.raw_user_meta_data ->> 'full_name'), ''), 120)
+  from auth.users u
+on conflict (id) do nothing;
 
 create function private.on_submission_created()
 returns trigger
