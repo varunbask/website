@@ -598,7 +598,7 @@ export function mount(ctx) {
         href: `/portal/staff.html?student=${encodeURIComponent(person.id)}#/overview`,
         variant: 'secondary',
         size: 'sm',
-        iconEnd: 'arrow-square-out',
+        iconEnd: 'caret-right',
         className: 'ppl-open',
         focusKey: `open-${person.id}`,
       })

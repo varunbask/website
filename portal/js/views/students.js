@@ -90,7 +90,8 @@ export function countLabel(shown, total) {
 // the tab) but starts empty whenever the view is opened again
 let keptSearch = '';
 
-const COLUMNS = ['Student', 'To review', 'Next due', 'Last submission', '30-day average'];
+// "Up next", not "Next due": the column leads with overdue work (nextDue)
+const COLUMNS = ['Student', 'To review', 'Up next', 'Last submission', '30-day average'];
 
 export function mount(ctx) {
   const title = 'Students';
@@ -217,7 +218,7 @@ export function mount(ctx) {
     let nextContent;
     if (next) {
       const due = dueLabel(next.task.due_at, ctx.now);
-      said.push(`next due ${next.task.title || 'Untitled'}, ${due.text}`);
+      said.push(`up next ${next.task.title || 'Untitled'}, ${due.text}`);
       const tone = due.tone === 'danger' ? ' is-danger' : due.tone === 'warning' ? ' is-warning' : '';
       nextContent = [
         h('span', { class: 'stu-next-title' }, next.task.title || 'Untitled'),
@@ -263,7 +264,7 @@ export function mount(ctx) {
         h('span', { class: 'stu-name' }, s.name),
         s.email && s.email !== s.name ? h('span', { class: 'stu-email' }, s.email) : null)),
     reviewCell,
-    cell('next', 'Next due', nextContent),
+    cell('next', 'Up next', nextContent),
     cell('last', 'Last submission', lastContent),
     cell('avg', '30-day average', avgContent),
     caret);

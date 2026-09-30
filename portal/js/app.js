@@ -207,6 +207,7 @@ export function startApp(config) {
 
     if (!view || scopeChanged || (!sameView(prev, next) && !refined)) {
       closeAll();
+      requestReveal(null);
       mountView({ focus: !first });
     } else if (refined) {
       view.ctx.route = copyRoute(next);
@@ -265,6 +266,58 @@ export function startApp(config) {
     return active && root.contains(active) ? active.dataset?.focusKey ?? null : null;
   }
 
+  // Where focus goes if the focused control leaves the list on a refresh (a
+  // ticked task): the next keyed control in its card or list, then the one
+  // before it, then the card's own link (e.g. "See all tasks"). Read from the
+  // old render before it is removed: [{ key } | { href }]
+  function focusFallbacks(active) {
+    if (!active?.dataset?.focusKey) return [];
+    const box = active.closest('section, .card') ?? active.closest('ul, ol');
+    if (!box) return [];
+    const keyed = [...box.querySelectorAll('[data-focus-key]')];
+    const at = keyed.indexOf(active);
+    const order = [...keyed.slice(at + 1), ...keyed.slice(0, Math.max(at, 0)).reverse()];
+    const keys = [...new Set(order.map((el) => el.dataset.focusKey))]
+      .filter((k) => k && k !== active.dataset.focusKey);
+    const link = box.querySelector('.card-link[href], .card-foot a[href]');
+    return [...keys.map((key) => ({ key })), ...(link ? [{ href: link.getAttribute('href') }] : [])];
+  }
+
+  function focusFirstOf(host, fallbacks) {
+    for (const f of fallbacks) {
+      const el = f.key
+        ? host.querySelector(`[data-focus-key="${cssEscape(f.key)}"]`)
+        : host.querySelector(`a[href="${cssEscape(f.href)}"]`);
+      if (!el || el.disabled) continue;
+      el.focus({ preventScroll: true });
+      if (document.activeElement === el) return true;
+    }
+    return false;
+  }
+
+  // A just-created item to show once it is in the list and the drawer is shut:
+  // opens a closed group (No due date) around its row and focuses the row
+  let reveal = null;
+  const REVEAL_MS = 10_000;
+
+  function requestReveal(taskId) {
+    reveal = taskId === null || taskId === undefined ? null : { key: `row-${taskId}`, until: Date.now() + REVEAL_MS };
+  }
+
+  function applyReveal() {
+    if (!reveal || drawerOpen()) return;
+    if (Date.now() > reveal.until) {
+      reveal = null;
+      return;
+    }
+    const el = view?.host.querySelector(`[data-focus-key="${cssEscape(reveal.key)}"]`);
+    if (!el) return;
+    reveal = null;
+    for (let d = el.closest('details:not([open])'); d; d = d.parentElement?.closest('details:not([open])')) d.open = true;
+    el.focus({ preventScroll: true });
+    el.scrollIntoView?.({ block: 'nearest' });
+  }
+
   function focusH1(target) {
     const h1 = target.host.querySelector('h1');
     if (!h1) return false;
@@ -307,6 +360,7 @@ export function startApp(config) {
     shell.setTitle(crumbs.at(-1)?.label ?? viewLabel(entry, route));
     shell.setTopbarActions([]);
     shell.setTabbarHidden(Boolean(entry.hideTabbar?.(route)));
+    shell.setBack(entry.back?.(route) ?? null);
   }
 
   // Mounts the current route's view into a fresh div.view. A refresh renders
@@ -355,6 +409,7 @@ export function startApp(config) {
       // have scrolled or tabbed while the data loaded
       const keepKey = activeFocusKey();
       const hadFocus = Boolean(old && old !== target && old.host.contains(document.activeElement));
+      const fallbacks = hadFocus ? focusFallbacks(document.activeElement) : [];
       const keepY = window.scrollY;
       if (old && old !== target) {
         // An old view that had not focused its h1 yet hands that on
@@ -370,9 +425,11 @@ export function startApp(config) {
       if (target.pendingFocus) focusH1(target);
       else if (keepKey) host.querySelector(`[data-focus-key="${cssEscape(keepKey)}"]`)?.focus({ preventScroll: true });
       // The focused control is gone from the new render (a ticked task that
-      // left the list, a "Try again" that worked): the h1, never <body>
+      // left the list, a "Try again" that worked): its neighbour in the same
+      // card or list, else the h1, never <body>
       const lost = !document.activeElement || document.activeElement === document.body || !document.activeElement.isConnected;
-      if (hadFocus && lost) focusH1(target);
+      if (hadFocus && lost && !focusFirstOf(host, fallbacks)) focusH1(target);
+      applyReveal();
       syncDrawerRow();
     };
 
@@ -388,7 +445,10 @@ export function startApp(config) {
     const settle = () => {
       if (controller.signal.aborted) return;
       if (isRefresh) swap();
-      else if (target.pendingFocus) focusH1(target);
+      else {
+        if (target.pendingFocus) focusH1(target);
+        applyReveal();
+      }
       syncDrawerRow();
       updateNav();
     };
@@ -534,6 +594,7 @@ export function startApp(config) {
     const open = route?.params?.open;
     if (!open) {
       if (drawerOpen()) hideDrawer();
+      applyReveal();
       return;
     }
     showDrawer({
@@ -550,6 +611,7 @@ export function startApp(config) {
       toast,
       confirm: confirmDialog,
       go: (url, opts) => router.go(url, opts),
+      reveal: requestReveal,
       isRefresh,
     });
   }

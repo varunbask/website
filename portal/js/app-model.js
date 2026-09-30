@@ -14,6 +14,9 @@
 //   crumbs(route)               breadcrumb path without the scope prefix
 //   wide: bool | fn(route)      full panel width (calendar)
 //   hideTabbar(route)           hide the phone tab bar (review page)
+//   back(route) -> { href, label } | null
+//                               phones: a back button in place of the brand mark
+//                               (the review page, which has no tab bar)
 
 import { buildHash, withoutDrawer, DRAWER_PARAMS } from './router.js';
 import { one } from './format.js';

@@ -9,7 +9,7 @@
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
 import { itemStatus } from './status.js';
-import { dueLabel, relativeTime } from './dates.js';
+import { dueLabel, relativeTime, shortDay } from './dates.js';
 import { DRAWER_PARAMS } from './router.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
 
@@ -63,7 +63,23 @@ function stamped(verb, iso, now) {
   return { text: `${verb} ${afterVerb(r.text)}`, full: `${verb} ${r.full}`, tone: null, iso };
 }
 
-// The row's date column: { text, full, tone, iso } or null.
+// Graded work: "Graded Oct 5", the same words as the Overview (spec 5.5).
+// Staff rows carry a "Released" pill beside the score, so their date column is
+// the bare date; label keeps "Released Oct 5" for the row's accessible name.
+function released(iso, now, audience) {
+  const day = shortDay(iso, now);
+  const verb = audience === 'staff' ? 'Released' : 'Graded';
+  return {
+    text: audience === 'staff' ? day : `${verb} ${day}`,
+    label: `${verb} ${day}`,
+    full: `${verb} ${relativeTime(iso, now).full}`,
+    tone: null,
+    iso,
+  };
+}
+
+// The row's date column: { text, full, tone, iso, label? } or null (label,
+// when set, replaces text in the row's accessible name).
 // Open work shows its due label (tone only when soon or overdue); in-review work
 // when it was submitted; graded work when it was released; missed work its due date.
 export function rowAside(item, now = new Date(), { audience = 'family' } = {}) {
@@ -79,10 +95,10 @@ export function rowAside(item, now = new Date(), { audience = 'family' } = {}) {
     case 'in-review':
       return latest?.created_at ? stamped('Submitted', latest.created_at, now) : null;
     case 'graded':
-      return grade?.released_at ? stamped(audience === 'staff' ? 'Released' : 'Graded', grade.released_at, now) : null;
+      return grade?.released_at ? released(grade.released_at, now, audience) : null;
     case 'archived':
       if (item.archiveReason === 'graded') {
-        return grade?.released_at ? stamped(audience === 'staff' ? 'Released' : 'Graded', grade.released_at, now) : null;
+        return grade?.released_at ? released(grade.released_at, now, audience) : null;
       }
       if (!due) return null;
       // Missed work is always more than 30 days old, so relativeTime gives a date
@@ -290,13 +306,18 @@ export function itemRow(item, { audience = 'family', href, showStudent = false, 
     dueEl = h('span', { class: ['row-due', 'num', toneClass].filter(Boolean).join(' '), title: aside.full }, aside.text);
   }
 
-  // Spell the row out for screen readers: the cells would otherwise run together
+  // Staff see the "Released" pill beside the score chip (spec 5.5)
+  const releasedPill = showScore && audience === 'staff' ? pill(status) : null;
+
+  // Spell the row out for screen readers: the cells would otherwise run together.
+  // A meta line that is a sentence loses its final period so the parts join
+  // cleanly ("number line, Due Friday", not "number line., Due Friday").
   const metaText = isNode(metaContent) ? metaContent.textContent : metaContent;
   const label = [
     task.title || 'Untitled',
-    metaText,
+    labelPart(metaText),
     draft ? draft.textContent : null,
-    aside?.text,
+    aside ? (aside.label ?? aside.text) : null,
     showScore ? `Score ${item.grade.score} out of 100` : status.label,
   ].filter(Boolean).join(', ');
 
@@ -312,10 +333,15 @@ export function itemRow(item, { audience = 'family', href, showStudent = false, 
     metaEl),
   h('span', { class: 'row-aside' },
     dueEl,
-    h('span', { class: 'row-status' }, showScore ? scoreChip(item.grade.score) : pill(status))),
+    h('span', { class: 'row-status' }, releasedPill, showScore ? scoreChip(item.grade.score) : pill(status))),
   icon('caret-right'));
   link.lastChild.classList.add('row-caret');
   return h('li', {}, link);
+}
+
+// One part of a row's accessible name: trimmed, without a closing period
+export function labelPart(text) {
+  return String(text ?? '').trim().replace(/\.+$/, '').trim();
 }
 
 // ul.row-list around <li> rows (itemRow output or any li > a.row).

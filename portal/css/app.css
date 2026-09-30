@@ -84,7 +84,9 @@
      .scope-btn.is-empty               "Choose a student" state (name in --text-3)
      div.scope-block                   one child, not interactive, same look, no caret
      dialog.switcher > div.switcher-inner
-       h2.visually-hidden, div.switcher-search (a .input-icon), ul.switcher-list > li >
+       div.switcher-head > h2.switcher-title + button.icon-btn.switcher-close (both shown on
+       phones only; the title stays for screen readers from 768px),
+       div.switcher-search (a .input-icon), ul.switcher-list > li >
        a.switcher-item[aria-current="true"] > span.avatar.avatar-24 + span.switcher-name + span.badge
 
    Top bar
@@ -101,7 +103,10 @@
      nav.tabs[aria-label] > a.tab[aria-current="page"] > text + span.tab-count.num
        .tabs.is-subnav                 Assignments sub-tabs: hidden at 1024px and up while the
                                        sidebar is expanded, shown otherwise
-     div.grid-12 > .span-4 | .span-5 | .span-7 | .span-8 | .span-12 (all 12 below 1024px)
+     div.grid-12 > .span-4 | .span-5 | .span-7 | .span-8 | .span-12 (all 12 until the grid
+                                       itself is 880px wide: a size container named "grid")
+                                       Cards in the grid are size containers named "card"; rows
+                                       in a card under 640px take the two-line phone layout
      section.card (+ .is-flush for no padding, .is-list for an 8px inset around rows)
        div.card-head > h2.card-title + span.card-meta + a.link.card-link
        div.card-foot
@@ -1236,20 +1241,26 @@ time { font-variant-numeric: tabular-nums; }
   .app[data-sidebar="rail"] .tabs.is-subnav { display: flex; }
 }
 
-/* 12-column overview grid */
+/* 12-column overview grid. The spans follow the grid's own width, not the
+   viewport, so an expanded sidebar at 1024 (grid about 720px) still stacks
+   every card full width; the columns start at 880px (1280 expanded, 1024 rail). */
 .grid-12 {
+  container: grid / inline-size;
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--s-6);
 }
 .grid-12 > * { grid-column: span 12; min-width: 0; }
-@media (min-width: 1024px) {
+@container grid (min-width: 880px) {
   .grid-12 > .span-4 { grid-column: span 4; }
   .grid-12 > .span-5 { grid-column: span 5; }
   .grid-12 > .span-7 { grid-column: span 7; }
   .grid-12 > .span-8 { grid-column: span 8; }
   .grid-12 > .span-12 { grid-column: span 12; }
 }
+/* Cards in the grid are width containers, so rows can reflow by card width */
+.grid-12 > .card,
+.grid-12 > * > .card { container: card / inline-size; }
 
 /* Cards: resting surfaces get a hairline, never a shadow */
 .card {
@@ -1870,6 +1881,39 @@ input[type="date"].input { font-variant-numeric: tabular-nums; }
   .row-caret { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
 }
 
+/* The same two-line layout for rows in a narrow card at any viewport width
+   (a span-4 or span-8 card): the title keeps the full row and the due text
+   and pills move under it */
+@container card (max-width: 640px) {
+  .row-list {
+    grid-template-columns: calc(var(--row-lead) + 16px) minmax(0, 1fr) 32px;
+  }
+  .row-list .row:has(> .row-aside:not(:empty)) {
+    grid-template-rows: auto auto;
+    row-gap: var(--s-2);
+  }
+  .row-list .row-lead { grid-row: 1; align-self: start; margin-top: 2px; }
+  .row-list .row-main { grid-row: 1; }
+  .row-list .row-title {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+  .row-list .row-aside {
+    grid-column: 2;
+    grid-row: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-2) var(--s-3);
+  }
+  .row-list .row-aside:empty { display: none; }
+  .row-list .row-due { justify-self: auto; }
+  .row-list .row-caret { grid-column: 3; grid-row: 1 / -1; align-self: center; }
+}
+
 /* Group headers */
 .group-header {
   position: sticky;
@@ -2272,6 +2316,19 @@ dialog::backdrop { background-color: transparent; }
   padding: var(--s-1);
 }
 .popover-inner { gap: var(--s-2); padding: var(--s-2); }
+/* The popover names itself through a hidden h2; phones show it as a sheet head */
+.switcher-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.switcher-close { display: none; }
 .switcher-search { padding: var(--s-1) var(--s-1) var(--s-2); }
 .switcher-list {
   display: flex;
@@ -2327,6 +2384,29 @@ dialog::backdrop { background-color: transparent; }
   .switcher-inner,
   .popover-inner { padding: var(--s-2) var(--s-3) max(var(--s-3), env(safe-area-inset-bottom)); }
   .switcher-item { min-height: 48px; }
+  .switcher-head {
+    display: flex;
+    align-items: center;
+    gap: var(--s-2);
+    min-height: 48px;
+    margin-bottom: var(--s-1);
+    padding-left: 4px;
+  }
+  .switcher-title {
+    position: static;
+    flex: 1;
+    min-width: 0;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: hidden;
+    clip-path: none;
+    text-overflow: ellipsis;
+    font: var(--t-h3);
+    letter-spacing: -0.005em;
+    color: var(--text);
+  }
+  .switcher-close { display: inline-grid; margin-left: auto; }
 }
 
 

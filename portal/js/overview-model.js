@@ -3,8 +3,9 @@
 // metric wording and the staff review order for one student. No DOM, no network.
 //
 // "This week" is always rolling: today plus the next 6 days, keyed in the
-// business zone (dates.js). Counts in ledes and metrics are assignments, the
-// same thing the To do badge counts.
+// business zone (dates.js). Ledes and the "Due this week" metric count open
+// assignments and open tasks, the same items the Overdue and Coming up cards
+// list.
 
 import { todayKey, dayKey, addDays, parseKey, weekday, relativeTime, longDate, dayHeading } from './dates.js';
 import { byDue } from './format.js';
@@ -46,15 +47,42 @@ export function greeting(now = new Date(), name = '') {
   return clean ? `Good ${part}, ${clean}` : `Good ${part}`;
 }
 
-// Student lede: the work sentence, then the new-grades sentence
-export function studentLede({ overdue = 0, dueThisWeek = 0, newGrades = 0 } = {}) {
+// "2 assignments and 1 task", "1 task", "3 assignments"
+function kindList(assignments, tasks) {
+  const parts = [];
+  if (assignments > 0) parts.push(counted(assignments, 'assignment', 'assignments'));
+  if (tasks > 0) parts.push(counted(tasks, 'task', 'tasks'));
+  return parts.join(' and ');
+}
+
+// "a", "a and b", "a, b and c"
+function joinAnd(parts) {
+  if (parts.length < 2) return parts[0] ?? '';
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+// Student lede: the work sentence, then the new-grades sentence. Counts come
+// from weekCounts; tasks are named only when there are some, so an
+// assignments-only week keeps the short wording.
+export function studentLede({
+  overdue = 0, dueThisWeek = 0, overdueTasks = 0, tasksDueThisWeek = 0, newGrades = 0,
+} = {}) {
+  const lateTotal = overdue + overdueTasks;
+  const dueTotal = dueThisWeek + tasksDueThisWeek;
+  const late = kindList(overdue, overdueTasks);
+  const due = kindList(dueThisWeek, tasksDueThisWeek);
+  const plain = overdueTasks === 0 && tasksDueThisWeek === 0;
   let text;
-  if (overdue > 0 && dueThisWeek > 0) {
-    text = `${counted(overdue, 'assignment', 'assignments')} ${verb(overdue)} overdue and ${dueThisWeek} ${verb(dueThisWeek)} due this week.`;
-  } else if (overdue > 0) {
-    text = `${counted(overdue, 'assignment', 'assignments')} ${verb(overdue)} overdue.`;
-  } else if (dueThisWeek > 0) {
-    text = `${counted(dueThisWeek, 'assignment', 'assignments')} ${verb(dueThisWeek)} due this week.`;
+  if (lateTotal > 0 && dueTotal > 0) {
+    if (plain) text = `${late} ${verb(lateTotal)} overdue and ${dueTotal} ${verb(dueTotal)} due this week.`;
+    // Both kinds on one side would stack two "and"s: two sentences instead
+    else if (late.includes(' and ') || due.includes(' and ')) {
+      text = `${late} ${verb(lateTotal)} overdue. ${due} ${verb(dueTotal)} due this week.`;
+    } else text = `${late} ${verb(lateTotal)} overdue and ${due} ${verb(dueTotal)} due this week.`;
+  } else if (lateTotal > 0) {
+    text = `${late} ${verb(lateTotal)} overdue.`;
+  } else if (dueTotal > 0) {
+    text = `${due} ${verb(dueTotal)} due this week.`;
   } else {
     text = 'Nothing is due this week.';
   }
@@ -64,15 +92,31 @@ export function studentLede({ overdue = 0, dueThisWeek = 0, newGrades = 0 } = {}
   return text;
 }
 
-// Parent lede: "Maya has 2 assignments due this week and 1 overdue."
-export function parentSummary(firstName, { overdue = 0, dueThisWeek = 0 } = {}) {
+// Parent lede, worded by kind:
+// "Maya has 2 assignments due this week and 1 overdue."
+// "Maya has 2 assignments due this week and 1 overdue task."
+export function parentSummary(firstName, {
+  overdue = 0, dueThisWeek = 0, overdueTasks = 0, tasksDueThisWeek = 0,
+} = {}) {
   const name = String(firstName ?? '').trim() || 'Your child';
-  if (overdue > 0 && dueThisWeek > 0) {
-    return `${name} has ${counted(dueThisWeek, 'assignment', 'assignments')} due this week and ${overdue} overdue.`;
+  const plural = (n, one_, many) => (n === 1 ? one_ : many);
+  if (overdueTasks === 0 && tasksDueThisWeek === 0) {
+    if (overdue > 0 && dueThisWeek > 0) {
+      return `${name} has ${counted(dueThisWeek, 'assignment', 'assignments')} due this week and ${overdue} overdue.`;
+    }
+    if (overdue > 0) return `${name} has ${overdue} overdue ${plural(overdue, 'assignment', 'assignments')}.`;
+    if (dueThisWeek > 0) return `${name} has ${counted(dueThisWeek, 'assignment', 'assignments')} due this week.`;
+    return `${name} is all caught up.`;
   }
-  if (overdue > 0) return `${name} has ${overdue} overdue ${overdue === 1 ? 'assignment' : 'assignments'}.`;
-  if (dueThisWeek > 0) return `${name} has ${counted(dueThisWeek, 'assignment', 'assignments')} due this week.`;
-  return `${name} is all caught up.`;
+  const late = [];
+  if (overdue > 0) late.push(`${overdue} overdue ${plural(overdue, 'assignment', 'assignments')}`);
+  if (overdueTasks > 0) late.push(`${overdueTasks} overdue ${plural(overdueTasks, 'task', 'tasks')}`);
+  const due = kindList(dueThisWeek, tasksDueThisWeek);
+  if (!due) return `${name} has ${joinAnd(late)}.`;
+  if (!late.length) return `${name} has ${due} due this week.`;
+  // "2 assignments and 1 task due this week" already has an "and"
+  if (due.includes(' and ')) return `${name} has ${due} due this week, plus ${joinAnd(late)}.`;
+  return `${name} has ${joinAnd([`${due} due this week`, ...late])}.`;
 }
 
 // "Maya’s week"
@@ -84,21 +128,27 @@ export function parentTitle(firstName) {
 // ---------------------------------------------------------------------------
 // Counts and lists
 
-// Overdue and due-this-week To do assignments (rolling 7 days, business zone)
+// Open work, split by kind: overdue now, and due from today through
+// today + 6 (business zone) but not overdue yet. The same sets the Overdue
+// card (overdueItems with tasks) and Coming up (comingUp) list, so the lede,
+// the "Due this week" metric and those cards always agree.
+// { overdue, dueThisWeek } count assignments; overdueTasks and
+// tasksDueThisWeek count tasks.
 export function weekCounts(items, now = new Date()) {
   const today = todayKey(now);
   const last = addDays(today, WEEK_DAYS - 1);
-  let overdue = 0;
-  let dueThisWeek = 0;
+  const counts = { overdue: 0, dueThisWeek: 0, overdueTasks: 0, tasksDueThisWeek: 0 };
   for (const item of items ?? []) {
-    if (!isAssignment(item) || item.bucket !== 'todo') continue;
-    if (item.dueState === 'overdue') overdue += 1;
-    else if (item.task.due_at) {
+    if (!isOpen(item)) continue;
+    const task = !isAssignment(item);
+    if (item.dueState === 'overdue') {
+      counts[task ? 'overdueTasks' : 'overdue'] += 1;
+    } else if (item.task.due_at) {
       const key = dayKey(item.task.due_at);
-      if (key >= today && key <= last) dueThisWeek += 1;
+      if (key >= today && key <= last) counts[task ? 'tasksDueThisWeek' : 'dueThisWeek'] += 1;
     }
   }
-  return { overdue, dueThisWeek };
+  return counts;
 }
 
 // The Due next card: the first To do assignment by due date (oldest overdue
@@ -294,14 +344,17 @@ export function onTimeMetric(tasks, now = new Date()) {
   return { value: String(stats.onTime), suffix: `of ${stats.judged}`, isText: false, line: 'finished by the due date', trend: null, danger: false };
 }
 
-export function dueMetric({ overdue = 0, dueThisWeek = 0 } = {}) {
+// Counts every open item (assignments and tasks), the same items Coming up
+// and the Overdue card list
+export function dueMetric({ overdue = 0, dueThisWeek = 0, overdueTasks = 0, tasksDueThisWeek = 0 } = {}) {
+  const late = overdue + overdueTasks;
   return {
-    value: String(dueThisWeek),
+    value: String(dueThisWeek + tasksDueThisWeek),
     suffix: null,
     isText: false,
-    line: overdue > 0 ? `${overdue} overdue` : 'Nothing overdue',
+    line: late > 0 ? `${late} overdue` : 'Nothing overdue',
     trend: null,
-    danger: overdue > 0,
+    danger: late > 0,
   };
 }
 

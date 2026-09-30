@@ -6,9 +6,8 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import {
   itemRow, rowList, groupHeader, emptyState, errorCallout, skeletonRows, button,
-  pill, newPill, visuallyHidden,
+  newPill, visuallyHidden,
 } from '../ui.js';
-import { itemStatus } from '../status.js';
 import {
   groupTodo, groupInReviewStaff, inReviewFamily, groupGraded, groupArchived, navCounts, MAX_SUBMISSIONS,
 } from '../buckets.js';
@@ -183,20 +182,6 @@ function inReviewList(items, opts) {
   return [[rowList(list.map(render), { label: 'In review' })], list.length];
 }
 
-// Staff also see the "Released" pill beside the score chip
-function withReleasedPill(li, item, staff) {
-  if (!staff) return li;
-  const status = li.querySelector('.row-status');
-  if (!status) return li;
-  const released = itemStatus(item, { audience: 'staff' });
-  status.prepend(pill(released));
-  // itemRow named the link before the pill existed: add it to the name too
-  const link = li.querySelector('a.row');
-  const label = link?.getAttribute('aria-label');
-  if (label && released?.label && !label.split(', ').includes(released.label)) link.setAttribute('aria-label', `${label}, ${released.label}`);
-  return li;
-}
-
 function gradedList(items, opts) {
   const { ctx, staff, studentId } = opts;
   const groups = groupGraded(items, opts.now);
@@ -227,7 +212,8 @@ function gradedList(items, opts) {
     const meta = isNew
       ? h('span', { class: 'asg-meta' }, newPill(), visuallyHidden(', '), feedback)
       : feedback;
-    return withReleasedPill(rowFor(item, opts, { meta }), item, staff);
+    // Staff rows get the "Released" pill from itemRow
+    return rowFor(item, opts, { meta });
   };
   return [groups.flatMap((g) => groupBlock(g, render)), total];
 }
@@ -243,7 +229,7 @@ function archivedList(items, opts) {
     const meta = item.archiveReason === 'graded' ? firstLine(item.grade?.feedback) : '';
     const li = rowFor(item, opts, { meta });
     li.firstElementChild?.classList.add('is-muted');
-    return item.archiveReason === 'graded' ? withReleasedPill(li, item, opts.staff) : li;
+    return li;
   };
   return [[note, ...groups.flatMap((g) => groupBlock(g, render))], total];
 }

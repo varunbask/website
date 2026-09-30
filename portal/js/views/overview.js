@@ -8,7 +8,7 @@
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import {
-  button, pill, scoreChip, newPill, avatar, emptyState, errorCallout, itemRow, rowList, visuallyHidden,
+  button, pill, scoreChip, newPill, avatar, emptyState, errorCallout, itemRow, rowList, visuallyHidden, labelPart,
 } from '../ui.js';
 import { itemStatus } from '../status.js';
 import { dueLabel, dayKey, parseKey, todayKey, dayHeading } from '../dates.js';
@@ -125,7 +125,7 @@ function miniRow(ctx, item, { meta, metaTone, status: statusNode, extra, label }
   return h('li', {}, h('a', {
     class: ['row', 'ovw-mini', status.struck ? 'is-done' : null].filter(Boolean).join(' '),
     href: openHref(ctx, item.task.id),
-    'aria-label': label ?? [title, metaText, status.label].filter(Boolean).join(', '),
+    'aria-label': label ?? [title, labelPart(metaText), status.label].filter(Boolean).join(', '),
     title: meta === undefined && due ? due.full : undefined,
     dataset: { focusKey: `row-${item.task.id}`, taskId: String(item.task.id) },
   },
@@ -462,7 +462,7 @@ function recentlyGradedCard(ctx, list, seen) {
       meta,
       status: scoreChip(grade.score),
       extra: isNew ? newPill() : null,
-      label: [task.title || 'Untitled', `Score ${grade.score} out of 100`, when, isNew ? 'New' : null, meta !== when ? meta : null]
+      label: [task.title || 'Untitled', `Score ${grade.score} out of 100`, when, isNew ? 'New' : null, meta !== when ? labelPart(meta) : null]
         .filter(Boolean).join(', '),
     });
   })));

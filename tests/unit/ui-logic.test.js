@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'vitest';
-import { badgeText, initials, avatarSize, buttonClass, drawerHref, rowAside, rowMeta } from '../../portal/js/ui.js';
+import { badgeText, initials, avatarSize, buttonClass, drawerHref, rowAside, rowMeta, labelPart } from '../../portal/js/ui.js';
 import { toastDuration, menuIndex, MAX_TOASTS } from '../../portal/js/overlays.js';
 import { normalizeTheme, storedValue, THEME_COLORS, THEME_KEY } from '../../portal/js/theme.js';
 import { deriveItems } from '../../portal/js/buckets.js';
@@ -69,6 +69,15 @@ describe('drawerHref', () => {
   });
 });
 
+describe('labelPart', () => {
+  test('drops a closing period so label parts join cleanly', () => {
+    expect(labelPart('Graph each answer on a number line.')).toBe('Graph each answer on a number line');
+    expect(labelPart('  Problems 1 to 15. Show work.  ')).toBe('Problems 1 to 15. Show work');
+    expect(labelPart('No period')).toBe('No period');
+    expect(labelPart(null)).toBe('');
+  });
+});
+
 describe('rowAside', () => {
   test('open work shows its due label and tone', () => {
     const due = '2026-10-16T06:59:00.000Z'; // Thu Oct 15, 11:59 pm Pacific
@@ -86,10 +95,17 @@ describe('rowAside', () => {
     const fresh = itemFor({ due_at: null }, [{ status: 'pending', created_at: NOW.toISOString() }]);
     expect(rowAside(fresh, NOW).text).toBe('Submitted just now');
   });
-  test('graded work shows when it was released, in each audience’s words', () => {
+  test('graded work shows the release date, in each audience’s words', () => {
     const subs = [{ status: 'ai_graded', created_at: daysAgo(3), grade: { score: 86, reviewed_at: daysAgo(1), released_at: daysAgo(1) } }];
-    expect(rowAside(itemFor({ due_at: daysAgo(4) }, subs), NOW).text).toBe('Graded yesterday');
-    expect(rowAside(itemFor({ due_at: daysAgo(4) }, subs, 'staff'), NOW, { audience: 'staff' }).text).toBe('Released yesterday');
+    const family = rowAside(itemFor({ due_at: daysAgo(4) }, subs), NOW);
+    expect(family.text).toBe('Graded Oct 13');
+    expect(family.label).toBe('Graded Oct 13');
+    expect(family.full).toMatch(/^Graded October 13, 2026 at /);
+    // Staff rows show a "Released" pill beside the score, so the column is the bare date
+    const staff = rowAside(itemFor({ due_at: daysAgo(4) }, subs, 'staff'), NOW, { audience: 'staff' });
+    expect(staff.text).toBe('Oct 13');
+    expect(staff.label).toBe('Released Oct 13');
+    expect(staff.full).toMatch(/^Released October 13, 2026 at /);
   });
   test('missed work shows its due date, never "N days overdue"', () => {
     const item = itemFor({ due_at: '2026-08-02T06:59:00.000Z' });

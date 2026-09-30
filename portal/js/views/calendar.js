@@ -19,7 +19,7 @@ import { displayName } from '../format.js';
 import {
   AGENDA_DAYS, PANEL_DAYS,
   monthOf, monthMatrix, shiftMonth, weekdayHeaders, cellText,
-  itemsByDay, moveKey, capacityFor, chipsFor, moreLabel, chipKind, dotsFor,
+  itemsByDay, moveKey, capacityForGrid, chipsFor, moreLabel, chipKind, dotsFor,
   dayLabel, dateWords, shortDay, agendaGroups, resolveState, countInMonth, inGrid,
 } from '../calendar-model.js';
 
@@ -73,7 +73,7 @@ export function mount(ctx) {
     status: 'loading',    // 'loading' | 'ready' | 'error'
     items: [],
     byDay: new Map(),
-    capacity: capacityFor(viewportWidth()),
+    capacity: capacityForGrid(0, viewportWidth()),
   };
 
   ctx.setHeader({
@@ -304,15 +304,18 @@ export function mount(ctx) {
     const name = item.task.title || 'Untitled';
     const score = item.grade?.score;
     const showScore = staff && kind === 'graded' && score !== null && score !== undefined;
+    // The score (floated right), initials and icon sit inline in the title,
+    // so a wrapped title's later lines get the chip's full width
     return h('span', {
       class: `cal-chip is-${kind}`,
       title: item.studentName ? `${name}, ${item.studentName}` : name,
       dataset: { taskId: String(item.task.id) },
     },
-    item.studentName ? h('span', { class: 'cal-chip-who' }, initials(item.studentName)) : null,
-    icon(iconName, { size: 12 }),
-    h('span', { class: 'cal-chip-title' }, name),
-    showScore ? h('span', { class: 'cal-chip-score' }, String(score)) : null);
+    h('span', { class: 'cal-chip-title' },
+      showScore ? h('span', { class: 'cal-chip-score' }, String(score)) : null,
+      item.studentName ? h('span', { class: 'cal-chip-who' }, initials(item.studentName)) : null,
+      icon(iconName, { size: 12 }),
+      name));
   }
 
   function dotRow(dayItems) {
@@ -493,19 +496,30 @@ export function mount(ctx) {
   }
 
   // -------------------------------------------------------------------------
-  // Width changes move the chip capacity (and the phone dot grid)
+  // Width changes move the chip capacity (and the phone dot grid). The
+  // capacity follows the grid's own width, which also moves with the sidebar
+  // and the day panel, so the view watches its body as well as the viewport.
+
+  function syncCapacity() {
+    const wrap = body.querySelector('.cal-grid-wrap');
+    const cap = capacityForGrid(wrap ? wrap.clientWidth : 0, viewportWidth());
+    if (cap === state.capacity) return;
+    state.capacity = cap;
+    if (state.view !== 'month' || state.status === 'error') return;
+    const focused = body.contains(document.activeElement) ? document.activeElement.dataset?.focusKey : null;
+    render();
+    if (focused) body.querySelector(`[data-focus-key="${cssEscape(focused)}"]`)?.focus();
+  }
 
   for (const query of BREAKPOINTS) {
     if (typeof matchMedia !== 'function') break;
-    matchMedia(query).addEventListener('change', () => {
-      const cap = capacityFor(viewportWidth());
-      if (cap === state.capacity) return;
-      state.capacity = cap;
-      if (state.view !== 'month' || state.status === 'error') return;
-      const focused = body.contains(document.activeElement) ? document.activeElement.dataset?.focusKey : null;
-      render();
-      if (focused) body.querySelector(`[data-focus-key="${cssEscape(focused)}"]`)?.focus();
-    }, { signal: ctx.signal });
+    matchMedia(query).addEventListener('change', syncCapacity, { signal: ctx.signal });
+  }
+  if (typeof ResizeObserver === 'function') {
+    // Runs after layout and before paint, so a corrected capacity never flashes
+    const observer = new ResizeObserver(() => syncCapacity());
+    observer.observe(body);
+    ctx.signal?.addEventListener('abort', () => observer.disconnect(), { once: true });
   }
 
   // -------------------------------------------------------------------------

@@ -6,6 +6,8 @@
 //     taskId,            the open= value: a task id, or 'new' (create)
 //     params,            the route params (focus, kind, due, and view params)
 //     me, role, audience, readOnly, scope, now, store, toast, confirm, go,
+//     reveal(taskId),    after a create: open the new item's group and focus
+//                        its row once the drawer closes and the list has it
 //     route,             a copy of the page route ({ view, sub, id, params })
 //     isRefresh,         true when re-rendered after a store change
 //     body,              div.drawer-body content (write into it)
@@ -298,15 +300,35 @@ function finishClose({ restore }) {
     opener = null;
     return;
   }
-  // Focus: the row for this item, else what was focused before, else the h1
+  // Focus: the row for this item, else what was focused before, else the h1.
+  // A row inside a closed <details> (a Done or No due date group) or otherwise
+  // hidden cannot take focus, so the next candidate gets it instead of <body>.
   const row = closed && closed.taskId !== 'new'
     ? document.querySelector(`#view [data-focus-key="row-${cssEscape(closed.taskId)}"]`)
     : null;
-  const target = row
-    ?? (opener?.isConnected && !dialog.contains(opener) ? opener : null)
-    ?? document.querySelector('#view h1');
+  const candidates = [
+    row,
+    opener?.isConnected && !dialog.contains(opener) ? opener : null,
+    document.querySelector('#view h1'),
+  ];
   opener = null;
-  target?.focus?.();
+  focusFirst(candidates);
+}
+
+function canFocus(el) {
+  if (!el?.isConnected || el.closest('details:not([open])')) return false;
+  if (typeof el.checkVisibility === 'function') return el.checkVisibility();
+  return true;
+}
+
+// Focuses the first element that can take focus and actually does
+function focusFirst(list) {
+  for (const el of list) {
+    if (!canFocus(el)) continue;
+    el.focus?.();
+    if (document.activeElement === el) return true;
+  }
+  return false;
 }
 
 // hideDrawer({ restoreFocus = true }): closes the dialog with no history change.

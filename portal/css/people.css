@@ -380,7 +380,19 @@
   .ppl-filter-wrap { flex: 1 1 100%; }
   .ppl-filter { display: flex; width: 100%; min-width: max-content; }
   .ppl-filter > button { flex: 1 0 auto; padding: 0 8px; }
-  .ppl-seg-count { display: none; }
+  /* Too tight to show: hidden from sight only, so screen readers still hear
+     "Students, 3" */
+  .ppl-seg-count {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
 .ppl-group + .ppl-group { margin-top: var(--s-6); }

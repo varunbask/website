@@ -71,6 +71,15 @@ describe('studentLede', () => {
     expect(studentLede({ overdue: 1, dueThisWeek: 2, newGrades: 2 }))
       .toBe('1 assignment is overdue and 2 are due this week. 2 new grades are ready.');
   });
+
+  test('names tasks by kind when there are any', () => {
+    expect(studentLede({ dueThisWeek: 2, overdueTasks: 1 })).toBe('1 task is overdue and 2 assignments are due this week.');
+    expect(studentLede({ overdueTasks: 1 })).toBe('1 task is overdue.');
+    expect(studentLede({ overdue: 1, overdueTasks: 2 })).toBe('1 assignment and 2 tasks are overdue.');
+    expect(studentLede({ dueThisWeek: 1, tasksDueThisWeek: 1 })).toBe('1 assignment and 1 task are due this week.');
+    expect(studentLede({ dueThisWeek: 2, tasksDueThisWeek: 1, overdueTasks: 1 }))
+      .toBe('1 task is overdue. 2 assignments and 1 task are due this week.');
+  });
 });
 
 describe('parentSummary and parentTitle', () => {
@@ -84,13 +93,23 @@ describe('parentSummary and parentTitle', () => {
     expect(parentSummary('Maya', {})).toBe('Maya is all caught up.');
   });
 
+  test('names tasks by kind when there are any', () => {
+    expect(parentSummary('Maya', { dueThisWeek: 2, overdueTasks: 1 })).toBe('Maya has 2 assignments due this week and 1 overdue task.');
+    expect(parentSummary('Maya', { overdueTasks: 2 })).toBe('Maya has 2 overdue tasks.');
+    expect(parentSummary('Maya', { tasksDueThisWeek: 1 })).toBe('Maya has 1 task due this week.');
+    expect(parentSummary('Maya', { dueThisWeek: 2, tasksDueThisWeek: 1, overdue: 1, overdueTasks: 1 }))
+      .toBe('Maya has 2 assignments and 1 task due this week, plus 1 overdue assignment and 1 overdue task.');
+    expect(parentSummary('Maya', { dueThisWeek: 2, overdue: 1, overdueTasks: 1 }))
+      .toBe('Maya has 2 assignments due this week, 1 overdue assignment and 1 overdue task.');
+  });
+
   test('title uses a curly apostrophe', () => {
     expect(parentTitle('Maya')).toBe('Maya’s week');
   });
 });
 
 describe('weekCounts', () => {
-  test('counts To do assignments overdue and due in the rolling 7 days', () => {
+  test('counts open work overdue and due in the rolling 7 days, by kind', () => {
     const list = items([
       task(1, { due_at: ago(2 * DAY) }),                    // overdue
       task(2, { due_at: ago(HOUR) }),                       // overdue earlier today
@@ -98,10 +117,27 @@ describe('weekCounts', () => {
       task(4, { due_at: dueOn('2026-10-20') }),             // today + 6
       task(5, { due_at: dueOn('2026-10-21') }),             // today + 7: outside
       task(6, { due_at: null }),                            // undated
-      task(7, { kind: 'task', due_at: dueOn('2026-10-15') }), // tasks never count
+      task(7, { kind: 'task', due_at: dueOn('2026-10-15') }), // open task due tomorrow
       task(8, { due_at: dueOn('2026-10-15') }),             // submitted: not To do
+      task(9, { kind: 'task', due_at: ago(3 * DAY) }),      // overdue task
+      task(10, { kind: 'task', due_at: dueOn('2026-10-16'), completed_at: ago(HOUR) }), // done: not counted
+      task(11, { kind: 'task', due_at: null }),             // undated task
     ], [sub(80, 8, ago(HOUR))]);
-    expect(weekCounts(list, NOW)).toEqual({ overdue: 2, dueThisWeek: 2 });
+    expect(weekCounts(list, NOW)).toEqual({ overdue: 2, dueThisWeek: 2, overdueTasks: 1, tasksDueThisWeek: 1 });
+  });
+
+  test('agrees with the Overdue card and Coming up', () => {
+    const list = items([
+      task(1, { due_at: dueOn('2026-10-15') }),
+      task(2, { kind: 'task', due_at: ago(3 * DAY) }),
+      task(3, { kind: 'task', due_at: dueOn('2026-10-15') }),
+    ]);
+    const counts = weekCounts(list, NOW);
+    expect(counts.overdue + counts.overdueTasks).toBe(overdueItems(list, { tasks: true }).length);
+    const coming = comingUp(list, NOW).reduce((n, g) => n + g.items.length, 0);
+    expect(counts.dueThisWeek + counts.tasksDueThisWeek).toBe(coming);
+    expect(dueMetric(counts)).toMatchObject({ value: '2', line: '1 overdue', danger: true });
+    expect(parentSummary('Maya', counts)).toBe('Maya has 1 assignment and 1 task due this week, plus 1 overdue task.');
   });
 
   test('the window follows the Pacific day, not UTC', () => {
@@ -356,6 +392,8 @@ describe('metrics', () => {
   test('dueMetric', () => {
     expect(dueMetric({ dueThisWeek: 3, overdue: 1 })).toMatchObject({ value: '3', line: '1 overdue', danger: true });
     expect(dueMetric({ dueThisWeek: 0, overdue: 0 })).toMatchObject({ value: '0', line: 'Nothing overdue', danger: false });
+    expect(dueMetric({ dueThisWeek: 2, overdue: 0, overdueTasks: 1, tasksDueThisWeek: 1 }))
+      .toMatchObject({ value: '3', line: '1 overdue', danger: true });
   });
 });
 

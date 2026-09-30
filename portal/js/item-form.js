@@ -202,7 +202,7 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
       await busy(submit, editing ? 'Saving…' : 'Creating…', async () => {
         const result = editing
           ? await sb.from('tasks').update(values).eq('id', task.id)
-          : await sb.from('tasks').insert({ kind: currentKind, ...values, student_id: studentId });
+          : await sb.from('tasks').insert({ kind: currentKind, ...values, student_id: studentId }).select('id').single();
         if (result.error) {
           console.error(result.error);
           if (dctx.alive?.() === false) return;
@@ -217,7 +217,11 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
         dctx.store.invalidate(studentId);
         dctx.toast({ text: editing ? 'Changes saved.' : (currentKind === 'task' ? 'Task created.' : 'Assignment created.') });
         if (editing) onSaved?.();
-        else dctx.close();
+        else {
+          // Show the new row (it may sit in a closed "No due date" group)
+          if (result.data?.id !== undefined) dctx.reveal?.(result.data.id);
+          dctx.close();
+        }
       });
     } finally {
       saving = false;

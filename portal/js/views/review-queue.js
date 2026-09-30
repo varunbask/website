@@ -7,7 +7,7 @@ import { displayName } from '../format.js';
 import { canRetry } from '../labels.js';
 import { startGrading } from '../grading.js';
 import {
-  badge, button, busy, emptyState, errorCallout, groupHeader, rowList, segmented, skeletonRows,
+  badge, button, busy, emptyState, errorCallout, groupHeader, rowList, segmented, skeletonRows, visuallyHidden,
 } from '../ui.js';
 import { queueRow } from '../review-row.js';
 import {
@@ -65,7 +65,9 @@ export async function mount(ctx) {
   const count = badge({ n: counts.all, context: `${submissions(counts.all)} to review` });
   if (count && header) {
     count.classList.add('rvw-title-badge');
-    header.querySelector('h1')?.append(count);
+    // The hidden comma keeps the h1's name from running together:
+    // "Review queue, 3 submissions to review"
+    header.querySelector('h1')?.append(visuallyHidden(', '), count);
   }
 
   const rowFor = (sub, index) => {

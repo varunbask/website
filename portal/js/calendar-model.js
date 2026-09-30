@@ -186,6 +186,21 @@ export function capacityFor(width) {
   return 0;
 }
 
+// The same, capped by the width a month cell really gets: the grid narrows
+// with the expanded sidebar and, at 1280 and up, the 320px day panel beside
+// it (an 85px cell at 1280). A chip title needs about 60px to show whole
+// words, so a narrower cell takes fewer chips, and below 80px only dots.
+export function capacityForGrid(gridWidth, viewport) {
+  const byViewport = capacityFor(viewport);
+  if (!(gridWidth > 0)) return byViewport;
+  const cell = gridWidth / 7;
+  let byCell = 0;
+  if (cell >= 112) byCell = 3;
+  else if (cell >= 96) byCell = 2;
+  else if (cell >= 80) byCell = 1;
+  return Math.min(byViewport, byCell);
+}
+
 // Which chips fit. When some do not, one line goes to "+N more", except at
 // capacity 1, where the single chip stays and a short "+N" sits beside it.
 export function chipsFor(dayItems, capacity) {

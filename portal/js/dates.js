@@ -121,6 +121,11 @@ function shortDate(key, refKey) {
   return `${short(MONTHS[m - 1])} ${d}${year}`;
 }
 
+// "Oct 5" for a timestamp, plus the year when it is not now's (business zone)
+export function shortDay(iso, now = new Date()) {
+  return shortDate(dayKey(iso), todayKey(now));
+}
+
 // "Wednesday, October 14"
 export function longDate(key) {
   const { m, d } = parseKey(key);

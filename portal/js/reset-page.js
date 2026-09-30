@@ -89,6 +89,10 @@ try {
 ready();
 if (!session) {
   lead('clock');
+  // The heading must not promise a form this state cannot show
+  const title = document.querySelector('h1.auth-title');
+  if (title) title.textContent = 'This link no longer works';
+  document.title = 'Link no longer works | VP Education Group';
   expired.hidden = false;
 } else {
   form.hidden = false;

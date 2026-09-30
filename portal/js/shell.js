@@ -6,7 +6,8 @@
 // mountShell({ me, page }) -> {
 //   setNav(model), setScope({ kind, current, options, onSwitch, hrefFor, counts }),
 //   setCrumbs(crumbs), setTopbarActions(nodes), setMode('workspace' | 'student'),
-//   setTitle(text), setHome(href), setTabbarHidden(bool), closeOverlays(), viewRoot
+//   setTitle(text), setHome(href), setTabbarHidden(bool), setBack({ href, label } | null),
+//   closeOverlays(), viewRoot
 // }
 // Markup follows the COMPONENT CLASS API comment at the top of portal/css/app.css.
 
@@ -89,6 +90,7 @@ export function mountShell({ me, page }) {
   let model = null;
   let scope = { kind: null, current: null, options: [], onSwitch: null, hrefFor: null, counts: null };
   let mode = 'workspace';
+  let backLink = null;
   let home = '#/';
   let collapsed = readCollapsed();
   let sheetOpener = null;
@@ -389,11 +391,20 @@ export function mountShell({ me, page }) {
     }
   }
 
-  // Phone top bar: brand or (staff in Student mode) back to Students, and the scope chip
+  // Phone top bar: brand, or a back button (the route's own, e.g. the review
+  // page back to the queue, else staff in Student mode back to Students), and
+  // the scope chip
   function renderTopbar() {
     const studentMode = staff && mode === 'student';
-    if (back) back.hidden = !studentMode;
-    if (topBrand) topBrand.hidden = studentMode;
+    const target = backLink ?? (studentMode ? { href: '#/students', label: 'Back to students' } : null);
+    if (back) {
+      back.hidden = !target;
+      if (target) {
+        back.setAttribute('href', target.href);
+        back.setAttribute('aria-label', target.label);
+      }
+    }
+    if (topBrand) topBrand.hidden = Boolean(target);
     const showChip = Boolean(scope.current) && ((studentMode && scope.kind === 'student')
       || (scope.kind === 'child' && (scope.options?.length ?? 0) >= 2));
     if (chip) {
@@ -519,8 +530,12 @@ export function mountShell({ me, page }) {
     }
     fill('');
 
+    // The heading is hidden in the popover; on phones it heads the bottom
+    // sheet with a Close button, like the More sheet
     const inner = h('div', { class: 'switcher-inner' },
-      h('h2', { class: 'visually-hidden' }, isChild ? 'Choose a child' : 'Choose a student'),
+      h('div', { class: 'switcher-head' },
+        h('h2', { class: 'switcher-title' }, isChild ? 'Choose a child' : 'Choose a student'),
+        iconButton({ icon: 'x', label: 'Close', tip: false, className: 'switcher-close', onClick: () => switcher.close() })),
       searchWrap, list, empty);
     inner.addEventListener('keydown', (e) => {
       const links = [...list.querySelectorAll('a.switcher-item')];
@@ -659,6 +674,12 @@ export function mountShell({ me, page }) {
 
     setTabbarHidden(hidden) {
       appEl.classList.toggle('is-tabbar-hidden', Boolean(hidden));
+    },
+
+    // A route's own phone back button, or null for the default (see renderTopbar)
+    setBack(link) {
+      backLink = link?.href ? { href: link.href, label: link.label || 'Back' } : null;
+      renderTopbar();
     },
 
     // Route changes close the nav sheet, switcher and account popover

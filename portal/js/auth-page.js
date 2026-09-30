@@ -86,8 +86,18 @@ document.getElementById('theme-toggle')?.replaceWith(themeToggle({ id: 'theme-to
 // ---------------------------------------------------------------------------
 // Panels and routing
 
+// The tab title follows the panel on screen
+const PANEL_TITLES = {
+  'sign-in': 'Sign in',
+  'sign-up': 'Request an account',
+  'check-email': 'Check your email',
+  forgot: 'Reset your password',
+  waiting: 'Waiting for approval',
+};
+
 function show(name, focus = true) {
   for (const panel of PANELS) document.getElementById(`panel-${panel}`).hidden = panel !== name;
+  document.title = `${PANEL_TITLES[name] ?? 'Sign in'} | VP Education Group`;
   if (focus) document.querySelector(`#panel-${name} h1`)?.focus();
 }
 

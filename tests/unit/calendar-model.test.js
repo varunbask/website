@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   CAL_VIEWS, AGENDA_DAYS, PANEL_DAYS, MAX_DOTS,
   isDayKey, isMonthKey, monthOf, daysInMonth, monthMatrix, shiftMonth, weekdayHeaders, cellText,
-  itemsByDay, moveKey, capacityFor, chipsFor, moreLabel, chipKind, dotsFor, dayLabel, dateWords, shortDay,
+  itemsByDay, moveKey, capacityFor, capacityForGrid, chipsFor, moreLabel, chipKind, dotsFor, dayLabel, dateWords, shortDay,
   agendaGroups, resolveState, countInMonth, inGrid,
 } from '../../portal/js/calendar-model.js';
 import { deriveItems } from '../../portal/js/buckets.js';
@@ -234,6 +234,25 @@ describe('capacityFor, chipsFor and moreLabel', () => {
     expect(capacityFor(768)).toBe(1);
     expect(capacityFor(767)).toBe(0);
     expect(capacityFor(320)).toBe(0);
+  });
+
+  test('capacity by the cell width the grid really gets', () => {
+    // No measurement yet: the viewport decides
+    expect(capacityForGrid(0, 1440)).toBe(3);
+    expect(capacityForGrid(undefined, 900)).toBe(1);
+    // Wide cells never go past the viewport capacity
+    expect(capacityForGrid(7 * 140, 1100)).toBe(2);
+    expect(capacityForGrid(7 * 140, 900)).toBe(1);
+    // 1440 with the day panel and an expanded sidebar (108px cells)
+    expect(capacityForGrid(757, 1440)).toBe(2);
+    expect(capacityForGrid(7 * 112, 1440)).toBe(3);
+    // 1280 with the day panel and an expanded sidebar (85px cells)
+    expect(capacityForGrid(597, 1280)).toBe(1);
+    expect(capacityForGrid(7 * 96, 1280)).toBe(2);
+    // Too narrow for a title: dots
+    expect(capacityForGrid(7 * 79, 1280)).toBe(0);
+    // Phones always get dots
+    expect(capacityForGrid(7 * 120, 700)).toBe(0);
   });
 
   const five = [1, 2, 3, 4, 5];

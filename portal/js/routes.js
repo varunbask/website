@@ -10,6 +10,7 @@ import * as reviewQueue from './views/review-queue.js';
 import * as review from './views/review.js';
 import * as students from './views/students.js';
 import * as people from './views/people.js';
+import { normalizeFilter } from './review-model.js';
 
 export const ASSIGNMENT_SUBS = Object.freeze(['todo', 'in-review', 'graded', 'archived']);
 export const SUB_LABELS = Object.freeze({ todo: 'To do', 'in-review': 'In review', graded: 'Graded', archived: 'Archived' });
@@ -57,6 +58,12 @@ export function staffRoutes() {
       title: (r) => (r.id ? 'Review' : 'Review queue'),
       crumbs: (r) => (r.id ? [{ label: 'Review queue', href: '#/review' }, { label: 'Review' }] : [{ label: 'Review queue' }]),
       hideTabbar: (r) => Boolean(r.id),
+      // No tab bar on the review page: phones get a way back to the queue
+      back: (r) => {
+        if (!r.id) return null;
+        const f = normalizeFilter(r.params?.filter);
+        return { label: 'Back to review queue', href: f === 'all' ? '#/review' : `#/review?filter=${f}` };
+      },
     },
     students: { mount: (ctx) => students.mount(ctx), title: fixed('Students') },
     ...student,

@@ -64,6 +64,12 @@
 @media (pointer: coarse), (max-width: 1023.98px) {
   .cal-today.btn-sm { height: 44px; }
 }
+/* Phones: the step buttons sit at the right edge, so their tips end-align
+   instead of centring past the viewport. Below 360 they wrap to the start of
+   their own line, where the centred tip fits. */
+@media (min-width: 360px) and (max-width: 767.98px) {
+  .cal-steps > .has-tip > .tip { left: auto; right: 0; transform: none; }
+}
 /* Narrow phones: the month name gets its own line instead of truncating */
 @media (max-width: 359.98px) {
   .cal-toolbar-main { flex-wrap: wrap; row-gap: var(--s-2); }
@@ -186,20 +192,12 @@ td.is-today .cal-num {
   gap: 2px;
   min-width: 0;
 }
-.cal-month.cap-1 .cal-chips {
-  flex-direction: row;
-  align-items: center;
-  gap: var(--s-1);
-}
-.cal-month.cap-1 .cal-chip { flex: 1 1 auto; }
 
 .cal-chip {
-  display: flex;
-  align-items: center;
-  gap: var(--s-1);
+  display: block;
   min-width: 0;
-  height: 22px;
-  padding: 0 6px;
+  min-height: 22px;
+  padding: 2px 6px;
   border: 1px solid transparent;
   border-radius: var(--r-xs);
   background-color: var(--surface-2);
@@ -208,18 +206,44 @@ td.is-today .cal-num {
   cursor: pointer;
   transition: border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
 }
-.cal-chip > .icon { width: 12px; height: 12px; }
+/* Titles wrap at spaces to two lines rather than cutting to a few letters.
+   The score (floated right), initials and kind icon flow inline at the start,
+   so the second line gets the chip's full width. Words never break; a word
+   too long for its line ends in an ellipsis. */
 .cal-chip-title {
-  flex: 1 1 auto;
-  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  white-space: nowrap;
   text-overflow: ellipsis;
 }
-.cal-chip-who { flex: none; font-weight: 600; }
+.cal-chip-title > .icon {
+  width: 12px;
+  height: 12px;
+  margin-right: var(--s-1);
+  vertical-align: -2px;
+}
+.cal-chip-who { display: inline-block; margin-right: var(--s-1); font-weight: 600; }
+/* Capacity 1 and 2 (narrower cells, see capacityForGrid): more room for the
+   title, and up to three lines, so a first word too wide to sit beside the
+   icon still gets two full lines under it */
+.cal-month.cap-1 .cal-chip,
+.cal-month.cap-2 .cal-chip { padding-inline: var(--s-1); }
+.cal-month.cap-1 .cal-chip-title,
+.cal-month.cap-2 .cal-chip-title {
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+}
+/* Capacity 1: the chip takes the cell's width and "+N" moves up beside the
+   day number */
+.cal-month.cap-1 .cal-day {
+  position: relative;
+  padding: var(--s-1);
+}
 .cal-chip-score {
-  flex: none;
-  margin-left: 2px;
+  float: right;
+  margin-left: var(--s-1);
   font: 500 12px/16px var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -235,7 +259,7 @@ td.is-today .cal-num {
   border-color: var(--line-strong);
   color: var(--text-2);
 }
-.cal-chip.is-graded > .icon { color: var(--text-2); }
+.cal-chip.is-graded .icon { color: var(--text-2); }
 .cal-chip.is-done { color: var(--text-3); }
 .cal-chip.is-done .cal-chip-title { text-decoration: line-through; text-decoration-color: var(--text-3); }
 .cal-chip.is-missed { color: var(--text-3); }
@@ -250,8 +274,8 @@ td.is-today .cal-num {
   .cal-chip.is-submitted:hover { border-color: var(--control); }
 }
 
-td.is-outside .cal-chip,
-td.is-outside .cal-dots { opacity: .55; }
+/* Days outside the month dim only their number (above). Their chips keep full
+   contrast: at the end of a month they are the most urgent work. */
 
 .cal-more {
   align-self: flex-start;
@@ -264,7 +288,13 @@ td.is-outside .cal-dots { opacity: .55; }
   white-space: nowrap;
   transition: color var(--dur-1) var(--ease-out);
 }
-.cal-month.cap-1 .cal-more { padding: 0 2px; }
+.cal-month.cap-1 .cal-more {
+  position: absolute;
+  top: var(--s-1);
+  right: var(--s-1);
+  padding: 0 var(--s-1);
+  line-height: 24px;
+}
 @media (hover: hover) {
   .cal-day:hover .cal-more { color: var(--text); }
 }
