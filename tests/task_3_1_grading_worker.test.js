@@ -1,6 +1,12 @@
 import { test, expect, describe, beforeEach, vi } from 'vitest';
 import { gradeBatch, parseResults, db } from '../src/worker/grader.js';
 import { execSync } from 'child_process';
+import { writeFileSync, mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import path from 'path';
+
+// A 1x1 PNG, enough to stand in for a photo of handwritten work
+const TINY_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 // Wraps results the way an OpenAI-style endpoint does in json_object mode
 function completion(body) {
@@ -145,5 +151,76 @@ describe('Grading Worker', () => {
     const sent = JSON.parse(global.fetch.mock.calls[0][1].body);
     expect(sent.response_format.type).toBe('json_schema');
     expect(sent.response_format.json_schema.schema.required).toEqual(['results']);
+  });
+
+  test('sends a photo submission to the model as an image, not as OCR text', async () => {
+    const photo = path.join(mkdtempSync(path.join(tmpdir(), 'hw-')), 'page.png');
+    writeFileSync(photo, TINY_PNG);
+
+    await db('submissions').insert([
+      { student_id: 's1', file_path: photo, file_type: 'image/png', status: 'pending' },
+      { student_id: 's2', content_text: 'HW 2', file_type: 'text/plain', status: 'pending' }
+    ]);
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => completion({
+        results: [
+          { id: 1, feedback: 'Read from the photo.', score: 88 },
+          { id: 2, feedback: 'Fine.', score: 75 }
+        ]
+      })
+    });
+
+    const result = await gradeBatch();
+    expect(result.processed).toBe(2);
+
+    const parts = JSON.parse(global.fetch.mock.calls[0][1].body).messages[0].content;
+    const imageAt = parts.findIndex(p => p.type === 'image_url');
+    expect(imageAt).toBeGreaterThan(0);
+    expect(parts[imageAt].image_url.url).toBe(`data:image/png;base64,${TINY_PNG.toString('base64')}`);
+    // The part just before the image names the submission it belongs to
+    expect(parts[imageAt - 1].text).toContain('ID: 1');
+    expect(parts.some(p => p.type === 'text' && p.text.includes('Content: HW 2'))).toBe(true);
+
+    const graded = await db('submissions').where('status', 'graded').select();
+    expect(graded).toHaveLength(2);
+  });
+
+  test('fails a photo whose file is missing and still grades the rest', async () => {
+    await db('submissions').insert([
+      { student_id: 's1', file_path: '/nonexistent/page.png', file_type: 'image/png', status: 'pending' },
+      { student_id: 's2', content_text: 'HW 2', file_type: 'text/plain', status: 'pending' }
+    ]);
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => completion({ results: [{ id: 2, feedback: 'Fine.', score: 75 }] })
+    });
+
+    const result = await gradeBatch();
+    expect(result.processed).toBe(1);
+
+    const parts = JSON.parse(global.fetch.mock.calls[0][1].body).messages[0].content;
+    expect(parts.some(p => p.type === 'image_url')).toBe(false);
+
+    const [photo] = await db('submissions').where('id', 1).select();
+    expect(photo.status).toBe('failed');
+    expect(photo.grading_result).toContain('could not be read');
+    const [text] = await db('submissions').where('id', 2).select();
+    expect(text.status).toBe('graded');
+  });
+
+  test('does not call the model when the only submission is an unreadable photo', async () => {
+    await db('submissions').insert([
+      { student_id: 's1', file_path: '/nonexistent/page.png', file_type: 'image/png', status: 'pending' }
+    ]);
+
+    const result = await gradeBatch();
+
+    expect(result.processed).toBe(0);
+    expect(global.fetch).not.toHaveBeenCalled();
+    const [photo] = await db('submissions').where('id', 1).select();
+    expect(photo.status).toBe('failed');
   });
 });

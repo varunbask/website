@@ -1,4 +1,5 @@
 import knex from 'knex';
+import { readFile } from 'fs/promises';
 import knexfile from '../db/knexfile.cjs';
 
 // Configuration from environment
@@ -40,6 +41,62 @@ const RESULTS_FORMAT = {
     }
   }
 };
+
+// Image limits of the API: 10 MB per base64-encoded image and 32 MB per
+// request. The request budget leaves room for the text and the JSON envelope.
+const MAX_IMAGE_BASE64 = 10 * 1024 * 1024;
+const MAX_REQUEST_IMAGE_BASE64 = 24 * 1024 * 1024;
+
+const INSTRUCTIONS = `Grade these homework submissions. Provide a brief feedback and a score (0-100) for each.
+Some submissions are photos of handwritten work. Read the photo itself, and if part of it is illegible, say which part in the feedback rather than guessing.
+Format the response as a JSON object { "results": [...] } where each item is { id: number, feedback: string, score: number }.
+
+Submissions:`;
+
+const isImage = (submission) =>
+  typeof submission.file_type === 'string' && submission.file_type.startsWith('image/');
+
+/**
+ * Builds the user message for a batch: a text part per submission, and for a
+ * photo submission the image itself right after the part that names its id.
+ * Returns the message parts, the ids included in the request, and the photos
+ * that can never be graded (file missing or too large). A photo that only
+ * exceeds this request's size budget is left out and stays pending.
+ */
+export async function buildMessageParts(pending) {
+  const parts = [{ type: 'text', text: INSTRUCTIONS }];
+  const ids = [];
+  const unreadable = [];
+  let imageBytes = 0;
+
+  for (const p of pending) {
+    if (!isImage(p)) {
+      parts.push({ type: 'text', text: `ID: ${p.id}\nContent: ${p.content_text}` });
+      ids.push(p.id);
+      continue;
+    }
+
+    let base64;
+    try {
+      base64 = (await readFile(p.file_path)).toString('base64');
+    } catch {
+      unreadable.push({ id: p.id, reason: 'The uploaded photo could not be read for grading' });
+      continue;
+    }
+    if (base64.length > MAX_IMAGE_BASE64) {
+      unreadable.push({ id: p.id, reason: 'The photo is too large to grade (limit is about 7 MB)' });
+      continue;
+    }
+    if (imageBytes + base64.length > MAX_REQUEST_IMAGE_BASE64) continue;
+
+    imageBytes += base64.length;
+    parts.push({ type: 'text', text: `ID: ${p.id}\nContent: the photo that follows.` });
+    parts.push({ type: 'image_url', image_url: { url: `data:${p.file_type};base64,${base64}` } });
+    ids.push(p.id);
+  }
+
+  return { parts, ids, unreadable };
+}
 
 /**
  * Pulls the grading array out of an OpenAI-style chat completion.
@@ -85,22 +142,27 @@ export async function gradeBatch() {
     return { processed: 0 };
   }
 
-  console.log(`Grading batch of ${pending.length} submissions...`);
+  const { parts, ids, unreadable } = await buildMessageParts(pending);
+
+  // A photo that can never be sent is failed now, so it is not retried forever
+  for (const { id, reason } of unreadable) {
+    await db('submissions')
+      .where('id', id)
+      .update({ status: 'failed', grading_result: reason });
+  }
+
+  if (ids.length === 0) {
+    return { processed: 0 };
+  }
+
+  console.log(`Grading batch of ${ids.length} submissions...`);
 
   // Mark them as processing to avoid duplicate work by other workers
-  const ids = pending.map(p => p.id);
   await db('submissions')
     .whereIn('id', ids)
     .update({ status: 'processing' });
 
   try {
-    // Construct prompt
-    const prompt = `Grade these homework submissions. Provide a brief feedback and a score (0-100) for each. 
-    Format the response as a JSON object { "results": [...] } where each item is { id: number, feedback: string, score: number }.
-    
-    Submissions:
-    ${pending.map(p => `ID: ${p.id}\nContent: ${p.content_text}`).join('\n---\n')}`;
-
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -109,7 +171,7 @@ export async function gradeBatch() {
       },
       body: JSON.stringify({
         model: process.env.LLM_MODEL || 'gpt-4o',
-        messages: [{ role: 'user', content: prompt }],
+        messages: [{ role: 'user', content: parts }],
         response_format: RESULTS_FORMAT
       }),
     });

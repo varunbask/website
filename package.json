@@ -31,8 +31,7 @@
     "multer": "^2.4.0",
     "node-cron": "^4.6.0",
     "pdf-parse": "^2.4.5",
-    "sqlite3": "^6.0.1",
-    "tesseract.js": "^7.0.0"
+    "sqlite3": "^6.0.1"
   },
   "devDependencies": {
     "vitest": "^5.0.2"

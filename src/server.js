@@ -9,9 +9,8 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { startScheduler } from './worker/scheduler.js';
 import { authMiddleware } from './middleware/auth.js';
-import { readFile } from 'fs/promises';
+import { readFile, unlink } from 'fs/promises';
 import { PDFParse } from 'pdf-parse';
-import { createWorker } from 'tesseract.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -58,16 +57,12 @@ const upload = multer({
 
 const isTutor = (user) => user.app_metadata?.role === 'tutor';
 
-// One OCR worker, created on first image upload and reused after that
-let ocrWorker;
-function getOcrWorker() {
-  ocrWorker ??= createWorker('eng').catch((err) => {
-    ocrWorker = undefined; // let the next upload retry
-    throw err;
-  });
-  return ocrWorker;
-}
+// A photo is sent to the grading model as an image, base64-encoded. The API
+// allows 10 MB per encoded image, which is about 7 MB on disk.
+const MAX_IMAGE_BYTES = 7 * 1024 * 1024;
 
+// Text for the grader. Photos return null: they are not converted to text,
+// the grader sends the image itself so the model reads the handwriting.
 async function extractText(file) {
   if (file.mimetype === 'application/pdf') {
     const parser = new PDFParse({ data: await readFile(file.path) });
@@ -81,10 +76,8 @@ async function extractText(file) {
   if (file.mimetype === 'text/plain') {
     return readFile(file.path, 'utf-8');
   }
-  // Remaining allowed types are PNG/JPG images
-  const worker = await getOcrWorker();
-  const { data } = await worker.recognize(file.path);
-  return data.text;
+  // Remaining allowed types are PNG/JPG photos
+  return null;
 }
 
 // Initialize Scheduler
@@ -104,6 +97,11 @@ app.post('/api/submit', authMiddleware, upload.single('file'), async (req, res) 
 
     if (!file) {
       return res.status(400).json({ error: 'Missing file' });
+    }
+
+    if (file.mimetype.startsWith('image/') && file.size > MAX_IMAGE_BYTES) {
+      await unlink(file.path).catch(() => {});
+      return res.status(400).json({ error: 'Photos must be under 7 MB. Please upload a smaller photo or a PDF.' });
     }
 
     const content_text = await extractText(file);
