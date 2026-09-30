@@ -34,15 +34,28 @@ async function renderUpdatesFeed(container, studentId) {
   }
 }
 
+// A fresh host per selection: a slow load for the previous child paints into a detached node
+function freshHost(id) {
+  const host = h('div');
+  document.getElementById(id).replaceChildren(host);
+  return host;
+}
+
+let shown = 0;   // counts selections; the title is written synchronously, so it is always the current one
+
 async function showChild(child) {
+  shown += 1;
   const url = new URL(location.href);
   url.searchParams.set('child', child.id);
   history.replaceState(null, '', url);
   title.textContent = `${firstName(child.full_name)}'s progress`;
+  const progress = freshHost('progress');
+  const updates = freshHost('updates');
+  const view = freshHost('child-view');
   await Promise.all([
-    renderProgress(document.getElementById('progress'), child.id),
-    renderUpdatesFeed(document.getElementById('updates'), child.id),
-    renderStudentView(document.getElementById('child-view'), { studentId: child.id, readOnly: true, showUpdates: false }),
+    renderProgress(progress, child.id),
+    renderUpdatesFeed(updates, child.id),
+    renderStudentView(view, { studentId: child.id, readOnly: true, showUpdates: false }),
   ]);
 }
 
