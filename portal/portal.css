@@ -367,6 +367,8 @@ select.inline { width: auto; max-width: 100%; padding: 6px 10px; font-size: 0.9r
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stats > div:nth-child(3) { padding-left: 0; border-left: 0; }
   .stats > div:nth-child(n + 3) { border-top: 1px solid var(--rule); }
+  .chart-label { font-size: 20px; }
+  .chart-dot { stroke-width: 3; }
 }
 
 @media (max-width: 480px) {

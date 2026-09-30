@@ -1,3 +1,7 @@
+# Local CLI settings only. NEVER run `supabase config push`: the [auth] defaults below
+# (site_url, enable_confirmations = false, localhost redirects) would overwrite the
+# production Auth settings, which are managed in the Supabase dashboard.
+
 # For detailed configuration reference documentation, visit:
 # https://supabase.com/docs/guides/local-development/cli/config
 # A string used to distinguish different Supabase projects on the same host. Defaults to the

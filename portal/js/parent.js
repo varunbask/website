@@ -41,10 +41,7 @@ function freshHost(id) {
   return host;
 }
 
-let shown = 0;   // counts selections; the title is written synchronously, so it is always the current one
-
 async function showChild(child) {
-  shown += 1;
   const url = new URL(location.href);
   url.searchParams.set('child', child.id);
   history.replaceState(null, '', url);

@@ -9,15 +9,7 @@
   ],
   "headers": [
     {
-      "source": "/portal",
-      "headers": [
-        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://enwrankobjdivyxhmwus.supabase.co; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" },
-        { "key": "Referrer-Policy", "value": "same-origin" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
-      ]
-    },
-    {
-      "source": "/portal/(.*)",
+      "source": "/portal/:path*",
       "headers": [
         { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://enwrankobjdivyxhmwus.supabase.co; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" },
         { "key": "Referrer-Policy", "value": "same-origin" },

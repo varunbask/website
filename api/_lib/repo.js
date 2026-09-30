@@ -37,7 +37,7 @@ export function createRepo(db) {
     async download(path) {
       const { data, error } = await db.storage.from('homework').download(path);
       if (error) {
-        if (error.status === 404 || error.statusCode === '404' || /not.?found/i.test(error.message)) {
+        if (error.status === 404 || error.statusCode === '404' || /object not found/i.test(error.message)) {
           throw new PermanentGradingError('The uploaded file could not be found.');
         }
         throw new Error(`download: ${error.message}`);
