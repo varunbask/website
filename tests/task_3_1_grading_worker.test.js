@@ -1,6 +1,11 @@
 import { test, expect, describe, beforeEach, vi } from 'vitest';
-import { gradeBatch, db } from '../src/worker/grader.js';
+import { gradeBatch, parseResults, db } from '../src/worker/grader.js';
 import { execSync } from 'child_process';
+
+// Wraps results the way an OpenAI-style endpoint does in json_object mode
+function completion(body) {
+  return { choices: [{ message: { content: JSON.stringify(body) } }] };
+}
 
 // Helper to reset DB
 function resetDb() {
@@ -46,7 +51,7 @@ describe('Grading Worker', () => {
     // 2. Mock fetch response
     global.fetch.mockResolvedValue({
       ok: true,
-      json: async () => ({
+      json: async () => completion({
         results: [
           { id: 1, feedback: 'Good work!', score: 95 },
           { id: 2, feedback: 'Needs more detail.', score: 70 }
@@ -76,7 +81,7 @@ describe('Grading Worker', () => {
 
     global.fetch.mockResolvedValue({
       ok: true,
-      json: async () => ({
+      json: async () => completion({
         results: [
           { id: 1, feedback: 'Great!', score: 100 }
           // Missing ID 2
@@ -106,5 +111,20 @@ describe('Grading Worker', () => {
 
     const submissions = await db('submissions').where('id', 1).select();
     expect(submissions[0].status).toBe('pending');
+  });
+
+  test('parseResults drops malformed results and ids outside the batch', () => {
+    const data = completion({
+      results: [
+        { id: '1', feedback: 'OK', score: 80 },
+        { id: 2, feedback: 'No score' },
+        { id: 99, feedback: 'Not in batch', score: 50 }
+      ]
+    });
+    expect(parseResults(data, [1, 2])).toEqual([{ id: 1, feedback: 'OK', score: 80 }]);
+  });
+
+  test('parseResults rejects a response without message content', () => {
+    expect(() => parseResults({ results: [] }, [1])).toThrow();
   });
 });

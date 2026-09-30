@@ -2,10 +2,22 @@
    Tutor Dashboard Logic
    ============================================================ */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const listContainer = document.getElementById('submissions-list');
   const refreshBtn = document.getElementById('refresh-btn');
   const loadingMsg = document.getElementById('loading-msg');
+
+  document.getElementById('logout-btn').addEventListener('click', (e) => {
+    e.preventDefault();
+    VP_AUTH.signOut();
+  });
+
+  const session = await VP_AUTH.requireSession();
+  if (session.user.app_metadata?.role !== 'tutor') {
+    loadingMsg.textContent = 'This dashboard is for tutors only.';
+    refreshBtn.hidden = true;
+    return;
+  }
 
   async function fetchSubmissions() {
     loadingMsg.hidden = false;
@@ -13,9 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
     listContainer.querySelectorAll('.submission-item').forEach(el => el.remove());
 
     try {
-      // In Phase 4.3, this will point to the actual backend.
-      // For now, we simulate/mock the endpoint.
-      const response = await fetch('/api/submissions');
+      const response = await VP_AUTH.apiFetch('/api/submissions');
       
       if (!response.ok) {
         throw new Error('Failed to fetch submissions');

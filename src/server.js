@@ -9,6 +9,9 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { startScheduler } from './worker/scheduler.js';
 import { authMiddleware } from './middleware/auth.js';
+import { readFile } from 'fs/promises';
+import { PDFParse } from 'pdf-parse';
+import { createWorker } from 'tesseract.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -23,7 +26,6 @@ const db = knex(knexfile);
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Ensure uploads directory exists
 const uploadDir = path.join(__dirname, '../uploads');
@@ -41,7 +43,49 @@ const storage = multer.diskStorage({
     cb(null, uniqueSuffix + path.extname(file.originalname));
   }
 });
-const upload = multer({ storage: storage });
+const ALLOWED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'text/plain'];
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_TYPES.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new multer.MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
+    }
+  }
+});
+
+const isTutor = (user) => user.app_metadata?.role === 'tutor';
+
+// One OCR worker, created on first image upload and reused after that
+let ocrWorker;
+function getOcrWorker() {
+  ocrWorker ??= createWorker('eng').catch((err) => {
+    ocrWorker = undefined; // let the next upload retry
+    throw err;
+  });
+  return ocrWorker;
+}
+
+async function extractText(file) {
+  if (file.mimetype === 'application/pdf') {
+    const parser = new PDFParse({ data: await readFile(file.path) });
+    try {
+      const result = await parser.getText();
+      return result.text;
+    } finally {
+      await parser.destroy();
+    }
+  }
+  if (file.mimetype === 'text/plain') {
+    return readFile(file.path, 'utf-8');
+  }
+  // Remaining allowed types are PNG/JPG images
+  const worker = await getOcrWorker();
+  const { data } = await worker.recognize(file.path);
+  return data.text;
+}
 
 // Initialize Scheduler
 let scheduler;
@@ -55,14 +99,15 @@ startScheduler({ cronExpression: '*/5 * * * *', threshold: 5 }).then(s => {
 // POST /api/submit
 app.post('/api/submit', authMiddleware, upload.single('file'), async (req, res) => {
   try {
-    const { student_id } = req.body;
+    const student_id = req.user.id;
     const file = req.file;
 
-    if (!file || !student_id) {
-      return res.status(400).json({ error: 'Missing file or student_id' });
+    if (!file) {
+      return res.status(400).json({ error: 'Missing file' });
     }
 
-        const content_text = await fs.readFile(file.path, 'utf-8').catch(() => '');
+    const content_text = await extractText(file);
+
     await db('submissions').insert({
       student_id,
       file_path: file.path,
@@ -85,10 +130,32 @@ app.post('/api/submit', authMiddleware, upload.single('file'), async (req, res) 
 });
 
 // GET /api/submissions
-app.get('/api/submissions', async (req, res) => {
+app.get('/api/submissions', authMiddleware, async (req, res) => {
   try {
-    const submissions = await db('submissions').orderBy('created_at', 'desc');
+    const query = db('submissions');
+    
+    if (!isTutor(req.user)) {
+      query.where('student_id', req.user.id);
+    }
+
+    const submissions = await query.orderBy('created_at', 'desc');
     res.json(submissions);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /uploads/:name (owner or tutor only)
+app.get('/uploads/:name', authMiddleware, async (req, res) => {
+  try {
+    const filePath = path.join(uploadDir, path.basename(req.params.name));
+    const submission = await db('submissions').where('file_path', filePath).first();
+
+    if (!submission || (!isTutor(req.user) && submission.student_id !== req.user.id)) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    res.sendFile(filePath);
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Internal server error' });
@@ -98,6 +165,14 @@ app.get('/api/submissions', async (req, res) => {
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// Upload errors (size limit, disallowed type)
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File too large (max 20 MB)' : 'Only PDF, PNG, JPG, or TXT files are allowed' });
+  }
+  next(err);
 });
 
 app.listen(PORT, () => {

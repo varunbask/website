@@ -2,6 +2,8 @@ node_modules/
 .env
 .hermes/
 db/*.sqlite
+src/db/*.sqlite
 uploads/*
 *.log
 server_debug*.log
+*.traineddata

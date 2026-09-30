@@ -26,6 +26,8 @@
 }
 
 .form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="password"],
 .form-group textarea {
   padding: 12px;
   border: 1.5px solid var(--rule);
@@ -38,6 +40,8 @@
 }
 
 .form-group input[type="text"]:focus,
+.form-group input[type="email"]:focus,
+.form-group input[type="password"]:focus,
 .form-group textarea:focus {
   outline: none;
   border-color: var(--pen);

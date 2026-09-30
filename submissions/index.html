@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&family=Caveat:wght@600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="../styles.css">
-  
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
@@ -40,13 +40,8 @@
       <div class="submission-card">
         <form id="submission-form">
           <div class="form-group">
-            <label for="student_id" class="mono">Student ID / Name</label>
-            <input type="text" id="student_id" name="student_id" required placeholder="e.g. Varun B.">
-          </div>
-
-          <div class="form-group">
             <label for="homework_file" class="mono">Assignment File</label>
-            <input type="file" id="homework_file" name="homework_file" required>
+            <input type="file" id="homework_file" name="file" accept=".pdf,.png,.jpg,.jpeg,.txt" required>
           </div>
 
           <div class="form-group">
@@ -67,6 +62,9 @@
     </div>
   </footer>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="../app-config.js"></script>
+  <script src="../app-auth.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

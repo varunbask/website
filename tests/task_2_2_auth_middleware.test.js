@@ -1,41 +1,44 @@
-import { supabase } from '../src/auth.js';
+import { describe, it, expect, vi } from 'vitest';
 import { authMiddleware } from '../src/middleware/auth.js';
+import { supabase } from '../src/auth.js';
 
-async function testAuthMiddleware() {
-  console.log('Testing auth middleware...');
-  
+vi.mock('../src/auth.js', () => ({
+  supabase: {
+    auth: {
+      getUser: vi.fn(),
+    },
+  },
+}));
+
+describe('Auth Middleware', () => {
   const mockRes = {
-    status: (code) => ({
-      json: (data) => {
-        console.log(`Response status: ${code}, body: ${JSON.stringify(data)}`);
-        return { end: () => {} };
-      }
-    })
+    status: vi.fn().mockReturnThis(),
+    json: vi.fn().mockReturnThis(),
   };
-  const next = () => {
-    console.log('✅ next() called');
-  };
+  const next = vi.fn();
 
-  // Case 1: Missing header
-  console.log('Case 1: Missing header');
-  const req1 = { headers: {} };
-  await authMiddleware(req1, mockRes, next);
+  it('should return 401 if no authorization header is present', async () => {
+    const req = { headers: {} };
+    await authMiddleware(req, mockRes, next);
+    expect(mockRes.status).toHaveBeenCalledWith(401);
+    expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Missing or invalid authorization header' }));
+    expect(next).not.toHaveBeenCalled();
+  });
 
-  // Case 2: Invalid token
-  console.log('\nCase 2: Invalid token');
-  const req2 = { headers: { authorization: 'Bearer invalid-token' } };
-  await authMiddleware(req2, mockRes, next);
+  it('should return 401 if token is invalid', async () => {
+    vi.mocked(supabase.auth.getUser).mockResolvedValue({ data: { user: null }, error: { message: 'Invalid' } });
+    const req = { headers: { authorization: 'Bearer invalid-token' } };
+    await authMiddleware(req, mockRes, next);
+    expect(mockRes.status).toHaveBeenCalledWith(401);
+    expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Invalid token' }));
+  });
 
-  // Case 3: Valid token
-  console.log('\nCase 3: Valid token');
-  const req3 = { headers: { authorization: 'Bearer valid-token' } };
-  await authMiddleware(req3, mockRes, next);
-  if (req3.user && req3.user.id === 'mock-user-id') {
-    console.log('✅ User correctly attached to request');
-  } else {
-    console.error('❌ User not correctly attached to request');
-    process.exit(1);
-  }
-}
-
-testAuthMiddleware();
+  it('should call next() and attach user if token is valid', async () => {
+    const user = { id: 'user-123', role: 'student' };
+    vi.mocked(supabase.auth.getUser).mockResolvedValue({ data: { user }, error: null });
+    const req = { headers: { authorization: 'Bearer valid-token' } };
+    await authMiddleware(req, mockRes, next);
+    expect(next).toHaveBeenCalled();
+    expect(req.user).toEqual(user);
+  });
+});

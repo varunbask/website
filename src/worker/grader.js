@@ -1,20 +1,35 @@
 import knex from 'knex';
-import fs from 'fs/promises';
-import path from 'path';
+import knexfile from '../db/knexfile.cjs';
 
 // Configuration from environment
-const DB_PATH = process.env.DB_PATH || './src/db/db.sqlite';
-const LLM_ENDPOINT = process.env.LLM_ENDPOINT;
-const LLM_KEY = process.env.LLM_KEY;
 const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '5', 10);
 
-const db = knex({
-  client: 'sqlite3',
-  connection: {
-    filename: DB_PATH,
-  },
-  useNullAsDefault: true,
-});
+// Same knexfile as the server, so both always resolve the same database file
+const db = knex(knexfile);
+
+/**
+ * Pulls the grading array out of an OpenAI-style chat completion.
+ * Only well-formed results for ids in this batch are kept.
+ */
+export function parseResults(data, batchIds) {
+  const content = data.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') {
+    throw new Error('LLM response has no choices[0].message.content');
+  }
+
+  // json_object mode always returns an object, so the array is usually wrapped
+  const parsed = JSON.parse(content);
+  const results = Array.isArray(parsed) ? parsed : (parsed.results || parsed.grades);
+  if (!Array.isArray(results)) {
+    throw new Error('LLM response content is not an array of results');
+  }
+
+  return results
+    .map(r => ({ id: Number(r?.id), feedback: r?.feedback, score: r?.score }))
+    .filter(r => batchIds.includes(r.id)
+      && typeof r.feedback === 'string'
+      && typeof r.score === 'number');
+}
 
 /**
  * Grades a batch of pending submissions using an OpenAI-compatible LLM.
@@ -47,7 +62,7 @@ export async function gradeBatch() {
   try {
     // Construct prompt
     const prompt = `Grade these homework submissions. Provide a brief feedback and a score (0-100) for each. 
-    Format the response as a JSON array of objects with { id: number, feedback: string, score: number }.
+    Format the response as a JSON object { "results": [...] } where each item is { id: number, feedback: string, score: number }.
     
     Submissions:
     ${pending.map(p => `ID: ${p.id}\nContent: ${p.content_text}`).join('\n---\n')}`;
@@ -71,22 +86,8 @@ export async function gradeBatch() {
     }
 
     const data = await response.json();
-    
-    // We expect the LLM to return something like { "results": [...] }
-    // The prompt asks for a JSON array, but often models wrap it.
-    // We'll try to find the array in the response.
-    let results = data.results || data.grades || data.results || data;
-    if (!Array.isArray(results)) {
-      // Fallback: if it's a single object or wrapped differently
-      const content = data.content || data.choices?.[0]?.message?.content;
-      if (content) {
-        const parsedContent = JSON.parse(content);
-        results = Array.isArray(parsedContent) ? parsedContent : (parsedContent.results || []);
-      }
-    }
+    const results = parseResults(data, ids);
 
-    // In a real scenario, we'd be more robust about parsing. 
-    // For now, let's assume the results array matches the IDs.
     for (const result of results) {
       const submissionId = result.id;
       const gradingResult = JSON.stringify({

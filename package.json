@@ -7,7 +7,7 @@
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "start": "node src/server.js"
   },
   "repository": {
@@ -30,7 +30,9 @@
     "knex": "^3.3.0",
     "multer": "^2.4.0",
     "node-cron": "^4.6.0",
-    "sqlite3": "^6.0.1"
+    "pdf-parse": "^2.4.5",
+    "sqlite3": "^6.0.1",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "vitest": "^5.0.2"

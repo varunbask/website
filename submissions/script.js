@@ -2,10 +2,12 @@
    Submission UI Logic
    ============================================================ */
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('submission-form');
   const submitBtn = document.getElementById('submit-btn');
   const messageDiv = document.getElementById('form-message');
+
+  await VP_AUTH.requireSession();
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -19,9 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const formData = new FormData(form);
 
     try {
-      // In Phase 4.3, this will point to the actual backend.
-      // For now, we simulate/mock the endpoint.
-      const response = await fetch('/api/submit', {
+      const response = await VP_AUTH.apiFetch('/api/submit', {
         method: 'POST',
         body: formData
       });

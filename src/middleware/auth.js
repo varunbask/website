@@ -10,14 +10,14 @@ export const authMiddleware = async (req, res, next) => {
   const token = authHeader.split(' ')[1];
 
   try {
-    // In a real scenario, we'd use supabase.auth.getUser(token)
-    // For testing with placeholders, we'll simulate success if the token is 'valid-token'
-    if (token === 'valid-token') {
-      req.user = { id: 'mock-user-id' };
-      return next();
-    } else {
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
       return res.status(401).json({ error: 'Invalid token' });
     }
+
+    req.user = user;
+    return next();
   } catch (error) {
     return res.status(401).json({ error: 'Failed to verify token' });
   }
