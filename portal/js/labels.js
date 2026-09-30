@@ -7,9 +7,9 @@ export function staffStatus(sub, grade) {
   if (grade?.released_at) return { text: 'Released', tone: 'done' };
   if (sub.status === 'pending') return { text: 'Submitted', tone: 'wait' };
   if (sub.status === 'grading') return { text: 'Grading', tone: 'wait' };
-  if (grade?.reviewed_at) return { text: 'Edited, not released', tone: 'review' };
+  if (grade?.reviewed_at) return { text: 'Edited, not released', tone: 'draft' };
   if (sub.status === 'failed') return { text: 'Could not grade', tone: 'alert' };
-  return { text: 'AI draft', tone: 'review' };
+  return { text: 'AI draft', tone: 'draft' };
 }
 
 // Anything unreleased is simply waiting on the tutor

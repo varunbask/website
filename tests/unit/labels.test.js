@@ -8,8 +8,8 @@ describe('staffStatus', () => {
   test('follows the pipeline and the review', () => {
     expect(staffStatus({ status: 'pending' }, null)).toEqual({ text: 'Submitted', tone: 'wait' });
     expect(staffStatus({ status: 'grading' }, null)).toEqual({ text: 'Grading', tone: 'wait' });
-    expect(staffStatus({ status: 'ai_graded' }, { reviewed_at: null, released_at: null })).toEqual({ text: 'AI draft', tone: 'review' });
-    expect(staffStatus({ status: 'ai_graded' }, { reviewed_at: ago(1), released_at: null })).toEqual({ text: 'Edited, not released', tone: 'review' });
+    expect(staffStatus({ status: 'ai_graded' }, { reviewed_at: null, released_at: null })).toEqual({ text: 'AI draft', tone: 'draft' });
+    expect(staffStatus({ status: 'ai_graded' }, { reviewed_at: ago(1), released_at: null })).toEqual({ text: 'Edited, not released', tone: 'draft' });
     expect(staffStatus({ status: 'failed' }, { reviewed_at: null, released_at: null })).toEqual({ text: 'Could not grade', tone: 'alert' });
     expect(staffStatus({ status: 'failed' }, { reviewed_at: ago(1), released_at: ago(1) })).toEqual({ text: 'Released', tone: 'done' });
   });
