@@ -1,37 +1,19 @@
 {
-  "name": "website-varun",
-  "version": "1.0.0",
-  "description": "",
-  "main": "i18n.js",
-  "directories": {
-    "doc": "docs"
+  "name": "vp-education-website",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
   },
   "scripts": {
     "test": "vitest run",
-    "start": "node src/server.js"
+    "test:rls": "vitest run --config vitest.rls.config.js",
+    "test:rls:cleanup": "node tests/rls/cleanup.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/varunbask/website.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
-  "bugs": {
-    "url": "https://github.com/varunbask/website/issues"
-  },
-  "homepage": "https://github.com/varunbask/website#readme",
   "dependencies": {
-    "@supabase/supabase-js": "^2.117.2",
-    "cors": "^2.8.6",
-    "dotenv": "^18.0.4",
-    "express": "^5.2.1",
-    "knex": "^3.3.0",
-    "multer": "^2.4.0",
-    "node-cron": "^4.6.0",
-    "pdf-parse": "^2.4.5",
-    "sqlite3": "^6.0.1"
+    "@supabase/supabase-js": "2.117.2",
+    "@vercel/functions": "^3.9.9",
+    "unpdf": "^1.8.1"
   },
   "devDependencies": {
     "vitest": "^5.0.2"

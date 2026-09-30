@@ -1,14 +1,9 @@
-import { fileURLToPath } from 'url';
-import path from 'path';
-import { defineProject } from 'vitest/config';
+import { defineConfig } from 'vitest/config';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-export default defineProject({
+// Offline unit tests. The RLS suite has its own config (vitest.rls.config.js).
+export default defineConfig({
   test: {
-    globals: true,
     environment: 'node',
-    include: ['tests/**/*.{test,spec}.js'],
+    include: ['tests/unit/**/*.test.js'],
   },
 });
