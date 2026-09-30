@@ -10,6 +10,7 @@ const FIELDS = 'id, task_id, storage_path, file_type, note, status, error, attem
 // Score and feedback editor. Unreleased: save a draft or release. Released: save or unrelease.
 function reviewForm(sub, grade, done) {
   const released = Boolean(grade?.released_at);
+  const primary = h('button', { type: 'button', class: 'btn btn-primary btn-small' }, released ? 'Save' : 'Release to family');
   const secondary = h('button', { type: 'button', class: 'link-button' }, released ? 'Unrelease' : 'Save draft');
   const form = h('form', { class: 'stack', novalidate: true },
     h('div', { class: 'form-row' },
@@ -18,7 +19,7 @@ function reviewForm(sub, grade, done) {
     h('label', { class: 'field' }, h('span', {}, 'Feedback for the student'),
       h('textarea', { name: 'feedback', rows: 5, maxlength: 10000 }, grade?.feedback ?? '')),
     h('div', { class: 'form-actions' },
-      h('button', { type: 'submit', class: 'btn btn-primary btn-small' }, released ? 'Save' : 'Release to family'),
+      primary,
       secondary),
     h('p', { class: 'form-message', role: 'alert', hidden: true }));
   const message = form.querySelector('.form-message');
@@ -37,24 +38,34 @@ function reviewForm(sub, grade, done) {
     });
   }
 
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
+  // Releasing (or saving an already released grade) needs a deliberate click on the primary button
+  function releaseOrSave(button) {
     const values = read();
     if (values.score === null || badScore(values.score)) return showMessage(message, 'Enter a score from 0 to 100.');
     if (!values.feedback) return showMessage(message, 'Write feedback before releasing.');
-    save({ ...values, released_at: grade?.released_at ?? new Date().toISOString() },
+    return save({ ...values, released_at: grade?.released_at ?? new Date().toISOString() },
       released ? 'Saved.' : 'Released. The student and parents can see it now.',
-      form.querySelector('button[type="submit"]'));
+      button);
+  }
+
+  function saveDraft(button) {
+    const values = read();
+    if (badScore(values.score)) return showMessage(message, 'Enter a score from 0 to 100.');
+    return save(values, 'Draft saved.', button);
+  }
+
+  primary.addEventListener('click', () => releaseOrSave(primary));
+
+  // Enter in the score field must never publish: it only saves a draft, or saves edits to a grade that is already public
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (released) releaseOrSave(primary);
+    else saveDraft(secondary);
   });
 
   secondary.addEventListener('click', () => {
-    if (released) {
-      save({ released_at: null }, 'Unreleased. The family no longer sees this grade.', secondary);
-      return;
-    }
-    const values = read();
-    if (badScore(values.score)) return showMessage(message, 'Enter a score from 0 to 100.');
-    save(values, 'Draft saved.', secondary);
+    if (released) save({ released_at: null }, 'Unreleased. The family no longer sees this grade.', secondary);
+    else saveDraft(secondary);
   });
   return form;
 }
