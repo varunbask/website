@@ -127,4 +127,23 @@ describe('Grading Worker', () => {
   test('parseResults rejects a response without message content', () => {
     expect(() => parseResults({ results: [] }, [1])).toThrow();
   });
+
+  test('asks for structured output with json_schema (Anthropic rejects json_object)', async () => {
+    await db('submissions').insert([
+      { student_id: 's1', content_text: 'HW 1', status: 'pending' }
+    ]);
+
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify({ results: [{ id: 1, feedback: 'ok', score: 90 }] }) } }]
+      })
+    });
+
+    await gradeBatch();
+
+    const sent = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sent.response_format.type).toBe('json_schema');
+    expect(sent.response_format.json_schema.schema.required).toEqual(['results']);
+  });
 });

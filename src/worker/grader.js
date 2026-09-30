@@ -8,6 +8,40 @@ const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || '5', 10);
 const db = knex(knexfile);
 
 /**
+ * Structured-output request. `json_schema` is accepted by OpenAI and by
+ * Anthropic's OpenAI-compatible endpoint, and returns bare JSON in this
+ * shape. Anthropic rejects the older `json_object` mode with a 400, and
+ * with no format at all it wraps the JSON in a code fence.
+ */
+const RESULTS_FORMAT = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'grading_results',
+    strict: true,
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['results'],
+      properties: {
+        results: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['id', 'feedback', 'score'],
+            properties: {
+              id: { type: 'integer' },
+              feedback: { type: 'string' },
+              score: { type: 'number' }
+            }
+          }
+        }
+      }
+    }
+  }
+};
+
+/**
  * Pulls the grading array out of an OpenAI-style chat completion.
  * Only well-formed results for ids in this batch are kept.
  */
@@ -17,7 +51,7 @@ export function parseResults(data, batchIds) {
     throw new Error('LLM response has no choices[0].message.content');
   }
 
-  // json_object mode always returns an object, so the array is usually wrapped
+  // The schema asks for { results: [...] }; a bare array or a `grades` key is still tolerated
   const parsed = JSON.parse(content);
   const results = Array.isArray(parsed) ? parsed : (parsed.results || parsed.grades);
   if (!Array.isArray(results)) {
@@ -76,7 +110,7 @@ export async function gradeBatch() {
       body: JSON.stringify({
         model: process.env.LLM_MODEL || 'gpt-4o',
         messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
+        response_format: RESULTS_FORMAT
       }),
     });
 
