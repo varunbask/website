@@ -1,0 +1,89 @@
+/* ============================================================
+   Log in page
+   Card and form fields come from ../submissions/styles.css.
+   ============================================================ */
+
+.login-wrap {
+  max-width: 480px;
+  margin: 72px auto 96px;
+}
+
+.login-title {
+  font-size: 2rem;
+  line-height: 1.15;
+  margin-bottom: 24px;
+}
+
+/* Student / Tutor toggle: two radio buttons drawn as one segmented control */
+.role-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1.5px solid var(--rule);
+  border-radius: var(--radius);
+}
+.role-toggle label {
+  position: relative;
+  display: block;
+  cursor: pointer;
+}
+.role-toggle input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.role-toggle span {
+  display: block;
+  padding: 10px 12px;
+  border-radius: calc(var(--radius) - 3px);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--slate);
+  transition: background 0.2s var(--ease), color 0.2s var(--ease);
+}
+.role-toggle label:hover span { color: var(--ink); }
+.role-toggle input:checked + span {
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+}
+.role-toggle input:focus-visible + span {
+  outline: 2px solid var(--pen);
+  outline-offset: 2px;
+}
+
+.login-hint {
+  margin: 16px 0 24px;
+  font-size: 0.95rem;
+  color: var(--slate);
+}
+
+#login-btn,
+.signed-in .btn {
+  display: block;
+  width: 100%;
+  text-align: center;
+}
+
+.signed-in p { margin-bottom: 24px; }
+.signed-in .link-button { margin-top: 20px; }
+
+.link-button {
+  background: none;
+  border-width: 0 0 2px;
+  padding: 0 0 2px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (max-width: 480px) {
+  .login-wrap { margin: 40px auto 72px; }
+}

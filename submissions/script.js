@@ -7,7 +7,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const submitBtn = document.getElementById('submit-btn');
   const messageDiv = document.getElementById('form-message');
 
-  await VP_AUTH.requireSession();
+  document.getElementById('logout-btn').addEventListener('click', (e) => {
+    e.preventDefault();
+    VP_AUTH.signOut();
+  });
+
+  await VP_AUTH.requireSession('student');
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();

@@ -12,9 +12,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     VP_AUTH.signOut();
   });
 
-  const session = await VP_AUTH.requireSession();
-  if (session.user.app_metadata?.role !== 'tutor') {
-    loadingMsg.textContent = 'This dashboard is for tutors only.';
+  const session = await VP_AUTH.requireSession('tutor');
+  if (!VP_AUTH.isTutor(session)) {
+    loadingMsg.textContent = 'This dashboard is for tutors only. Log out to switch accounts.';
     refreshBtn.hidden = true;
     return;
   }

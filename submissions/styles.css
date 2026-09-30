@@ -82,3 +82,17 @@
     padding: 24px;
   }
 }
+
+/* App pages (log in, submit, dashboard) have one or two header links and no
+   menu button, so their nav stays visible at every width instead of
+   collapsing the way the main site's does. */
+.site-header .site-nav {
+  display: flex;
+  position: static;
+  flex-direction: row;
+  gap: 20px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+}

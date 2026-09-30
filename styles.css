@@ -639,8 +639,9 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 
 /* compact header: the desktop header reserves room for the widest of the
-   five languages and needs ~1065px, so it collapses below 1080px */
-@media (max-width: 1080px) {
+   five languages and needs ~966px, so it collapses below 980px. The Log in
+   button stays visible in both layouts. */
+@media (max-width: 980px) {
   .site-nav {
     display: none;
     position: absolute;
@@ -656,7 +657,6 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .site-nav.open { display: flex; }
   .site-nav a { text-align: left; }
   .nav-toggle { display: flex; justify-content: center; min-width: 44px; min-height: 44px; }
-  .header-cta { display: none; }
   .header-inner { gap: 12px; }
   .lang-toggle { padding: 10px 14px; min-height: 44px; }
   .theme-toggle { padding: 10px; min-width: 44px; min-height: 44px; justify-content: center; }
@@ -682,11 +682,19 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 
 @media (max-width: 480px) {
   .wordmark-text { display: none; }
+  .header-cta { padding: 8px 12px; font-size: 0.88rem; }
   .lang-label { display: none; }
   .lang-toggle { padding: 10px; min-width: 44px; justify-content: center; }
   .record-row { grid-template-columns: 76px 1fr; }
   .record dt { font-size: 1.5rem; }
   .svc-ap-groups { grid-template-columns: 1fr; gap: 28px; }
+}
+
+/* smallest phones: the header carries the mark, language, theme, Log in, and
+   menu buttons, so tighten the spacing and drop the language chevron */
+@media (max-width: 360px) {
+  .header-inner { padding-left: 16px; padding-right: 16px; gap: 8px; }
+  .lang-chevron { display: none; }
 }
 
 /* ============================================================
