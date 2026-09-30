@@ -1,5 +1,12 @@
-node_modules/
+.DS_Store
+.claude/
+.agents/
+skills-lock.json
+.vercel
+supabase/.temp/
 .env
+.env*.local
+node_modules/
 .hermes/
 db/*.sqlite
 src/db/*.sqlite
