@@ -1,10 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { RESULTS_FORMAT, parseResults } from '../../api/_lib/grader.js';
-
-// Wraps a body the way an OpenAI-style chat completion does
-export function completion(body) {
-  return { choices: [{ message: { content: JSON.stringify(body) } }] };
-}
+import { completion } from './fixtures.js';
 
 describe('parseResults', () => {
   test('keeps well-formed results for ids in the batch', () => {
