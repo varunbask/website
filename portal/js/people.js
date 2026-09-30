@@ -33,7 +33,11 @@ async function load() {
 async function act(request, successText) {
   const { error } = await request;
   if (error) {
+    // Redraw first so every control shows what the database actually holds,
+    // then bring the error into view (it sits at the top of a long page)
+    await render();
     showMessage(message, `That did not save: ${error.message}`);
+    message.scrollIntoView({ block: 'center' });
     return;
   }
   showMessage(message, successText, 'success');
