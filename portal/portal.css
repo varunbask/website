@@ -242,7 +242,7 @@ select.inline { width: auto; max-width: 100%; padding: 6px 10px; font-size: 0.9r
   white-space: nowrap;
 }
 .status.wait { color: var(--slate); }
-.status.review {
+.status.draft {
   color: var(--ink);
   background: linear-gradient(transparent 58%, color-mix(in srgb, var(--marigold) 60%, transparent) 58%);
 }
@@ -311,14 +311,14 @@ select.inline { width: auto; max-width: 100%; padding: 6px 10px; font-size: 0.9r
 .composer { display: grid; gap: 14px; padding: 18px 0 22px; border-top: 1px solid var(--rule); }
 
 /* A grade, set off by a marigold rule rather than a box */
-.review {
+.grade-block {
   display: grid;
   gap: 12px;
   margin-top: 12px;
   padding-left: 14px;
   border-left: 3px solid var(--marigold);
 }
-.review .field input[type="number"] { max-width: 120px; }
+.grade-block .field input[type="number"] { max-width: 120px; }
 .feedback { white-space: pre-wrap; }
 .score-line { font-family: var(--font-mono); font-weight: 600; }
 

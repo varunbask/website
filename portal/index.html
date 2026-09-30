@@ -48,7 +48,7 @@
       <div id="panel-sign-in">
         <h1 class="page-title" tabindex="-1">Sign in</h1>
         <p class="lede">Students, parents, and tutors of VP Education Group sign in here.</p>
-        <form id="sign-in-form" class="stack" novalidate>
+        <form id="sign-in-form" class="stack" method="post" novalidate>
           <label class="field"><span>Email</span>
             <input type="email" name="email" autocomplete="email" required></label>
           <label class="field"><span>Password</span>
@@ -63,7 +63,7 @@
       <div id="panel-sign-up" hidden>
         <h1 class="page-title" tabindex="-1">Create an account</h1>
         <p class="lede">We review every new account. Once it is approved, you will see your work or your child's work here.</p>
-        <form id="sign-up-form" class="stack" novalidate>
+        <form id="sign-up-form" class="stack" method="post" novalidate>
           <fieldset class="field">
             <legend>I am a</legend>
             <div class="segmented">
@@ -96,7 +96,7 @@
       <div id="panel-forgot" hidden>
         <h1 class="page-title" tabindex="-1">Reset your password</h1>
         <p class="lede">Enter your email and we will send you a link to choose a new password.</p>
-        <form id="forgot-form" class="stack" novalidate>
+        <form id="forgot-form" class="stack" method="post" novalidate>
           <label class="field"><span>Email</span>
             <input type="email" name="email" autocomplete="email" required></label>
           <button class="btn btn-primary btn-block" type="submit">Send reset link</button>
