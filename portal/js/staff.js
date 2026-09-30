@@ -5,6 +5,7 @@ import { displayName, one } from './format.js';
 import { renderProgress } from './progress-view.js';
 import { renderTasks } from './staff-tasks.js';
 import { renderUpdates } from './staff-updates.js';
+import { renderSubmissions } from './staff-submissions.js';
 
 const me = await requireRole(['admin', 'tutor']);
 mountHeader(me);
@@ -81,6 +82,7 @@ async function select(id, focus = false) {
   const context = { me, student, onChange };
   await Promise.all([
     renderProgress(document.getElementById('progress'), id),
+    renderSubmissions(document.getElementById('submissions'), context),
     renderTasks(document.getElementById('tasks'), context),
     renderUpdates(document.getElementById('updates'), context),
   ]);
