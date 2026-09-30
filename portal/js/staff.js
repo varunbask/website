@@ -18,6 +18,7 @@ const paneEmpty = document.getElementById('pane-empty');
 
 let students = [];
 let reviewCounts = new Map();
+let loadFailed = false;
 let selectedId = new URLSearchParams(location.search).get('student');
 
 // The database limits a tutor to assigned students; an admin sees everyone
@@ -47,7 +48,9 @@ function renderPicker() {
     }, h('span', {}, displayName(s)), count ? h('span', { class: 'badge' }, `${count} to review`) : null));
   }));
   pickerEmpty.hidden = shown.length > 0;
-  if (!students.length) {
+  if (loadFailed) {
+    pickerEmpty.textContent = 'Students could not be loaded. Refresh to try again.';
+  } else if (!students.length) {
     pickerEmpty.textContent = me.role === 'admin'
       ? 'No students yet. Approve one on the People page.'
       : 'No students are assigned to you yet.';
@@ -59,11 +62,19 @@ function renderPicker() {
 async function onChange() {
   try {
     await loadStudents();
+    loadFailed = false;
   } catch {
     /* keep the old list */
   }
   renderPicker();
   if (selectedId) await renderProgress(document.getElementById('progress'), selectedId);
+}
+
+// A fresh, empty container per selection: a slow load for the previous student paints into a detached node
+function freshSlot(id) {
+  const slot = h('div', { id });
+  document.getElementById(id).replaceWith(slot);
+  return slot;
 }
 
 async function select(id, focus = false) {
@@ -76,15 +87,21 @@ async function select(id, focus = false) {
   renderPicker();
   paneEmpty.hidden = true;
   pane.hidden = false;
+  const slots = {
+    progress: freshSlot('progress'),
+    submissions: freshSlot('submissions'),
+    tasks: freshSlot('tasks'),
+    updates: freshSlot('updates'),
+  };
   document.getElementById('student-name').textContent = displayName(student);
   document.getElementById('student-email').textContent = student.email ?? '';
   if (focus) document.getElementById('student-name').focus();
   const context = { me, student, onChange };
   await Promise.all([
-    renderProgress(document.getElementById('progress'), id),
-    renderSubmissions(document.getElementById('submissions'), context),
-    renderTasks(document.getElementById('tasks'), context),
-    renderUpdates(document.getElementById('updates'), context),
+    renderProgress(slots.progress, id),
+    renderSubmissions(slots.submissions, context),
+    renderTasks(slots.tasks, context),
+    renderUpdates(slots.updates, context),
   ]);
 }
 
@@ -93,8 +110,7 @@ search.addEventListener('input', renderPicker);
 try {
   await loadStudents();
 } catch {
-  pickerEmpty.hidden = false;
-  pickerEmpty.textContent = 'Students could not be loaded. Refresh to try again.';
+  loadFailed = true;
 }
 renderPicker();
 if (selectedId && students.some((s) => s.id === selectedId)) await select(selectedId);
