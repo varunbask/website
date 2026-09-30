@@ -1,1 +1,267 @@
-/* U2. Tasks view and the task checkbox. Prefix: tsk-. Tokens and components come from app.css; no raw hex. */
+/* U2. Tasks view and the task checkbox. Prefix: tsk-. Tokens and components come from app.css; no raw hex.
+
+   label.tsk-check[.is-lg] > input.tsk-box + span.tsk-mark > svg.icon ; (text)
+   span.tsk-glyph[.is-lg].tone-*          read-only (parents)
+   p.tsk-error                            inline error under a row or after the control
+   div.tsk-view > (div.tsk-group | details.tsk-group) > .group-header + ul.row-list.tsk-list
+*/
+
+
+/* 1. The checkbox (spec 5.11) ------------------------------------------------ */
+
+.tsk-check {
+  --tsk-box: 20px;
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.tsk-check > .tsk-box,
+.tsk-check > .tsk-mark { grid-area: 1 / 1; }
+
+.tsk-box {
+  appearance: none;
+  -webkit-appearance: none;
+  display: block;
+  width: var(--tsk-box);
+  height: var(--tsk-box);
+  margin: 0;
+  border: 1.5px solid var(--control);
+  border-radius: var(--r-xs);
+  background-color: var(--surface);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-1) var(--ease-out),
+    border-color var(--dur-1) var(--ease-out),
+    transform var(--dur-1) var(--ease-out),
+    box-shadow var(--dur-1) var(--ease-out);
+}
+.tsk-check:hover > .tsk-box:not(:checked) {
+  border-color: var(--text-2);
+  box-shadow: 0 0 0 3px var(--hover);
+}
+.tsk-box:checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+.tsk-check:hover > .tsk-box:checked { background-color: var(--accent-hover); border-color: var(--accent-hover); }
+.tsk-box:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tsk-check:active > .tsk-box { transform: scale(.94); }
+
+/* The check draws in left to right: the clipping window slides right while the
+   glyph inside slides back by the same amount, so the mark stays put and is
+   revealed (transforms only) */
+.tsk-mark {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  overflow: hidden;
+  color: var(--on-accent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-100%);
+}
+.tsk-mark > .icon {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  stroke-width: 10px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  transform: translateX(100%);
+}
+.tsk-box:checked + .tsk-mark {
+  opacity: 1;
+  transform: none;
+  transition: transform var(--dur-2) var(--ease-out) 40ms;
+}
+.tsk-box:checked + .tsk-mark > .icon {
+  transform: none;
+  transition: transform var(--dur-2) var(--ease-out) 40ms;
+}
+
+/* Large: the drawer's "Mark as done" control */
+.tsk-check.is-lg {
+  --tsk-box: 20px;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  justify-self: start;
+  gap: var(--s-3);
+  width: auto;
+  height: auto;
+  min-height: 44px;
+  padding: var(--s-2) var(--s-4) var(--s-2) var(--s-3);
+  border: 1px solid var(--line-strong);
+  background-color: var(--surface);
+  transition: border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+}
+.tsk-check.is-lg > .tsk-box,
+.tsk-check.is-lg > .tsk-mark { grid-area: auto; }
+.tsk-check.is-lg > .tsk-mark {
+  position: absolute;
+  /* centred on the box: 12px padding (left is measured inside the border), then half of (20 - 14) */
+  left: calc(var(--s-3) + 3px);
+  top: 50%;
+  margin-top: -7px;
+}
+.tsk-check.is-lg:hover { border-color: var(--control); }
+.tsk-check.is-lg:hover > .tsk-box:not(:checked) { box-shadow: none; }
+.tsk-check.is-lg:has(> .tsk-box:checked) { background-color: var(--surface-2); }
+.tsk-check-text {
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+  user-select: none;
+}
+
+/* Read-only glyph (parents) */
+.tsk-glyph {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  color: var(--tone-solid, var(--neutral-solid));
+}
+.tsk-glyph.is-lg {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 32px;
+}
+.tsk-glyph-text {
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+}
+
+/* Inline error under a row (spans the row) or after a standalone control */
+.tsk-error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  margin: 0 0 var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  background-color: var(--danger-bg);
+  color: var(--danger-text);
+  font: 500 13px/18px var(--font-ui);
+}
+.tsk-error > .icon { width: 16px; height: 16px; margin-top: 1px; }
+.row-list > li > .tsk-error { margin: 0 var(--s-2) var(--s-2) 44px; }
+.tsk-check.is-lg + .tsk-error { margin-top: var(--s-2); }
+
+
+/* 2. Task rows: the checkbox over the row's leading cell --------------------- */
+
+/* The label is a sibling of the row link (an input cannot live inside a link).
+   Both are placed in the li's first grid row, so the label sits over the row's
+   emptied leading cell, centred on the same 24px axis as the status glyphs in
+   every other list; an inline error flows into the next grid row */
+.tsk-list > li.has-check > .row { grid-row: 1; }
+.tsk-list > li.has-check > .tsk-check {
+  grid-row: 1;
+  grid-column: 1;
+  align-self: center;
+  justify-self: start;
+  z-index: 1;
+  margin-left: 2px;
+}
+
+/* The title strikes through the moment the box is ticked */
+.tsk-list .row .row-title {
+  transition: color var(--dur-2) var(--ease-out);
+}
+.tsk-list .row.is-done .row-lead { color: var(--neutral-solid); }
+
+/* Done rows sit back a little; the checkbox stays at full strength */
+.tsk-done .tsk-list .row.is-done .row-due { color: var(--text-3); }
+
+@media (hover: hover) {
+  .tsk-list > li.has-check:has(> .tsk-check:hover) > a.row { background-color: var(--hover); }
+  .tsk-list > li.has-check:has(> .tsk-check:hover) + li > .row::before { opacity: 0; }
+  .tsk-list > li.has-check:has(> .tsk-check:hover) > .row::before { opacity: 0; }
+}
+
+@media (max-width: 767.98px) {
+  /* Phones: rows are 64px and the leading cell aligns with the title's first line */
+  .tsk-list > li.has-check > .tsk-check { align-self: start; margin-top: 1px; }
+}
+
+
+/* 3. The view ------------------------------------------------------------------- */
+
+.tsk-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+}
+.tsk-group { display: block; }
+/* The flex gap spaces every group; app.css adds a margin between adjacent
+   <details> groups ("No due date", "Done") that would double it */
+.tsk-view > .group + .group { margin-top: 0; }
+.tsk-group > .group-header { margin-bottom: var(--s-1); }
+
+/* "Every task is done." above the Done group */
+.tsk-clear {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md);
+}
+.tsk-clear-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  color: var(--text-2);
+}
+.tsk-clear-text {
+  max-width: 48ch;
+  font: 400 14px/20px var(--font-ui);
+  color: var(--text-2);
+}
+
+.tsk-quiet {
+  padding: var(--s-2) var(--s-4) var(--s-2) 44px;
+  font: 400 13px/18px var(--font-ui);
+  color: var(--text-3);
+}
+
+.tsk-more {
+  display: flex;
+  padding: var(--s-1) 0 0 36px;
+}
+.tsk-more > .btn { color: var(--text-2); }
+.tsk-more > .btn:hover { color: var(--text); }
+
+
+/* 4. Motion, forced colours ------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .tsk-box,
+  .tsk-check.is-lg { transition: none; }
+  .tsk-check:active > .tsk-box { transform: none; }
+  .tsk-mark,
+  .tsk-mark > .icon,
+  .tsk-box:checked + .tsk-mark,
+  .tsk-box:checked + .tsk-mark > .icon { transform: none; transition: none; }
+  .tsk-list .row .row-title { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .tsk-box { border-color: CanvasText; }
+  .tsk-box:checked { background-color: Highlight; border-color: Highlight; }
+  .tsk-mark { color: HighlightText; }
+  .tsk-check.is-lg,
+  .tsk-clear,
+  .tsk-error { border: 1px solid CanvasText; }
+}

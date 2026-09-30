@@ -83,13 +83,30 @@ export function getUpdates(studentId) {
 // ---------------------------------------------------------------------------
 // Staff workspace: every student the viewer can see, with their tasks and work
 
+// Supabase caps every response at the project's max-rows (1000 by default),
+// so a workspace-wide select pages through with a stable order until a page
+// comes back short. Without this the oldest submissions (first in the review
+// queue) would be cut silently once a workspace passes 1000 rows.
+const PAGE_ROWS = 1000;
+
+async function selectAll(makeQuery) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE_ROWS) {
+    const { data, error } = await makeQuery().range(from, from + PAGE_ROWS - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE_ROWS) return { data: rows, error: null };
+  }
+}
+
 async function loadWorkspace() {
   const [people, tasks, subs] = await Promise.all([
-    sb.from('profiles').select('id, full_name, email').eq('role', 'student'),
-    sb.from('tasks').select('id, student_id, kind, title, due_at, completed_at, created_at'),
-    sb.from('submissions')
+    selectAll(() => sb.from('profiles').select('id, full_name, email').eq('role', 'student').order('id')),
+    selectAll(() => sb.from('tasks').select('id, student_id, kind, title, due_at, completed_at, created_at').order('id')),
+    selectAll(() => sb.from('submissions')
       .select('id, task_id, student_id, file_type, status, error, attempts, status_changed_at, created_at, grade:grades(score, reviewed_at, released_at)')
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })),
   ]);
   for (const result of [people, tasks, subs]) if (result.error) throw result.error;
   return {
@@ -176,6 +193,13 @@ export function invalidate(studentId) {
   }
   workspace = null;
   emit([studentId === null || studentId === undefined ? '*' : String(studentId)]);
+}
+
+// Drops only the cached pending-approval count, without a change event, so a
+// view that just approved someone can refresh the nav badge (refreshNav) and
+// keep its own message on screen
+export function invalidatePending() {
+  pending = null;
 }
 
 // Clears everything (people changes, "Try again" on a page-level error)

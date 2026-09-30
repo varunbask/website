@@ -103,7 +103,11 @@ export function startApp(config) {
   const scopeCtx = () => (scope?.student ? { student: scope.student } : null);
   const scopeName = () => (page === 'parent' || page === 'staff') && scope?.student ? displayName(scope.student) : null;
   const namedScope = (entry, r) => (isNamed(entry, r) ? scopeName() : null);
-  const defaultHash = () => defaultRoute(scope);
+  // The live pending count (admin) wins over the one read at scope load, so
+  // the People default follows an approval without a reload (spec 4.2)
+  const defaultHash = () => defaultRoute(
+    scope && typeof counts.pending === 'number' ? { ...scope, pending: counts.pending } : scope,
+  );
 
   function publishScope() {
     shell.setScope({
@@ -153,7 +157,9 @@ export function startApp(config) {
     scopeLoaded = true;
     if (changedStudent) {
       // Counts for the old student must never show next to the new one
-      counts = { reviewQueue: counts.reviewQueue ?? 0, pending: counts.pending ?? 0 };
+      // (pending stays unknown until counted, so the People default still
+      // reads the count loaded with the scope)
+      counts = { reviewQueue: counts.reviewQueue ?? 0, ...(counts.pending === undefined ? {} : { pending: counts.pending }) };
       fresh = {};
     }
     publishScope();
@@ -267,6 +273,32 @@ export function startApp(config) {
     return true;
   }
 
+  // What identifies the focused control inside the view header or its tabs
+  function headerFocus(headerEl, tabs) {
+    const active = document.activeElement;
+    if (!active || active === document.body || active.tagName === 'H1') return null;
+    const inside = (headerEl?.isConnected && headerEl.contains(active)) || (tabs?.isConnected && tabs.contains(active));
+    if (!inside) return null;
+    return {
+      href: active.getAttribute('href'),
+      key: active.dataset?.focusKey ?? null,
+      label: active.getAttribute('aria-label') ?? active.textContent.trim(),
+      tag: active.tagName,
+    };
+  }
+
+  function restoreHeaderFocus(memo, headerEl, tabs) {
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    const pool = [headerEl, tabs].filter(Boolean)
+      .flatMap((el) => [...el.querySelectorAll('a[href], button, [data-focus-key], [tabindex]')]);
+    const match = (memo.key && pool.find((el) => el.dataset.focusKey === memo.key))
+      || (memo.href && pool.find((el) => el.getAttribute('href') === memo.href))
+      || pool.find((el) => el.tagName === memo.tag
+        && (el.getAttribute('aria-label') ?? el.textContent.trim()) === memo.label);
+    match?.focus({ preventScroll: true });
+  }
+
   function applyDefaults(entry) {
     const named = namedScope(entry, route);
     document.title = documentTitle(viewTitle(entry, route), named);
@@ -322,6 +354,7 @@ export function startApp(config) {
       // Read scroll and focus now, not when the refresh started: the user may
       // have scrolled or tabbed while the data loaded
       const keepKey = activeFocusKey();
+      const hadFocus = Boolean(old && old !== target && old.host.contains(document.activeElement));
       const keepY = window.scrollY;
       if (old && old !== target) {
         // An old view that had not focused its h1 yet hands that on
@@ -336,6 +369,10 @@ export function startApp(config) {
       window.scrollTo(0, keepY);
       if (target.pendingFocus) focusH1(target);
       else if (keepKey) host.querySelector(`[data-focus-key="${cssEscape(keepKey)}"]`)?.focus({ preventScroll: true });
+      // The focused control is gone from the new render (a ticked task that
+      // left the list, a "Try again" that worked): the h1, never <body>
+      const lost = !document.activeElement || document.activeElement === document.body || !document.activeElement.isConnected;
+      if (hadFocus && lost) focusH1(target);
       syncDrawerRow();
     };
 
@@ -409,18 +446,37 @@ export function startApp(config) {
       // Also sets the breadcrumb (crumbs) and document title (docTitle).
       setHeader(opts = {}) {
         if (!alive()) return null;
-        const h1 = h('h1', { class: opts.display ? 'view-title is-display' : 'view-title', tabindex: '-1' }, opts.title ?? '');
+        const h1Class = opts.display ? 'view-title is-display' : 'view-title';
         let lede = null;
         if (isNode(opts.lede)) lede = opts.lede;
         else if (opts.lede) lede = h('p', { class: 'view-lede' }, opts.lede);
         const actions = [].concat(opts.actions ?? []).filter(Boolean);
-        const next = h('header', { class: 'view-header' },
-          opts.lead ?? null,
-          h('div', { class: 'view-heading' }, h1, lede),
-          actions.length ? h('div', { class: 'view-actions' }, actions) : null);
-        if (header?.isConnected) header.replaceWith(next);
-        else host.prepend(next);
-        header = next;
+        const actionsEl = actions.length ? h('div', { class: 'view-actions' }, actions) : null;
+        const oldHeading = header?.isConnected ? header.querySelector(':scope > .view-heading') : null;
+        const oldH1 = oldHeading?.querySelector(':scope > h1');
+        // Focus on a tab or an action that is about to be rebuilt (a second
+        // call once counts arrive) moves to its twin in the new header
+        const refocus = headerFocus(header, tabsEl);
+        if (oldH1) {
+          // A second call updates the header in place: the h1 node (and focus
+          // on it) survives, only its text, the lede, lead and actions change
+          oldH1.className = h1Class;
+          oldH1.textContent = opts.title ?? '';
+          for (const el of [...oldHeading.children]) if (el !== oldH1) el.remove();
+          if (lede) oldHeading.append(lede);
+          for (const el of [...header.children]) if (el !== oldHeading) el.remove();
+          if (opts.lead) oldHeading.before(opts.lead);
+          if (actionsEl) header.append(actionsEl);
+        } else {
+          const h1 = h('h1', { class: h1Class, tabindex: '-1' }, opts.title ?? '');
+          const next = h('header', { class: 'view-header' },
+            opts.lead ?? null,
+            h('div', { class: 'view-heading' }, h1, lede),
+            actionsEl);
+          if (header?.isConnected) header.replaceWith(next);
+          else host.prepend(next);
+          header = next;
+        }
 
         let nextTabs = null;
         if (isNode(opts.tabs)) nextTabs = opts.tabs;
@@ -430,6 +486,7 @@ export function startApp(config) {
         if (tabsEl?.isConnected) tabsEl.remove();
         tabsEl = nextTabs;
         if (tabsEl) header.after(tabsEl);
+        if (refocus) restoreHeaderFocus(refocus, header, tabsEl);
 
         if (opts.docTitle) document.title = documentTitle(opts.docTitle, namedScope(entry, ctx.route));
         if (opts.crumbs) {
@@ -487,6 +544,7 @@ export function startApp(config) {
       audience,
       readOnly,
       scope: scopeCtx(),
+      route: copyRoute(route),
       now: new Date(),
       store,
       toast,
@@ -527,6 +585,7 @@ export function startApp(config) {
     }
     if (staff) {
       jobs.push(store.getWorkspace().then((ws) => {
+        out.students = ws.students;
         out.perStudent = reviewCounts(ws.submissions);
         out.counts.reviewQueue = [...out.perStudent.values()].reduce((a, b) => a + b, 0);
       }).catch(() => {}));
@@ -549,6 +608,9 @@ export function startApp(config) {
     fresh = next.fresh;
     if (staff) {
       perStudent = next.perStudent;
+      // The switcher lists every student the workspace sees, kept in step
+      // with the Students list after a reload of the workspace
+      if (scope?.kind === 'student' && next.students) scope.options = next.students;
       publishScope();
     }
     renderNav();

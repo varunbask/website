@@ -480,7 +480,7 @@ export function setFieldError(fieldEl, text) {
   const target = controlOf(fieldEl.querySelector('input, select, textarea') ?? fieldEl);
   fieldEl.querySelector(':scope > .field-error')?.remove();
   if (text) {
-    fieldEl.append(h('p', { class: 'field-error', id: `${target.id}-error` }, icon('warning-circle'), h('span', {}, text)));
+    fieldEl.append(h('p', { class: 'field-error', id: `${target.id}-error`, role: 'alert' }, icon('warning-circle'), h('span', {}, text)));
     target.setAttribute('aria-invalid', 'true');
   } else {
     target.removeAttribute('aria-invalid');

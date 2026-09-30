@@ -18,6 +18,7 @@
 import { buildHash, withoutDrawer, DRAWER_PARAMS } from './router.js';
 import { one } from './format.js';
 import { todayKey } from './dates.js';
+import { needsReview } from './review-model.js';
 
 export const SITE = 'VP Education Group';
 
@@ -84,10 +85,9 @@ export function defaultCrumbs(entry, route, { scopeName = null } = {}) {
   return path;
 }
 
-// The staff review queue (spec 5.8): AI-graded or failed work with no released grade
-export function needsReview(sub) {
-  return (sub?.status === 'ai_graded' || sub?.status === 'failed') && !one(sub?.grade)?.released_at;
-}
+// The staff review queue (spec 5.8): AI-graded or failed work with no released
+// grade. One rule, owned by review-model.js, so the badge matches the queue.
+export { needsReview };
 
 // Submissions to review per student id
 export function reviewCounts(submissions) {

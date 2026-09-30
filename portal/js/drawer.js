@@ -6,6 +6,7 @@
 //     taskId,            the open= value: a task id, or 'new' (create)
 //     params,            the route params (focus, kind, due, and view params)
 //     me, role, audience, readOnly, scope, now, store, toast, confirm, go,
+//     route,             a copy of the page route ({ view, sub, id, params })
 //     isRefresh,         true when re-rendered after a store change
 //     body,              div.drawer-body content (write into it)
 //     header,            div.drawer-bar-status (pill, draft chip)
@@ -112,6 +113,15 @@ export function initDrawer({ render, onRequestClose } = {}) {
   dialog.addEventListener('click', (e) => {
     if (e.target === dialog && downOnDialog) requestClose();
   });
+  // A file dropped anywhere in the drawer that no drop target handled (the bar,
+  // a near miss) must not open in the tab and lose the drawer
+  const guardDrop = (e) => {
+    if (e.defaultPrevented || ![...(e.dataTransfer?.types ?? [])].includes('Files')) return;
+    e.preventDefault();
+    if (e.type === 'dragover' && e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+  };
+  dialog.addEventListener('dragover', guardDrop);
+  dialog.addEventListener('drop', guardDrop);
 }
 
 export function drawerOpen() {

@@ -1,1 +1,429 @@
-/* U1. Assignment lists, item drawer sections, create/edit form, dropzone. Prefix: asg-. Tokens and components come from app.css; no raw hex. */
+/* U1. Assignment lists, item drawer sections, create/edit form, dropzone. Prefix: asg-. Tokens and components come from app.css; no raw hex.
+   Spec 5.5 (lists), 5.6 (item drawer), 5.7 (create and edit).
+
+   Lists
+     div.asg-list > (div.group-header + ul.row-list) | details.group.asg-group | div.empty-state
+     p.note.asg-note                   Archived explainer above the month groups
+     span.asg-meta > span.new-pill + text   "New" on Graded rows (families)
+
+   Drawer detail
+     div.asg-head > p.drawer-kind + h2.drawer-title + p.note.asg-waiting + dl.asg-facts
+       dl.asg-facts > div.asg-fact > dt + dd (dd may hold span.asg-due-rel.is-warning|is-danger
+       and span.asg-due-full)
+     div.asg-action-error               staff action errors (delete, mark done)
+     section.drawer-section > h3 + ...  Instructions, Grade, Submit, Submissions
+     div.well.asg-grade > div.asg-grade-top (p.asg-score) + p.asg-feedback + div.asg-grade-foot
+     section.asg-submit (+ .is-busy) > div.asg-progress + h3 + form.asg-submit-form
+       label.asg-dropzone (+ .is-over) > input.visually-hidden + span.asg-drop-icon +
+         span.asg-drop-title + span.asg-drop-hint
+       div.asg-file > span.asg-file-icon + span.asg-file-main + .btn
+       div.asg-submit-actions > .btn + span.asg-attempt
+     ol.asg-history > li.asg-sub > (div.asg-sub-row | a.asg-sub-link) > span.asg-sub-icon +
+       span.asg-sub-main + span.asg-sub-status (+ svg.asg-sub-caret) + div.asg-sub-extra
+
+   Drawer form
+     div.asg-form-wrap > h2.drawer-title + form.asg-form > div.field ...
+*/
+
+
+/* Lists ----------------------------------------------------------------- */
+
+.asg-list { min-width: 0; }
+
+.asg-note {
+  margin-bottom: var(--s-3);
+  padding: var(--s-1) var(--s-4) 0;
+}
+.asg-note > span { max-width: 100ch; }
+
+.asg-meta { display: inline; }
+.asg-meta > .new-pill {
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+/* An empty list sits a little apart from the Archived note */
+.asg-note + .empty-state { margin-top: var(--s-2); }
+
+
+/* Drawer: head -------------------------------------------------------------- */
+
+.asg-head {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.asg-head > .drawer-title { margin-top: var(--s-1); }
+.asg-waiting { margin-top: var(--s-3); }
+.asg-waiting.is-danger,
+.asg-waiting.is-danger > .icon { color: var(--danger-text); }
+
+.asg-facts {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--s-2) var(--s-3);
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.asg-fact { display: contents; }
+.asg-fact > dt {
+  font: 400 13px/20px var(--font-ui);
+  color: var(--text-3);
+}
+.asg-fact > dd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  font: 400 14px/20px var(--font-ui);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.asg-due-rel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.asg-due-rel > .icon { width: 14px; height: 14px; }
+.asg-due-rel.is-warning { color: var(--warning-text); }
+.asg-due-rel.is-danger { color: var(--danger-text); }
+.asg-due-rel + .asg-due-full { color: var(--text-2); }
+
+.asg-muted {
+  font: 400 14px/20px var(--font-ui);
+  color: var(--text-3);
+}
+.asg-instructions { color: var(--text); }
+
+.asg-action-error:empty { display: none; }
+
+
+/* Drawer: grade ------------------------------------------------------------- */
+
+.asg-grade { display: flex; flex-direction: column; gap: var(--s-3); }
+.asg-grade-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+}
+.asg-score {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+}
+.asg-score-value {
+  font: var(--t-figure);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.asg-score-max {
+  font: 500 15px/20px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.asg-feedback { color: var(--text); }
+.asg-grade-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--line-strong);
+}
+.asg-grade-by {
+  font: 400 13px/18px var(--font-ui);
+  color: var(--text-3);
+}
+
+
+/* Drawer: submit ------------------------------------------------------------ */
+
+.asg-submit { position: relative; }
+
+/* 2px indeterminate bar along the top of the section while uploading */
+.asg-progress {
+  position: absolute;
+  top: calc(-1 * var(--s-3));
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 1px;
+  background-color: var(--line);
+  opacity: 0;
+  transition: opacity var(--dur-2) var(--ease-out);
+  pointer-events: none;
+}
+.asg-progress-bar {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: 1px;
+  background-color: var(--text-2);
+  transform: translateX(-100%);
+}
+.asg-submit.is-busy .asg-progress { opacity: 1; }
+.asg-submit.is-busy .asg-progress-bar { animation: asg-indeterminate 1.2s var(--ease-sheet) infinite; }
+
+@keyframes asg-indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+.asg-submit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.asg-dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-1);
+  min-height: 120px;
+  padding: var(--s-5) var(--s-4);
+  border: 1.5px dashed var(--control);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
+}
+@media (hover: hover) {
+  .asg-dropzone:hover { border-color: var(--text-2); background-color: var(--surface-2); }
+}
+.asg-dropzone:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-color: var(--accent);
+}
+.asg-dropzone.is-over {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+}
+.asg-drop-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin-bottom: var(--s-1);
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  color: var(--text-2);
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.asg-drop-icon > .icon { width: 20px; height: 20px; }
+.asg-dropzone.is-over .asg-drop-icon { background-color: var(--surface); color: var(--accent-text); }
+.asg-drop-title { font: 500 14px/20px var(--font-ui); color: var(--text); }
+.asg-drop-hint { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
+.asg-submit.is-busy .asg-dropzone { cursor: progress; }
+
+.asg-file {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 10px 10px 10px var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.asg-file-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  color: var(--text-2);
+}
+.asg-file-icon > .icon { width: 20px; height: 20px; }
+.asg-file-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.asg-file-name {
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.asg-file-meta { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
+
+.asg-submit-form textarea.input { min-height: 64px; }
+.asg-submit-error:empty { display: none; }
+
+.asg-submit-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-3);
+}
+.asg-attempt {
+  font: 400 13px/18px var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+
+/* Drawer: task status ------------------------------------------------------- */
+
+.asg-task-status { display: flex; }
+
+
+/* Drawer: submission history ------------------------------------------------ */
+
+/* Stays rendered while empty so screen readers announce what fills it */
+.asg-live { border-radius: var(--r-md); }
+.asg-live:not(:empty) { margin-bottom: var(--s-3); }
+
+.asg-history { display: flex; flex-direction: column; }
+.asg-history > li + li { border-top: 1px solid var(--line); }
+
+.asg-sub-row,
+.asg-sub-link {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--s-3);
+  padding-block: var(--s-3);
+  color: var(--text);
+}
+.asg-sub-link {
+  grid-template-columns: 32px minmax(0, 1fr) auto 16px;
+  margin-inline: calc(-1 * var(--s-2));
+  padding-inline: var(--s-2);
+  border-radius: var(--r-sm);
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+.asg-sub-link:focus-visible { outline-offset: -2px; }
+@media (hover: hover) {
+  .asg-sub-link:hover { background-color: var(--hover); }
+  .asg-sub-link:hover .asg-sub-caret { color: var(--text-2); transform: translateX(2px); }
+}
+.asg-history > li:has(> .asg-sub-link:hover) + li,
+.asg-history > li:has(> .asg-sub-link:hover) { border-top-color: transparent; }
+
+.asg-sub-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  color: var(--text-2);
+}
+.asg-sub-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.asg-sub-title { font: 500 14px/20px var(--font-ui); color: var(--text); }
+.asg-sub-meta {
+  font: 400 13px/18px var(--font-ui);
+  color: var(--text-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.asg-sub-status {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.asg-sub-caret {
+  width: 16px;
+  height: 16px;
+  color: var(--text-3);
+  transition: transform var(--dur-2) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+.asg-sub-extra {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  margin-top: var(--s-2);
+}
+.asg-sub-note { max-width: 65ch; }
+.asg-sub-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font: 400 13px/18px var(--font-ui);
+  color: var(--danger-text);
+  overflow-wrap: anywhere;
+}
+.asg-sub-error > .icon { width: 16px; height: 16px; margin-top: 1px; }
+
+
+/* Drawer: create and edit form ---------------------------------------------- */
+
+.asg-form-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.asg-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  margin-top: var(--s-6);
+}
+.asg-type { align-self: flex-start; }
+.asg-type > label { min-width: 104px; }
+.asg-date { max-width: 240px; }
+.asg-form-errors:empty { display: none; }
+
+
+/* Phones ---------------------------------------------------------------------- */
+
+@media (max-width: 767.98px) {
+  .asg-facts { grid-template-columns: 80px minmax(0, 1fr); }
+  .asg-type { align-self: stretch; }
+  .asg-type > label { flex: 1 1 0; min-width: 0; }
+  .asg-date { max-width: none; }
+  .asg-submit-actions > .btn { flex: 1 1 auto; }
+  .asg-sub-row,
+  .asg-sub-link { align-items: start; }
+  .asg-sub-icon { margin-top: 2px; }
+}
+
+
+/* Reduced motion: a still bar, no caret nudge ------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .asg-submit.is-busy .asg-progress-bar {
+    width: 100%;
+    opacity: .5;
+    transform: none;
+    animation: none;
+  }
+  .asg-sub-link:hover .asg-sub-caret { transform: none; }
+}
+
+
+/* Forced colors --------------------------------------------------------------- */
+
+@media (forced-colors: active) {
+  .asg-dropzone { border-color: CanvasText; }
+  .asg-dropzone.is-over,
+  .asg-dropzone:focus-within { border-color: Highlight; outline-color: Highlight; }
+  .asg-progress-bar { background-color: Highlight; }
+}

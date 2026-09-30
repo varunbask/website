@@ -1,13 +1,601 @@
-// Stub with its final signature (foundation F10). U1 replaces this file.
-// renderItemDrawer(dctx) fills the drawer for open=<taskId> or open=new
-// (see drawer.js for everything dctx carries).
+// The item drawer (spec 5.6 and 5.7): details for an assignment or task, the
+// student's upload, submission history, and for staff create, edit, mark done
+// and delete. The drawer host (drawer.js) owns the dialog; this file fills it.
+//
+// renderItemDrawer(dctx)
+//   dctx.taskId 'new'  the create form (staff only; params kind and due)
+//   dctx.taskId <id>   the item. Staff whose scope does not hold the task (Today,
+//                      the all-students calendar) find its student in the
+//                      workspace and load that student's data.
+//
+// Store changes re-render the detail in place (dctx.onRefresh) so focus and
+// scroll survive. The student's upload section is carried over as is (chosen
+// file, note, busy state) while it still applies; the create and edit forms
+// ignore store changes.
+
 import { h } from './dom.js';
-import { emptyState } from './ui.js';
+import { icon } from './icons.js';
+import { pill, draftChip, emptyState, errorCallout, button, visuallyHidden, timeEl } from './ui.js';
+import { menu } from './overlays.js';
+import { itemStatus, submissionStatus } from './status.js';
+import { dueLabel, dayKey, parseKey, todayKey, relativeTime } from './dates.js';
+import { MAX_SUBMISSIONS } from './buckets.js';
+import { FILE_LABELS } from './labels.js';
+import { displayName, firstName } from './format.js';
+import { staffNames } from './updates-feed.js';
+import { taskCheck } from './task-check.js';
+import { itemForm } from './item-form.js';
+import { submitWorkSection } from './submit-work.js';
+import { sb } from './supabase.js';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const SUBMITTED = 'Work submitted. Your tutor will review it soon.';
+const AT_CAP = 'You’ve used all 5 attempts for this assignment. Message your tutor if you need to send another file.';
+const MISSING = 'This assignment isn’t available. It may have been deleted.';
+const HAS_WORK = 'This assignment has submitted work, so it cannot be deleted.';
+
+const blank = (v) => v === null || v === undefined || v === '';
+const sameId = (a, b) => String(a) === String(b);
+
+// "Oct 5", or "Oct 5, 2025" in another year (business zone)
+function shortDate(iso, now) {
+  const { y, m, d } = parseKey(dayKey(iso));
+  return `${MONTHS[m - 1]} ${d}${y === parseKey(todayKey(now)).y ? '' : `, ${y}`}`;
+}
+
+function fileIcon(type) {
+  if (type === 'application/pdf') return 'file-pdf';
+  if (String(type ?? '').startsWith('image/')) return 'image-square';
+  return 'file-text';
+}
+
+function callout({ tone = 'neutral', icon: iconName = 'info', title, text, role }) {
+  const glyph = icon(iconName, { size: 20 });
+  glyph.classList.add('callout-icon');
+  return h('div', { class: `callout tone-${tone}`, role },
+    glyph,
+    h('div', { class: 'callout-body' },
+      title ? h('p', { class: 'callout-title' }, title) : null,
+      text ? h('p', { class: 'callout-text' }, text) : null));
+}
+
+function section(title, ...children) {
+  return h('section', { class: 'drawer-section' }, h('h3', {}, title), ...children);
+}
 
 export function renderItemDrawer(dctx) {
-  const creating = dctx.taskId === 'new';
-  const kind = dctx.params?.kind === 'task' ? 'Task' : 'Assignment';
-  dctx.body.replaceChildren(h('p', { class: 'drawer-kind' }, creating ? kind : 'Details'));
-  dctx.setTitle(creating ? `New ${kind.toLowerCase()}` : 'This view is being built');
-  dctx.body.append(emptyState({ icon: 'info', text: 'This view is being built.' }));
+  if (dctx.taskId === 'new') return renderCreate(dctx);
+  return renderItem(dctx);
+}
+
+// ---------------------------------------------------------------------------
+// Create (open=new&kind=...&due=...)
+
+async function renderCreate(dctx) {
+  if (dctx.audience !== 'staff' || dctx.readOnly) {
+    paintMissing(dctx);
+    return;
+  }
+  const kind = dctx.params?.kind === 'task' ? 'task' : 'assignment';
+  // The Student select shows without a selected student and on the
+  // all-students calendar, where ?student= may linger from the switcher (spec
+  // 3.6); there it starts on that student but stays visible and changeable.
+  const workspace = dctx.params?.scope === 'all' || dctx.route?.view === 'today';
+  let studentOptions = null;
+  if (!dctx.scope?.student || workspace) {
+    try {
+      const ws = await dctx.store.getWorkspace();
+      studentOptions = ws.students ?? [];
+    } catch (error) {
+      if (!dctx.alive()) return;
+      console.error(error);
+      paintError(dctx, { onRetry: () => dctx.store.invalidate(null) });
+      return;
+    }
+    if (!dctx.alive()) return;
+  }
+  // Keep what the tutor typed through any store change
+  dctx.onRefresh(() => {});
+  const form = itemForm(dctx, {
+    kind,
+    due: dctx.params?.due,
+    studentOptions,
+    selectedStudent: dctx.scope?.student?.id ?? null,
+  });
+  dctx.header.replaceChildren();
+  dctx.headerActions.replaceChildren();
+  dctx.body.replaceChildren(form);
+  dctx.setTitle(form.dataset.title);
+}
+
+// ---------------------------------------------------------------------------
+// Shared states
+
+function paintMissing(dctx) {
+  dctx.header.replaceChildren();
+  dctx.headerActions.replaceChildren();
+  dctx.setFooter(null);
+  dctx.body.replaceChildren(
+    h('h2', { class: 'drawer-title', tabindex: '-1' }, 'Not available'),
+    emptyState({ icon: 'info', text: MISSING, action: { label: 'Close', onClick: () => dctx.close() } }),
+  );
+  dctx.setTitle('Not available');
+}
+
+function paintError(dctx, { onRetry }) {
+  dctx.header.replaceChildren();
+  dctx.headerActions.replaceChildren();
+  dctx.setFooter(null);
+  dctx.body.replaceChildren(
+    h('h2', { class: 'drawer-title', tabindex: '-1' }, 'Details'),
+    errorCallout({
+      title: 'We couldn’t load this assignment.',
+      text: 'Check your connection and try again.',
+      onRetry,
+    }),
+  );
+  dctx.setTitle('Details');
+}
+
+// ---------------------------------------------------------------------------
+// Data
+
+// { data, task, item, studentId, student, crossScope } or null when unknown
+async function locate(dctx, now) {
+  const { store } = dctx;
+  const id = dctx.taskId;
+  const staff = dctx.audience === 'staff';
+  const scoped = dctx.scope?.student ?? null;
+  const derive = (data) => store.itemsFor(data, { now, audience: dctx.audience, viewerId: dctx.me?.id })
+    .find((i) => sameId(i.task.id, id)) ?? null;
+
+  if (scoped) {
+    const data = await store.getStudentData(scoped.id);
+    const item = derive(data);
+    if (item) return { data, item, task: item.task, studentId: scoped.id, student: scoped, crossScope: false };
+  }
+  if (!staff) return null;
+
+  const ws = await store.getWorkspace();
+  const summary = (ws.tasks ?? []).find((t) => sameId(t.id, id));
+  if (!summary) return null;
+  const data = await store.getStudentData(summary.student_id);
+  const item = derive(data);
+  if (!item) return null;
+  const student = (ws.students ?? []).find((s) => sameId(s.id, summary.student_id)) ?? null;
+  return {
+    data, item, task: item.task, studentId: summary.student_id, student,
+    crossScope: !scoped || !sameId(scoped.id, summary.student_id),
+  };
+}
+
+// The grade to show: families the newest released one; staff the latest in any
+// state, else the newest released one. previous: it belongs to an older attempt.
+function gradeToShow(item, audience) {
+  const hasContent = (g) => g && (!blank(g.score) || !blank(g.feedback));
+  if (audience === 'staff' && hasContent(item.grade)) return { sub: item.latest, grade: item.grade, previous: false };
+  const sub = item.subs.find((s) => s.grade?.released_at && hasContent(s.grade));
+  if (!sub) return null;
+  return { sub, grade: sub.grade, previous: sub !== item.latest };
+}
+
+// ---------------------------------------------------------------------------
+// Detail
+
+function renderItem(dctx) {
+  // flash: the next paint shows "Work submitted." (set right before the redraw)
+  // focusTitle: a paint still owes the title focus (survives a superseded paint)
+  const state = { mode: 'detail', seq: 0, flash: false, focusTitle: false };
+
+  async function paint({ refresh = false, focusTitle = false } = {}) {
+    const my = ++state.seq;
+    const now = new Date();
+    const current = () => dctx.alive() && my === state.seq && state.mode === 'detail';
+    let found;
+    try {
+      found = await locate(dctx, now);
+    } catch (error) {
+      if (!current()) return;
+      console.error(error);
+      paintError(dctx, { onRetry: () => dctx.store.invalidate(dctx.scope?.student?.id ?? null) });
+      return;
+    }
+    if (!current()) return;
+    if (!found) {
+      paintMissing(dctx);
+      return;
+    }
+
+    const shown = gradeToShow(found.item, dctx.audience);
+    let names = null;
+    if (shown?.grade?.reviewed_by) {
+      try {
+        names = await staffNames();
+      } catch {
+        names = null;
+      }
+      if (!current()) return;
+    }
+
+    // Where focus was, so a refresh can put it back
+    const active = document.activeElement;
+    const inBody = Boolean(active && dctx.body.contains(active));
+    const inMenu = Boolean(active && dctx.headerActions.contains(active));
+    const keepKey = refresh && inBody ? active.dataset?.focusKey ?? null : null;
+    const caret = inBody && typeof active.selectionStart === 'number'
+      ? { start: active.selectionStart, end: active.selectionEnd, dir: active.selectionDirection }
+      : null;
+
+    const flash = state.flash;
+    state.flash = false;
+    const wantTitle = focusTitle || state.focusTitle;
+    state.focusTitle = false;
+
+    // The upload section in the drawer now: reused on a refresh unless a
+    // submission just landed, so the chosen file and typed note survive
+    const keepSubmit = refresh && !flash ? dctx.body.querySelector('.asg-submit') : null;
+
+    const view = buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, actions: { enterEdit, toggleDone, remove, submitted } });
+    dctx.header.replaceChildren(...view.status);
+    dctx.headerActions.replaceChildren(...view.actions);
+    dctx.setFooter(null);
+    dctx.body.replaceChildren(...view.nodes);
+    dctx.setTitle(found.task.title || 'Untitled');
+    state.found = found;
+
+    if (view.live) {
+      // Filled a moment after insertion so screen readers announce it
+      setTimeout(() => {
+        if (!view.live.isConnected) return;
+        view.live.append(callout({ tone: 'success', icon: 'check-circle', title: SUBMITTED }));
+        view.live.scrollIntoView?.({ block: 'nearest' });
+      }, 60);
+    }
+
+    const title = dctx.body.querySelector('h2.drawer-title');
+    // Focus that fell to the page (its element was removed) comes back here
+    const focusLost = () => !document.activeElement || document.activeElement === document.body;
+    if (wantTitle) {
+      title?.focus();
+    } else if (refresh) {
+      const esc = globalThis.CSS?.escape ?? ((s) => s);
+      const again = keepKey ? dctx.body.querySelector(`[data-focus-key="${esc(keepKey)}"]`) : null;
+      if (again) {
+        again.focus({ preventScroll: true });
+      } else if (inBody && active.isConnected && dctx.body.contains(active)) {
+        // A kept node (the upload section) was moved: moving drops focus
+        if (document.activeElement !== active) {
+          active.focus({ preventScroll: true });
+          if (caret) {
+            try { active.setSelectionRange(caret.start, caret.end, caret.dir ?? 'none'); } catch { /* not a text field */ }
+          }
+        }
+      } else if (inMenu && dctx.headerActions.querySelector('button')) {
+        dctx.headerActions.querySelector('button').focus();
+      } else if ((inBody || inMenu || focusLost()) && !dctx.body.contains(document.activeElement)) {
+        (view.live ?? title)?.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  // Staff actions ---------------------------------------------------------
+
+  function showActionError(text) {
+    const slot = dctx.body.querySelector('.asg-action-error');
+    if (!slot) return;
+    slot.replaceChildren(callout({ tone: 'danger', icon: 'warning-circle', title: text, role: 'alert' }));
+  }
+
+  function enterEdit() {
+    const found = state.found;
+    if (!found) return;
+    state.mode = 'edit';
+    state.seq += 1;
+    const status = itemStatus(found.item, { audience: dctx.audience });
+    dctx.header.replaceChildren(pill(status));
+    dctx.headerActions.replaceChildren();
+    const form = itemForm(dctx, {
+      task: found.task,
+      onCancel: backToDetail,
+      onSaved: backToDetail,
+    });
+    dctx.body.replaceChildren(form);
+    dctx.body.scrollTop = 0;
+    dctx.setTitle(form.dataset.title);
+    form.querySelector('input[name="title"]')?.focus();
+  }
+
+  function backToDetail() {
+    state.mode = 'detail';
+    // Kept on state: the store change a save causes supersedes this paint
+    state.focusTitle = true;
+    dctx.setFooter(null);
+    paint();
+  }
+
+  async function toggleDone() {
+    const found = state.found;
+    if (!found) return;
+    const done = !found.task.completed_at;
+    const result = await sb.from('tasks')
+      .update({ completed_at: done ? new Date().toISOString() : null })
+      .eq('id', found.task.id);
+    if (result.error) {
+      console.error(result.error);
+      if (dctx.alive()) showActionError('We couldn’t update that task. Try again.');
+      return;
+    }
+    dctx.store.invalidate(found.studentId);
+    dctx.toast({ text: done ? 'Marked done.' : 'Marked not done.' });
+  }
+
+  async function remove() {
+    const found = state.found;
+    if (!found) return;
+    const title = found.task.title || 'Untitled';
+    const who = found.student ? `${firstName(displayName(found.student))}’s` : 'the student’s';
+    const ok = await dctx.confirm({
+      title: `Delete “${title}”?`,
+      body: `It will be removed from ${who} portal. This can’t be undone.`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok || !dctx.alive()) return;
+    const result = await sb.from('tasks').delete().eq('id', found.task.id);
+    if (result.error) {
+      console.error(result.error);
+      if (dctx.alive()) {
+        showActionError(result.error.code === '23503' ? HAS_WORK : 'We couldn’t delete this. Try again.');
+      }
+      return;
+    }
+    // Ignore the refresh this causes: the drawer is on its way out
+    state.mode = 'deleted';
+    state.seq += 1;
+    dctx.close();
+    dctx.store.invalidate(found.studentId);
+    dctx.toast({ text: `Deleted “${title}”.` });
+  }
+
+  // Called by the upload once the submission exists: redraw, then say so
+  function submitted(studentId) {
+    state.flash = true;
+    dctx.store.invalidate(studentId);
+  }
+
+  // Store changes re-render the detail in place; edit mode keeps its input
+  dctx.onRefresh(() => {
+    if (state.mode === 'detail') paint({ refresh: true });
+  });
+
+  // A file dropped outside the upload section must not open in the tab
+  const guardDrop = (e) => {
+    if (![...(e.dataTransfer?.types ?? [])].includes('Files')) return;
+    if (e.target instanceof Element && e.target.closest('.asg-submit')) return;
+    e.preventDefault();
+    if (e.type === 'dragover' && e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+  };
+  dctx.body.addEventListener('dragover', guardDrop, { signal: dctx.signal });
+  dctx.body.addEventListener('drop', guardDrop, { signal: dctx.signal });
+
+  return paint();
+}
+
+// Builds the detail content. Returns { status, actions, nodes, live }.
+function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, actions }) {
+  const { task, item, student, crossScope } = found;
+  const audience = dctx.audience;
+  const staff = audience === 'staff';
+  const isStudent = dctx.role === 'student' && !dctx.readOnly;
+  const parent = dctx.role === 'parent';
+  const isTask = task.kind === 'task';
+  const status = itemStatus(item, { audience });
+
+  // Bar: pill (and the draft score for staff); staff menu
+  const statusNodes = [pill(status)];
+  if (staff && item.bucket === 'in-review' && item.grade && !item.grade.released_at && !blank(item.grade.score)) {
+    statusNodes.push(draftChip(item.grade.score));
+  }
+  const actionNodes = [];
+  if (staff) {
+    actionNodes.push(menu({
+      label: `More actions for ${task.title || 'this item'}`,
+      items: [
+        { label: 'Edit', icon: 'pencil-simple', onSelect: actions.enterEdit },
+        isTask
+          ? (task.completed_at
+            ? { label: 'Mark not done', icon: 'arrow-counter-clockwise', onSelect: actions.toggleDone }
+            : { label: 'Mark done', icon: 'check-circle', onSelect: actions.toggleDone })
+          : null,
+        { separator: true },
+        { label: 'Delete', icon: 'trash', tone: 'danger', onSelect: actions.remove },
+      ],
+    }));
+  }
+
+  const nodes = [headBlock(dctx, found, status, { now, showStudent: staff && crossScope, student })];
+  nodes.push(h('div', { class: 'asg-action-error' }));
+
+  // 1. Instructions
+  nodes.push(section('Instructions', task.details
+    ? h('p', { class: 'read is-pre asg-instructions' }, task.details)
+    : h('p', { class: 'asg-muted' }, 'No extra instructions.')));
+
+  if (isTask) {
+    // Students tick it off here; parents see where it stands
+    if (isStudent || parent) {
+      nodes.push(h('section', { class: 'drawer-section asg-task-status' },
+        h('h3', { class: 'visually-hidden' }, 'Status'),
+        taskCheck(item, { ...dctx, scope: dctx.scope ?? { student: { id: found.studentId } } }, { size: 'lg' })));
+    }
+    return { status: statusNodes, actions: actionNodes, nodes, live: null };
+  }
+
+  // 2. Grade
+  if (shown) nodes.push(gradeSection(shown, { staff, names, now }));
+
+  // 3. Submit (students). A section already on screen is kept while it still
+  // fits this item, and always while its upload is running.
+  const kept = keepSubmit
+    && keepSubmit.dataset.taskId === String(task.id)
+    && (keepSubmit.dataset.sending === 'true'
+      || (item.canSubmit && item.attempts < MAX_SUBMISSIONS && keepSubmit.dataset.attempts === String(item.attempts)))
+    ? keepSubmit : null;
+  if (isStudent && kept) {
+    nodes.push(kept);
+  } else if (isStudent) {
+    if (item.attempts >= MAX_SUBMISSIONS) {
+      nodes.push(section('Submit your work', callout({ tone: 'neutral', icon: 'info', text: AT_CAP })));
+    } else if (item.canSubmit) {
+      nodes.push(submitWorkSection(dctx, item, {
+        onSubmitted: () => actions.submitted(found.studentId),
+      }));
+    }
+  }
+
+  // 4. Submission history
+  let live = null;
+  if (item.subs.length || flash) {
+    live = flash ? h('div', { class: 'asg-live', role: 'status', tabindex: '-1' }) : null;
+    nodes.push(historySection(item, { staff, isStudent, now, live }));
+  } else if (!isStudent) {
+    nodes.push(section('Submissions', h('p', { class: 'asg-muted' }, 'Nothing submitted yet.')));
+  }
+
+  return { status: statusNodes, actions: actionNodes, nodes, live };
+}
+
+// Kind, title, waiting line and the facts list (due, student, assigned)
+function headBlock(dctx, found, status, { now, showStudent, student }) {
+  const { task, item } = found;
+  const family = dctx.audience !== 'staff';
+  const parent = dctx.role === 'parent';
+
+  let waiting = null;
+  if (family && task.kind !== 'task' && item.bucket === 'in-review') {
+    if (status.key === 'needs-attention') {
+      waiting = h('p', { class: 'note asg-waiting is-danger' }, icon('warning-circle'),
+        h('span', {}, 'Needs attention. Your tutor will take a look.'));
+    } else {
+      waiting = h('p', { class: 'note asg-waiting' }, icon('hourglass-medium'),
+        h('span', {}, parent ? 'Waiting for the tutor to review it.' : 'Waiting for your tutor to review it.'));
+    }
+  }
+
+  const facts = h('dl', { class: 'asg-facts' });
+  const fact = (label, ...value) => facts.append(h('div', { class: 'asg-fact' }, h('dt', {}, label), h('dd', {}, ...value)));
+
+  if (task.due_at) {
+    const due = dueLabel(task.due_at, now);
+    const open = item.dueState !== 'done';
+    const tone = open ? due.tone : null;
+    fact('Due',
+      tone ? h('span', { class: `asg-due-rel is-${tone}` }, tone === 'danger' ? icon('warning-circle') : icon('clock'), h('span', {}, due.text)) : null,
+      h('span', { class: 'asg-due-full' }, due.full.replace(/^Due /, '')));
+  } else {
+    fact('Due', h('span', { class: 'asg-muted' }, 'No due date'));
+  }
+  if (showStudent && student) fact('Student', displayName(student));
+  if (task.kind === 'task' && task.completed_at) fact('Done', timeEl(task.completed_at, now));
+  if (task.created_at) {
+    const assigned = timeEl(task.created_at, now);
+    assigned.textContent = shortDate(task.created_at, now);
+    fact('Assigned', assigned);
+  }
+
+  return h('div', { class: 'asg-head' },
+    h('p', { class: 'drawer-kind' }, task.kind === 'task' ? 'Task' : 'Assignment'),
+    h('h2', { class: 'drawer-title', tabindex: '-1' }, task.title || 'Untitled'),
+    waiting,
+    facts);
+}
+
+// The grade well: score, feedback, who graded it and when
+function gradeSection({ sub, grade, previous }, { staff, names, now }) {
+  const released = Boolean(grade.released_at);
+  const by = grade.reviewed_by ? names?.get?.(grade.reviewed_by) : null;
+  let foot;
+  if (released) {
+    const when = shortDate(grade.released_at, now);
+    foot = by ? `Graded by ${firstName(by)} on ${when}` : `Graded ${when}`;
+  } else {
+    foot = 'Not released yet. Only staff can see this.';
+  }
+
+  const top = h('div', { class: 'asg-grade-top' });
+  if (!blank(grade.score)) {
+    top.append(h('p', { class: 'asg-score' },
+      h('span', { class: 'asg-score-value', 'aria-hidden': 'true' }, String(grade.score)),
+      h('span', { class: 'asg-score-max', 'aria-hidden': 'true' }, '/100'),
+      visuallyHidden(`Score ${grade.score} out of 100`)));
+  }
+  if (staff) top.append(pill(submissionStatus(sub, grade, { audience: 'staff' })));
+
+  const well = h('div', { class: 'well asg-grade' },
+    top.childElementCount ? top : null,
+    grade.feedback
+      ? h('p', { class: 'read is-pre asg-feedback' }, grade.feedback)
+      : h('p', { class: 'asg-muted' }, 'No written feedback.'),
+    h('div', { class: 'asg-grade-foot' },
+      h('p', { class: 'asg-grade-by' }, foot),
+      staff && !released
+        ? button({ label: 'Open in review', size: 'sm', variant: 'secondary', iconEnd: 'caret-right', href: `#/review/${sub.id}` })
+        : null));
+
+  return section(previous ? 'Previous grade' : 'Grade', well);
+}
+
+// Submission history, newest first
+function historySection(item, { staff, isStudent, now, live }) {
+  const total = item.subs.length;
+  const title = `${isStudent ? 'Your submissions' : 'Submissions'} (${total} of ${MAX_SUBMISSIONS})`;
+  const audience = staff ? 'staff' : 'family';
+
+  const entries = item.subs.map((sub, i) => {
+    const n = total - i;
+    const status = submissionStatus(sub, sub.grade, { audience });
+    const kind = FILE_LABELS[sub.file_type] ?? 'File';
+    const draft = staff && sub.grade && !sub.grade.released_at && !blank(sub.grade.score) ? draftChip(sub.grade.score) : null;
+
+    const inner = [
+      h('span', { class: 'asg-sub-icon', 'aria-hidden': 'true' }, icon(fileIcon(sub.file_type))),
+      h('span', { class: 'asg-sub-main' },
+        h('span', { class: 'asg-sub-title' }, `Attempt ${n}`),
+        h('span', { class: 'asg-sub-meta' }, `${kind}, `, timeEl(sub.created_at, now))),
+      h('span', { class: 'asg-sub-status' }, draft, pill(status)),
+    ];
+    const extra = [
+      sub.note ? h('blockquote', { class: 'quote asg-sub-note' }, sub.note) : null,
+      sub.error && (staff ? sub.status === 'failed' : status.key === 'needs-attention')
+        ? h('p', { class: 'asg-sub-error' }, icon('warning-circle'), h('span', {}, sub.error))
+        : null,
+    ].filter(Boolean);
+
+    if (staff) {
+      const caret = icon('caret-right');
+      caret.classList.add('asg-sub-caret');
+      // A short name: the note and any error stay readable but out of the label
+      const label = [
+        `Attempt ${n}`,
+        kind,
+        relativeTime(sub.created_at, now).text,
+        draft ? draft.textContent : null,
+        status.label,
+      ].filter(Boolean).join(', ');
+      return h('li', { class: 'asg-sub' },
+        h('a', {
+          class: 'asg-sub-link',
+          href: `#/review/${sub.id}`,
+          'aria-label': label,
+          dataset: { focusKey: `sub-${sub.id}` },
+        }, ...inner, caret, extra.length ? h('div', { class: 'asg-sub-extra' }, extra) : null));
+    }
+    return h('li', { class: 'asg-sub' },
+      h('div', { class: 'asg-sub-row' }, ...inner, extra.length ? h('div', { class: 'asg-sub-extra' }, extra) : null));
+  });
+
+  return h('section', { class: 'drawer-section asg-history-section' },
+    h('h3', {}, title),
+    live,
+    total ? h('ol', { class: 'asg-history', reversed: true }, entries) : null);
 }

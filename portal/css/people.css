@@ -1,1 +1,565 @@
-/* U7. Students and People views. Prefix: stu-, ppl-. Tokens and components come from app.css; no raw hex. */
+/* U7. Students and People views. Prefix: stu-, ppl-. Tokens and components come from app.css; no raw hex.
+   Spec: docs/superpowers/specs/2026-09-30-portal-ui-redesign.md, sections 5.13 and 5.14.
+
+   Students (#/students)
+     div.stu-body (a size container named "stu")
+       div.stu-toolbar > div.stu-search (label + .input-icon) + p.stu-count
+       div.stu-results > div.stu-table > div.stu-scroll >
+         div.stu-head[aria-hidden] (column labels) + ul.stu-list > li > a.stu-row
+           span.stu-who (avatar + span.stu-id > .stu-name + .stu-email)
+           span.stu-cell.stu-review (> .stu-review-badge) | .is-empty
+           span.stu-cell.stu-next | .stu-last | .stu-avg > span.stu-label + span.stu-value
+           svg.stu-caret
+     Stacked below 1024px (labels shown in each cell); a column grid with a
+     header row at 1024px and up when the panel is at least 680px wide. The
+     grid's minimum (tracks 556 + gaps 60 + row padding and margin 32 = 648px)
+     fits a 680px panel, so it never scrolls sideways at 1024 with the sidebar
+     open, with or without a classic scrollbar (the panel is 718 or 703px).
+
+   People (people.html)
+     div.ppl-message-slot > svg.ppl-message-icon.is-success + .is-error + p#people-message
+       (the p is never hidden, so screen readers hear its first change; the
+       slot collapses to nothing while the p is empty)
+     div#people.ppl-root
+       Waiting: ul.ppl-cards > li.card.ppl-card
+         div.ppl-card-head (avatar 40, .ppl-id, time.ppl-signed)
+         div.ppl-card-body (pill, blockquote.quote.ppl-note)
+         div.ppl-approve (label, .select, .btn)
+       Everyone: div.ppl-toolbar (.ppl-search, .ppl-filter-wrap > .segmented.ppl-filter)
+         div.ppl-everyone > section.ppl-group > (.group-header) + ul.ppl-list > li.ppl-person
+           div.ppl-person-head (avatar, .ppl-id > .ppl-name > .ppl-name-text + .ppl-you,
+             .ppl-controls > .ppl-open + .ppl-role)
+           div.ppl-links > div.ppl-link-group x2 (students only)
+*/
+
+
+/* Students ------------------------------------------------------------------ */
+
+.stu-body { container: stu / inline-size; }
+
+.stu-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-4);
+}
+.stu-search { flex: 1 1 260px; max-width: 360px; min-width: 0; }
+.stu-count {
+  font: var(--t-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.stu-table {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  overflow: hidden;
+}
+/* The column grid scrolls sideways inside its own box if the panel gets too
+   narrow for it (200% zoom); stacked rows never need to */
+.stu-scroll { min-width: 0; }
+.stu-head { display: none; }
+
+.stu-list { padding: var(--s-1) 0; }
+.stu-list > li { position: relative; }
+.stu-list > li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--s-4);
+  right: var(--s-4);
+  height: 1px;
+  background-color: var(--line);
+  pointer-events: none;
+  transition: opacity var(--dur-1) var(--ease-out);
+}
+.stu-list > li:has(> .stu-row:hover)::before,
+.stu-list > li:has(> .stu-row:hover) + li::before { opacity: 0; }
+
+/* Stacked rows (default): name and review load, then the three figures */
+.stu-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1.4fr) minmax(0, 1fr) auto 16px;
+  grid-template-areas:
+    "who  who  who  review caret"
+    ".    next last avg    caret";
+  align-items: center;
+  gap: var(--s-3);
+  margin: 0 var(--s-1);
+  padding: 14px var(--s-3);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+.stu-row:focus-visible { outline-offset: -2px; }
+@media (hover: hover) {
+  .stu-row:hover { background-color: var(--hover); }
+}
+
+.stu-who {
+  grid-area: who;
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+}
+.stu-id { display: flex; flex-direction: column; min-width: 0; }
+.stu-name {
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.stu-email {
+  font: var(--t-meta);
+  color: var(--text-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.stu-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stu-review { grid-area: review; align-items: flex-end; }
+.stu-review.is-empty { display: none; }
+.stu-next { grid-area: next; }
+.stu-last { grid-area: last; }
+.stu-avg { grid-area: avg; }
+
+.stu-label {
+  font: var(--t-caption);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.stu-value {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font: 500 13px/18px var(--font-ui);
+  color: var(--text-2);
+}
+.stu-value > * { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.stu-next-title { color: var(--text); }
+.stu-next-due {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.stu-next-due.is-warning { color: var(--warning-text); font-weight: 500; }
+.stu-next-due.is-danger { color: var(--danger-text); font-weight: 500; }
+.stu-none { font-weight: 400; color: var(--text-3); }
+.stu-avg-value {
+  font: 500 14px/18px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.stu-review-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background-color: var(--surface-2);
+  color: var(--text);
+  font: var(--t-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.stu-caret {
+  grid-area: caret;
+  width: 16px;
+  height: 16px;
+  color: var(--text-3);
+  transition: transform var(--dur-2) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+@media (hover: hover) {
+  .stu-row:hover .stu-caret { color: var(--text-2); }
+}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .stu-row:hover .stu-caret { transform: translateX(2px); }
+}
+
+/* Phones: next due gets the full width, the other two share a line */
+@media (max-width: 767.98px) {
+  .stu-search { flex-basis: 100%; max-width: none; }
+  .stu-row {
+    grid-template-columns: 32px minmax(0, 1fr) auto 16px;
+    grid-template-areas:
+      "who  who  review caret"
+      ".    next next   caret"
+      ".    last avg    caret";
+    row-gap: var(--s-3);
+    padding-block: var(--s-4);
+  }
+  .stu-review { justify-self: end; }
+  .stu-name { font-size: 15px; line-height: 22px; }
+}
+
+/* Column grid with a header row: 1024px and up, when the panel has the room */
+@media (min-width: 1024px) {
+  @container stu (min-width: 680px) {
+    .stu-head,
+    .stu-row {
+      grid-template-columns:
+        minmax(144px, 1.5fr) minmax(76px, .5fr) minmax(132px, 1.5fr)
+        minmax(92px, 1fr) minmax(96px, .7fr) 16px;
+      grid-template-areas: "who review next last avg caret";
+      column-gap: var(--s-3);
+    }
+    .stu-scroll {
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-x: contain;
+      scrollbar-width: thin;
+    }
+    .stu-head,
+    .stu-list { min-width: 648px; }
+    .stu-head {
+      display: grid;
+      align-items: center;
+      height: 40px;
+      margin: 0 var(--s-1);
+      padding: 0 var(--s-3);
+      border-bottom: 1px solid var(--line);
+      font: var(--t-caption);
+      color: var(--text-3);
+      white-space: nowrap;
+    }
+    .stu-col { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .stu-col-2 { text-align: start; }
+    .stu-row { min-height: 64px; padding-block: var(--s-3); }
+    .stu-label { display: none; }
+    .stu-review { align-items: flex-start; }
+    .stu-review.is-empty { display: flex; }
+  }
+}
+
+
+/* People: the message banner ------------------------------------------------ */
+
+.ppl-message-slot {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s-3);
+  margin-bottom: var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-md);
+  background-color: var(--surface-2);
+  color: var(--text);
+  scroll-margin-block: 96px;
+}
+.ppl-message-slot:has(> .ppl-message:empty) {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background-color: transparent;
+}
+.ppl-message-slot:has(> .ppl-message.success) { background-color: var(--success-bg); }
+.ppl-message-slot:has(> .ppl-message.error) { background-color: var(--danger-bg); }
+.ppl-message-slot > svg.ppl-message-icon { display: none; grid-column: 1; width: 20px; height: 20px; }
+.ppl-message-slot:has(> .ppl-message.success) > svg.ppl-message-icon.is-success { display: block; color: var(--success-text); }
+.ppl-message-slot:has(> .ppl-message.error) > svg.ppl-message-icon.is-error { display: block; color: var(--danger-text); }
+.ppl-message {
+  grid-column: 2;
+  font: 500 14px/20px var(--font-ui);
+  overflow-wrap: anywhere;
+}
+.ppl-message.success { color: var(--success-text); }
+.ppl-message.error { color: var(--danger-text); }
+
+
+/* People: Waiting for approval ---------------------------------------------- */
+
+.ppl-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  align-items: start;
+  gap: var(--s-4);
+}
+.ppl-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.ppl-card-head {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-3);
+}
+.ppl-id { display: flex; flex-direction: column; min-width: 0; }
+.ppl-card-name {
+  font: 600 15px/22px var(--font-ui);
+  letter-spacing: -0.005em;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ppl-email {
+  font: var(--t-meta);
+  color: var(--text-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ppl-signed {
+  align-self: start;
+  margin-top: 2px;
+  font: var(--t-meta);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.ppl-card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-3);
+}
+.ppl-note { width: 100%; max-width: 65ch; }
+.ppl-approve {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  margin-top: auto;
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.ppl-approve-label {
+  font: 500 13px/18px var(--font-ui);
+  color: var(--text-2);
+}
+.ppl-approve > .select { flex: 0 1 148px; }
+.ppl-approve > .btn { margin-left: auto; }
+
+@media (max-width: 767.98px) {
+  .ppl-card-head { grid-template-columns: 40px minmax(0, 1fr); }
+  .ppl-signed { grid-column: 2; margin-top: -8px; }
+  .ppl-approve > .select { flex: 1 1 140px; }
+  .ppl-approve > .btn { flex: 1 1 100%; margin-left: 0; }
+}
+
+
+/* People: Everyone ------------------------------------------------------------ */
+
+.ppl-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3) var(--s-4);
+  margin-bottom: var(--s-5);
+}
+.ppl-search { flex: 1 1 240px; max-width: 320px; min-width: 0; }
+.ppl-filter-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.ppl-filter-wrap::-webkit-scrollbar { display: none; }
+.ppl-seg-count {
+  margin-left: 6px;
+  font: 400 12px/16px var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.ppl-filter > button[aria-pressed="true"] .ppl-seg-count { color: var(--text-2); }
+
+@media (max-width: 767.98px) {
+  .ppl-search { flex-basis: 100%; max-width: none; }
+  .ppl-filter-wrap { flex: 1 1 100%; }
+  .ppl-filter { display: flex; width: 100%; min-width: max-content; }
+  .ppl-filter > button { flex: 1 0 auto; padding: 0 8px; }
+  .ppl-seg-count { display: none; }
+}
+
+.ppl-group + .ppl-group { margin-top: var(--s-6); }
+.ppl-group > .group-header { margin-bottom: var(--s-1); }
+
+.ppl-list {
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.ppl-person {
+  position: relative;
+  padding: 14px var(--s-4);
+}
+.ppl-person + .ppl-person::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--s-4);
+  right: var(--s-4);
+  height: 1px;
+  background-color: var(--line);
+}
+.ppl-person.is-student { padding-block: var(--s-4); }
+
+.ppl-person-head {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-3);
+}
+.ppl-name {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+}
+.ppl-name-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ppl-you {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  font: var(--t-caption);
+  line-height: 16px;
+  color: var(--text-2);
+}
+.ppl-detail {
+  margin-top: var(--s-1);
+  font: 400 13px/18px var(--font-ui);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.ppl-detail.is-empty { color: var(--text-3); }
+
+.ppl-controls {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+}
+.ppl-role {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--s-1);
+}
+.ppl-role > .select { width: 132px; }
+.ppl-self-note {
+  max-width: 180px;
+  font: 400 12px/16px var(--font-ui);
+  color: var(--text-3);
+  text-align: end;
+}
+.ppl-open > .icon { color: var(--text-3); }
+
+/* Tutors and Parents for a student, aligned with the name */
+.ppl-links {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-4) var(--s-6);
+  margin-top: var(--s-4);
+  padding-left: 44px;
+}
+.ppl-link-group { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.ppl-link-label {
+  font: var(--t-caption);
+  color: var(--text-3);
+}
+.ppl-link-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ppl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.ppl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  font: 500 13px/18px var(--font-ui);
+  color: var(--text);
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.ppl-chip:has(> .ppl-chip-remove:hover) { border-color: var(--control); }
+.ppl-chip-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ppl-chip > .ppl-chip-remove {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+}
+.ppl-chip > .ppl-chip-remove:hover { color: var(--text); }
+.ppl-chip > .ppl-chip-remove > .icon { width: 14px; height: 14px; }
+.ppl-none {
+  font: 400 13px/32px var(--font-ui);
+  color: var(--text-3);
+}
+.ppl-add { width: auto; max-width: 100%; }
+.ppl-add > select { width: auto; min-width: 140px; max-width: 220px; color: var(--text-2); }
+
+@media (max-width: 1023.98px), (pointer: coarse) {
+  .ppl-chip { height: 36px; }
+  .ppl-chip > .ppl-chip-remove { width: 28px; height: 28px; }
+}
+/* Touch: a 44px hit area without a 44px chip. It reaches 4px past the chip
+   on each side, which is half the 8px gap, so neighbouring targets never
+   overlap (a fine pointer gets no expander at all). */
+@media (pointer: coarse) {
+  .ppl-chips,
+  .ppl-link-body { gap: var(--s-2); }
+  .ppl-chip > .ppl-chip-remove::after {
+    content: "";
+    position: absolute;
+    inset: -8px;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .ppl-person-head {
+    grid-template-columns: 32px minmax(0, 1fr);
+    align-items: start;
+  }
+  .ppl-person-head > .avatar { margin-top: 2px; }
+  .ppl-controls {
+    grid-column: 2;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .ppl-role { flex-direction: row; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+  .ppl-self-note { max-width: none; text-align: start; }
+  .ppl-links { grid-template-columns: minmax(0, 1fr); padding-left: 44px; }
+  .ppl-add > select { max-width: 100%; }
+}
+
+@media (forced-colors: active) {
+  .ppl-chip,
+  .ppl-you,
+  .stu-review-badge { border: 1px solid CanvasText; }
+  .ppl-message-slot { border: 1px solid CanvasText; }
+}

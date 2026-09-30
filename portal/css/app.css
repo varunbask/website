@@ -518,8 +518,11 @@ time { font-variant-numeric: tabular-nums; }
 .switcher-item:focus-visible,
 .menu-item:focus-visible,
 .tabbar-item:focus-visible { outline-offset: -2px; }
-h1[tabindex="-1"]:focus-visible,
-h2[tabindex="-1"]:focus-visible { outline-offset: 4px; border-radius: var(--r-xs); }
+/* Headings, status lines and main take focus from script (route changes,
+   drawer titles) and show no ring, even after a key press. Interactive controls
+   keep theirs, including roving ones with tabindex -1 (menu items, days). */
+.view-title:focus,
+:is(h1, h2, h3, h4, p, div, main, section)[tabindex="-1"]:is(:focus, :focus-visible) { outline: none; }
 
 
 /* 7. Layout shell (spec 3.3) ---------------------------------------------- */
@@ -1148,6 +1151,10 @@ h2[tabindex="-1"]:focus-visible { outline-offset: 4px; border-radius: var(--r-xs
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+/* 320px phones: five 64px slots, and "Assignments" must not clip */
+@media (max-width: 359.98px) {
+  .tabbar-label { font-size: 11px; letter-spacing: -0.01em; }
 }
 .tabbar-item[aria-current="page"] { color: var(--text); }
 .tabbar-item[aria-current="page"] .tabbar-icon {
@@ -2292,6 +2299,18 @@ dialog::backdrop { background-color: transparent; }
 .switcher-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .switcher-empty { padding: var(--s-3) var(--s-2); font: var(--t-meta); color: var(--text-3); }
 
+/* 44px targets on touch and below 1024px (spec 7): the expanded sidebar rows
+   (an iPad in landscape), compact selects, checkboxes, tabs and switcher rows.
+   Kept before the phone sheet rule below, which raises switcher rows to 48px. */
+@media (pointer: coarse), (max-width: 1023.98px) {
+  .nav-item,
+  .nav-subitem { height: 44px; }
+  .switcher-item { min-height: 44px; }
+  .select.is-sm > select { height: 44px; }
+  .check { min-height: 44px; }
+  .tab { height: 44px; }
+}
+
 @media (max-width: 767.98px) {
   .switcher,
   .popover {
@@ -2500,17 +2519,22 @@ dialog::backdrop { background-color: transparent; }
 
 @media (forced-colors: active) {
   .pill,
-  .chip,
   .badge,
   .new-pill,
   .score-chip,
   .draft-chip,
   .nav-item[aria-current="page"],
   .nav-subitem[aria-current="page"],
-  .tabbar-item[aria-current="page"] .tabbar-icon,
+  .tabbar-item[aria-current="page"] .tabbar-icon {
+    border: 1px solid CanvasText;
+  }
+  /* Every segment gets a system border here, so the pressed one needs a fill */
   .segmented > button[aria-pressed="true"],
   .segmented > label:has(> input:checked) {
-    border: 1px solid CanvasText;
+    forced-color-adjust: none;
+    background-color: Highlight;
+    border-color: Highlight;
+    color: HighlightText;
   }
   .pill.is-dashed { border-style: dashed; }
   .tab[aria-current="page"]::after { background-color: CanvasText; forced-color-adjust: none; }

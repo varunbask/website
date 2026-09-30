@@ -21,6 +21,9 @@ test('every portal page is CSP-clean, unindexed, and loads the pinned supabase-j
     expect(html, page).not.toMatch(/<style[\s>]/i);
     expect(html, page).not.toMatch(/\sstyle\s*=/i);
     for (const tag of html.match(/<script\b[^>]*>/gi) ?? []) expect(tag, page).toMatch(/\ssrc="/);
+    // Inline handlers and javascript: URLs are blocked by the CSP (dead controls)
+    for (const tag of html.match(/<[a-z][^>]*>/gi) ?? []) expect(tag, page).not.toMatch(/\son[a-z]+\s*=/i);
+    expect(html, page).not.toMatch(/javascript:/i);
     expect(html, page).toContain(SUPABASE_TAG);
     expect(html, page).toContain('<meta name="robots" content="noindex">');
   }
@@ -32,5 +35,6 @@ test('no portal file uses an em dash, HTML injection, or inline styles', () => {
     expect(text, file).not.toContain('\u2014');
     expect(text, file).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
     expect(text, file).not.toMatch(/setAttribute\(\s*['"]style/);
+    expect(text, file).not.toMatch(/javascript:/i);
   }
 });
