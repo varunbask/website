@@ -2,59 +2,106 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#FBF8F5">
+  <meta name="theme-color" content="#EEEFF2">
   <meta name="robots" content="noindex">
-  <title>My work | VP Education Group</title>
+  <title>Overview | VP Education Group</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&family=Caveat:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="/portal/js/theme-boot.js"></script>
-  <link rel="stylesheet" href="/styles.css?v=7">
-  <link rel="stylesheet" href="/portal/portal.css?v=1">
+  <link rel="stylesheet" href="/portal/css/app.css?v=1">
+  <link rel="stylesheet" href="/portal/css/assignments.css?v=1">
+  <link rel="stylesheet" href="/portal/css/tasks.css?v=1">
+  <link rel="stylesheet" href="/portal/css/calendar.css?v=1">
+  <link rel="stylesheet" href="/portal/css/overview.css?v=1">
+  <link rel="stylesheet" href="/portal/css/updates.css?v=1">
+  <link rel="stylesheet" href="/portal/css/review.css?v=1">
+  <link rel="stylesheet" href="/portal/css/people.css?v=1">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous" defer></script>
-  <script src="/theme.js?v=5" defer></script>
   <script type="module" src="/portal/js/student.js"></script>
 </head>
-<body>
+<body class="app-body">
 
   <a class="skip-link" href="#main">Skip to content</a>
 
-  <header class="site-header">
-    <div class="header-inner">
-      <a class="wordmark" href="/" aria-label="VP Education Group home">
-        <span class="wordmark-mark" aria-hidden="true">VP</span>
-        <span class="wordmark-text"><em>Education Group</em></span>
-      </a>
-      <nav class="site-nav portal-nav" id="portal-nav" aria-label="Portal"></nav>
-      <span class="portal-user" id="portal-user"></span>
-      <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to dark mode">
-        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
-        </svg>
-        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="4"/>
-          <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
-        </svg>
-      </button>
-      <button class="btn btn-quiet btn-small" id="sign-out" type="button">Sign out</button>
+  <div class="app" id="app">
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-head">
+        <a class="brand" href="#/" data-home>
+          <span class="brand-mark" aria-hidden="true">VP</span>
+          <span class="brand-text"><span class="brand-name">VP Education Group</span><span class="brand-sub" id="brand-sub">Student portal</span></span>
+        </a>
+        <button class="icon-btn" id="rail-toggle" type="button" aria-label="Collapse sidebar" aria-controls="sidebar" aria-expanded="true"></button>
+      </div>
+      <div class="scope-slot" id="scope-slot"></div>
+      <nav class="nav" id="portal-nav" aria-label="Portal" aria-busy="true">
+        <span class="skeleton sk-nav"></span>
+        <span class="skeleton sk-nav"></span>
+        <span class="skeleton sk-nav"></span>
+        <span class="skeleton sk-nav"></span>
+        <span class="skeleton sk-nav"></span>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="segmented is-block theme-control" id="theme-control" role="group" aria-label="Theme"></div>
+        <div class="user-row" id="portal-user"></div>
+      </div>
     </div>
-  </header>
 
-  <main id="main" class="portal-main">
-    <div class="section-inner">
-      <h1 class="page-title" id="greeting">My work</h1>
-      <p class="lede">Assignments and tasks from your tutor. Submit your work here and your tutor will review it.</p>
-      <div id="student-view"></div>
+    <div class="panel">
+      <div class="topbar-wrap">
+        <header class="topbar">
+          <button class="icon-btn nav-open" id="nav-open" type="button" aria-label="Open menu" aria-haspopup="dialog" aria-controls="nav-sheet" aria-expanded="false"></button>
+          <a class="topbar-brand" id="topbar-brand" href="#/" data-home><span class="brand-mark" aria-hidden="true">VP</span><span class="visually-hidden">VP Education Group</span></a>
+          <a class="icon-btn topbar-back" id="topbar-back" href="#/students" aria-label="Back to students" hidden></a>
+          <span class="topbar-title" id="topbar-title"></span>
+          <nav class="breadcrumb-nav" aria-label="Breadcrumb"><ol class="breadcrumb" id="breadcrumb"></ol></nav>
+          <div class="topbar-actions" id="topbar-actions"></div>
+          <button class="scope-chip" id="scope-chip" type="button" aria-haspopup="dialog" aria-controls="switcher" aria-expanded="false" hidden></button>
+        </header>
+      </div>
+      <main id="main" tabindex="-1">
+        <div class="scroll-sentinel" aria-hidden="true"></div>
+        <div class="view-root" id="view" aria-busy="true">
+          <div class="view">
+            <div class="skeleton-rows" aria-hidden="true">
+              <div class="skeleton-row">
+                <span class="skeleton sk-glyph"></span>
+                <span class="sk-lines"><span class="skeleton sk-line"></span><span class="skeleton sk-line is-short"></span></span>
+                <span class="skeleton sk-pill"></span>
+              </div>
+              <div class="skeleton-row">
+                <span class="skeleton sk-glyph"></span>
+                <span class="sk-lines"><span class="skeleton sk-line"></span><span class="skeleton sk-line is-short"></span></span>
+                <span class="skeleton sk-pill"></span>
+              </div>
+              <div class="skeleton-row">
+                <span class="skeleton sk-glyph"></span>
+                <span class="sk-lines"><span class="skeleton sk-line"></span><span class="skeleton sk-line is-short"></span></span>
+                <span class="skeleton sk-pill"></span>
+              </div>
+              <div class="skeleton-row">
+                <span class="skeleton sk-glyph"></span>
+                <span class="sk-lines"><span class="skeleton sk-line"></span><span class="skeleton sk-line is-short"></span></span>
+                <span class="skeleton sk-pill"></span>
+              </div>
+            </div>
+            <span class="visually-hidden">Loading…</span>
+          </div>
+        </div>
+      </main>
     </div>
-  </main>
 
-  <footer class="site-footer">
-    <div class="footer-inner">
-      <p>© 2026 VP Education Group</p>
-    </div>
-  </footer>
+    <nav class="tabbar" id="tabbar" aria-label="Shortcuts"></nav>
+  </div>
+
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <p class="visually-hidden" id="route-announcer" aria-live="polite"></p>
+  <dialog class="drawer" id="drawer"></dialog>
+  <dialog class="confirm" id="confirm"></dialog>
+  <dialog class="sheet" id="nav-sheet"></dialog>
+  <dialog class="switcher" id="switcher"></dialog>
 
 </body>
 </html>

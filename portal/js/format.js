@@ -1,5 +1,7 @@
 // Pure helpers shared by the portal pages. No DOM access, so they run in unit tests.
 
+import { zonedIso, dayKey } from './dates.js';
+
 const DATE = { month: 'short', day: 'numeric', year: 'numeric' };
 
 export function formatDate(iso) {
@@ -10,16 +12,14 @@ export function formatDateTime(iso) {
   return iso ? new Date(iso).toLocaleString('en-US', { ...DATE, hour: 'numeric', minute: '2-digit' }) : '';
 }
 
-// <input type="date"> value (a local day) -> ISO timestamp at 11:59 pm that day, local time
+// <input type="date"> value -> ISO timestamp at 11:59 pm Pacific that day
 export function dueDateToIso(value) {
-  return value ? new Date(`${value}T23:59:00`).toISOString() : null;
+  return value ? zonedIso(value, '23:59') : null;
 }
 
-// ISO timestamp -> <input type="date"> value, in local time
+// ISO timestamp -> <input type="date"> value, the Pacific day
 export function isoToDateInput(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return iso ? dayKey(iso) : '';
 }
 
 export function firstName(fullName) {

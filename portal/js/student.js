@@ -1,8 +1,17 @@
-import { requireRole, mountHeader } from './session.js';
-import { firstName } from './format.js';
-import { renderStudentView } from './student-view.js';
+// student.html: the student's own work (spec 4.2)
+import { requireRole } from './session.js';
+import { startApp } from './app.js';
+import { familyRoutes } from './routes.js';
+import { renderItemDrawer } from './item-drawer.js';
 
 const me = await requireRole(['student']);
-mountHeader(me);
-document.getElementById('greeting').textContent = `Hi, ${firstName(me.full_name)}`;
-await renderStudentView(document.getElementById('student-view'), { studentId: me.id });
+
+startApp({
+  me,
+  page: 'student',
+  audience: 'family',
+  table: familyRoutes(),
+  defaultRoute: () => '#/overview',
+  loadScope: async () => ({ student: me, options: [], kind: null }),
+  drawer: renderItemDrawer,
+});

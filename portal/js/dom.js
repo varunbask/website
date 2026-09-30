@@ -52,3 +52,10 @@ export function section(title, items, renderItem, emptyText, { count = false } =
       ? h('ul', { class: 'ruled-list' }, items.map(renderItem))
       : (emptyText ? h('p', { class: 'empty' }, emptyText) : null));
 }
+
+// A page-unique id for label/for and aria-describedby pairs
+let uidCount = 0;
+export function uid(prefix = 'id') {
+  uidCount += 1;
+  return `${prefix}-${uidCount}`;
+}

@@ -1,117 +1,35 @@
-import { sb } from './supabase.js';
-import { requireRole, mountHeader } from './session.js';
-import { h, clear } from './dom.js';
-import { displayName, one } from './format.js';
-import { renderProgress } from './progress-view.js';
-import { renderTasks } from './staff-tasks.js';
-import { renderUpdates } from './staff-updates.js';
-import { renderSubmissions } from './staff-submissions.js';
+// staff.html[?student=<id>]: the tutor and admin workspace (spec 4.2)
+import { requireRole } from './session.js';
+import { startApp } from './app.js';
+import { staffRoutes } from './routes.js';
+import { renderItemDrawer } from './item-drawer.js';
 
 const me = await requireRole(['admin', 'tutor']);
-mountHeader(me);
 
-const list = document.getElementById('student-list');
-const search = document.getElementById('student-search');
-const pickerEmpty = document.getElementById('picker-empty');
-const pane = document.getElementById('pane');
-const paneEmpty = document.getElementById('pane-empty');
-
-let students = [];
-let reviewCounts = new Map();
-let loadFailed = false;
-let selectedId = new URLSearchParams(location.search).get('student');
-
-// The database limits a tutor to assigned students; an admin sees everyone
-async function loadStudents() {
-  const [people, waiting] = await Promise.all([
-    sb.from('profiles').select('id, full_name, email').eq('role', 'student'),
-    sb.from('submissions').select('student_id, grade:grades(released_at)').in('status', ['ai_graded', 'failed']),
-  ]);
-  if (people.error) throw people.error;
-  students = people.data.sort((a, b) => displayName(a).localeCompare(displayName(b)));
-  reviewCounts = new Map();
-  for (const s of waiting.data ?? []) {
-    if (one(s.grade)?.released_at) continue;
-    reviewCounts.set(s.student_id, (reviewCounts.get(s.student_id) ?? 0) + 1);
-  }
-}
-
-function renderPicker() {
-  const term = search.value.trim().toLowerCase();
-  const shown = students.filter((s) => `${s.full_name} ${s.email}`.toLowerCase().includes(term));
-  clear(list).append(...shown.map((s) => {
-    const count = reviewCounts.get(s.id) ?? 0;
-    return h('li', {}, h('button', {
-      type: 'button',
-      'aria-current': s.id === selectedId ? 'true' : 'false',
-      onclick: () => select(s.id, true),
-    }, h('span', {}, displayName(s)), count ? h('span', { class: 'badge' }, `${count} to review`) : null));
-  }));
-  pickerEmpty.hidden = shown.length > 0;
-  if (loadFailed) {
-    pickerEmpty.textContent = 'Students could not be loaded. Refresh to try again.';
-  } else if (!students.length) {
-    pickerEmpty.textContent = me.role === 'admin'
-      ? 'No students yet. Approve one on the People page.'
-      : 'No students are assigned to you yet.';
-  } else {
-    pickerEmpty.textContent = 'No student matches that search.';
-  }
-}
-
-async function onChange() {
-  try {
-    await loadStudents();
-    loadFailed = false;
-  } catch {
-    /* keep the old list */
-  }
-  renderPicker();
-  if (selectedId) await renderProgress(document.getElementById('progress'), selectedId);
-}
-
-// A fresh, empty container per selection: a slow load for the previous student paints into a detached node
-function freshSlot(id) {
-  const slot = h('div', { id });
-  document.getElementById(id).replaceWith(slot);
-  return slot;
-}
-
-async function select(id, focus = false) {
-  const student = students.find((s) => s.id === id);
-  if (!student) return;
-  selectedId = id;
-  const url = new URL(location.href);
-  url.searchParams.set('student', id);
-  history.replaceState(null, '', url);
-  renderPicker();
-  paneEmpty.hidden = true;
-  pane.hidden = false;
-  const slots = {
-    progress: freshSlot('progress'),
-    submissions: freshSlot('submissions'),
-    tasks: freshSlot('tasks'),
-    updates: freshSlot('updates'),
-  };
-  document.getElementById('student-name').textContent = displayName(student);
-  document.getElementById('student-email').textContent = student.email ?? '';
-  if (focus) document.getElementById('student-name').focus();
-  const context = { me, student, onChange };
-  await Promise.all([
-    renderProgress(slots.progress, id),
-    renderSubmissions(slots.submissions, context),
-    renderTasks(slots.tasks, context),
-    renderUpdates(slots.updates, context),
-  ]);
-}
-
-search.addEventListener('input', renderPicker);
-
-try {
-  await loadStudents();
-} catch {
-  loadFailed = true;
-}
-renderPicker();
-if (selectedId && students.some((s) => s.id === selectedId)) await select(selectedId);
-else if (students.length === 1) await select(students[0].id);
+startApp({
+  me,
+  page: 'staff',
+  audience: 'staff',
+  table: staffRoutes(),
+  defaultRoute: (scope) => (scope?.student ? '#/overview' : '#/today'),
+  // The database limits a tutor to assigned students; an admin sees everyone.
+  // A ?student= that isn't in the list is removed and the route goes to Today.
+  loadScope: async ({ search, store }) => {
+    const ws = await store.getWorkspace();
+    const wanted = search.get('student');
+    if (!wanted) return { student: null, options: ws.students, kind: 'student' };
+    const student = ws.students.find((s) => s.id === wanted);
+    if (!student) {
+      return {
+        student: null,
+        options: ws.students,
+        kind: 'student',
+        search: '',
+        hash: '#/today',
+        message: 'That student isn’t in your list.',
+      };
+    }
+    return { student, options: ws.students, kind: 'student' };
+  },
+  drawer: renderItemDrawer,
+});
