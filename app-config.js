@@ -8,6 +8,6 @@
 
 window.VP_APP_CONFIG = {
   apiBase: "http://localhost:3000",
-  supabaseUrl: "https://placeholder.supabase.co",
-  supabaseAnonKey: "placeholder-key",
+  supabaseUrl: "https://enwrankobjdivyxhmwus.supabase.co",
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVud3JhbmtvYmpkaXZ5eGhtd3VzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0NTcyMzUsImV4cCI6MjEwNjAzMzIzNX0.3HfULIqHykg0In4uwOQ7JeWg4tWbvp9JV8Gn22sK660",
 };
