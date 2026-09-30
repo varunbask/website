@@ -2887,7 +2887,7 @@ select.inline { width: auto; max-width: 100%; padding: 6px 10px; font-size: 0.9r
   white-space: nowrap;
 }
 .status.wait { color: var(--slate); }
-.status.review {
+.status.draft {
   color: var(--ink);
   background: linear-gradient(transparent 58%, color-mix(in srgb, var(--marigold) 60%, transparent) 58%);
 }
@@ -2956,14 +2956,14 @@ select.inline { width: auto; max-width: 100%; padding: 6px 10px; font-size: 0.9r
 .composer { display: grid; gap: 14px; padding: 18px 0 22px; border-top: 1px solid var(--rule); }
 
 /* A grade, set off by a marigold rule rather than a box */
-.review {
+.grade-block {
   display: grid;
   gap: 12px;
   margin-top: 12px;
   padding-left: 14px;
   border-left: 3px solid var(--marigold);
 }
-.review .field input[type="number"] { max-width: 120px; }
+.grade-block .field input[type="number"] { max-width: 120px; }
 .feedback { white-space: pre-wrap; }
 .score-line { font-family: var(--font-mono); font-weight: 600; }
 
@@ -3074,7 +3074,7 @@ select.inline { width: auto; max-width: 100%; padding: 6px 10px; font-size: 0.9r
       <div id="panel-sign-in">
         <h1 class="page-title" tabindex="-1">Sign in</h1>
         <p class="lede">Students, parents, and tutors of VP Education Group sign in here.</p>
-        <form id="sign-in-form" class="stack" novalidate>
+        <form id="sign-in-form" class="stack" method="post" novalidate>
           <label class="field"><span>Email</span>
             <input type="email" name="email" autocomplete="email" required></label>
           <label class="field"><span>Password</span>
@@ -3089,7 +3089,7 @@ select.inline { width: auto; max-width: 100%; padding: 6px 10px; font-size: 0.9r
       <div id="panel-sign-up" hidden>
         <h1 class="page-title" tabindex="-1">Create an account</h1>
         <p class="lede">We review every new account. Once it is approved, you will see your work or your child's work here.</p>
-        <form id="sign-up-form" class="stack" novalidate>
+        <form id="sign-up-form" class="stack" method="post" novalidate>
           <fieldset class="field">
             <legend>I am a</legend>
             <div class="segmented">
@@ -3122,7 +3122,7 @@ select.inline { width: auto; max-width: 100%; padding: 6px 10px; font-size: 0.9r
       <div id="panel-forgot" hidden>
         <h1 class="page-title" tabindex="-1">Reset your password</h1>
         <p class="lede">Enter your email and we will send you a link to choose a new password.</p>
-        <form id="forgot-form" class="stack" novalidate>
+        <form id="forgot-form" class="stack" method="post" novalidate>
           <label class="field"><span>Email</span>
             <input type="email" name="email" autocomplete="email" required></label>
           <button class="btn btn-primary btn-block" type="submit">Send reset link</button>
@@ -3317,7 +3317,7 @@ route();
   <main id="main" class="portal-main">
     <section class="section-inner auth-wrap">
       <h1 class="page-title">Choose a new password</h1>
-      <form id="reset-form" class="stack" novalidate>
+      <form id="reset-form" class="stack" method="post" novalidate>
         <label class="field"><span>New password</span>
           <input type="password" name="password" autocomplete="new-password" minlength="8" required>
           <small>At least 8 characters.</small></label>
@@ -3790,7 +3790,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
     - `canRetry(sub, now?) -> boolean`
     - `FILE_LABELS`
   - `progress-view.js`: `renderProgress(container, studentId) -> Promise<void>`. Tasks 10 and 13 use it.
-  - `tone` is one of `'wait'`, `'review'`, `'alert'` or `'done'`, and maps to the `.status.<tone>` CSS class.
+  - `tone` is one of `'wait'`, `'draft'`, `'alert'` or `'done'`, and maps to the `.status.<tone>` CSS class.
 
 - [ ] **Step 1: Write the failing tests `tests/unit/progress.test.js`**
 
@@ -3874,8 +3874,8 @@ describe('staffStatus', () => {
   test('follows the pipeline and the review', () => {
     expect(staffStatus({ status: 'pending' }, null)).toEqual({ text: 'Submitted', tone: 'wait' });
     expect(staffStatus({ status: 'grading' }, null)).toEqual({ text: 'Grading', tone: 'wait' });
-    expect(staffStatus({ status: 'ai_graded' }, { reviewed_at: null, released_at: null })).toEqual({ text: 'AI draft', tone: 'review' });
-    expect(staffStatus({ status: 'ai_graded' }, { reviewed_at: ago(1), released_at: null })).toEqual({ text: 'Edited, not released', tone: 'review' });
+    expect(staffStatus({ status: 'ai_graded' }, { reviewed_at: null, released_at: null })).toEqual({ text: 'AI draft', tone: 'draft' });
+    expect(staffStatus({ status: 'ai_graded' }, { reviewed_at: ago(1), released_at: null })).toEqual({ text: 'Edited, not released', tone: 'draft' });
     expect(staffStatus({ status: 'failed' }, { reviewed_at: null, released_at: null })).toEqual({ text: 'Could not grade', tone: 'alert' });
     expect(staffStatus({ status: 'failed' }, { reviewed_at: ago(1), released_at: ago(1) })).toEqual({ text: 'Released', tone: 'done' });
   });
@@ -3980,9 +3980,9 @@ export function staffStatus(sub, grade) {
   if (grade?.released_at) return { text: 'Released', tone: 'done' };
   if (sub.status === 'pending') return { text: 'Submitted', tone: 'wait' };
   if (sub.status === 'grading') return { text: 'Grading', tone: 'wait' };
-  if (grade?.reviewed_at) return { text: 'Edited, not released', tone: 'review' };
+  if (grade?.reviewed_at) return { text: 'Edited, not released', tone: 'draft' };
   if (sub.status === 'failed') return { text: 'Could not grade', tone: 'alert' };
-  return { text: 'AI draft', tone: 'review' };
+  return { text: 'AI draft', tone: 'draft' };
 }
 
 // Anything unreleased is simply waiting on the tutor
@@ -4259,7 +4259,7 @@ const KIND_LABEL = { assignment: 'Assignment', task: 'Task' };
 
 // The form for adding an item, and for editing one in place
 function taskForm({ task = null, onSubmit, onCancel = null }) {
-  const form = h('form', { class: task ? 'stack review' : 'stack composer', novalidate: true },
+  const form = h('form', { class: task ? 'stack grade-block' : 'stack composer', novalidate: true },
     h('fieldset', { class: 'field' },
       h('legend', {}, 'Type'),
       h('div', { class: 'segmented' },
@@ -4701,11 +4701,11 @@ function submissionRow(sub, url, { done, message }) {
 
   const form = reviewForm(sub, grade, done);
   const review = grade?.released_at
-    ? h('div', { class: 'review' },
+    ? h('div', { class: 'grade-block' },
         h('p', { class: 'score-line' }, `Score ${grade.score}`),
         h('p', { class: 'feedback' }, grade.feedback),
         h('details', {}, h('summary', { class: 'link-button' }, 'Edit or unrelease'), form))
-    : h('div', { class: 'review' }, form);
+    : h('div', { class: 'grade-block' }, form);
 
   return h('li', {},
     h('div', { class: 'row' },
@@ -4965,14 +4965,14 @@ export async function renderStudentView(container, { studentId, readOnly = false
         h('span', { class: `status ${status.tone}` }, status.text)),
       status.tone === 'alert' ? h('p', { class: 'meta' }, sub.error) : null,
       grade?.released_at
-        ? h('div', { class: 'review' },
+        ? h('div', { class: 'grade-block' },
             h('p', { class: 'score-line' }, `Score ${grade.score}`),
             h('p', { class: 'feedback' }, grade.feedback))
         : null);
   }
 
   function uploadForm(task) {
-    const form = h('form', { class: 'stack review', novalidate: true },
+    const form = h('form', { class: 'stack grade-block', novalidate: true },
       h('label', { class: 'field' }, h('span', {}, 'Your work'),
         h('input', { type: 'file', name: 'file', accept: ACCEPT, required: true }),
         h('small', {}, 'A photo of your work (JPG or PNG), a PDF with typed text, or a text file. Up to 20 MB.')),
