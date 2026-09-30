@@ -14,6 +14,11 @@ export async function renderStudentView(container, { studentId, readOnly = false
   const updatesHost = h('div');
   let openFormFor = null;
 
+  // draw() rebuilds the page, so put keyboard focus back where the user was
+  function refocus(selector) {
+    container.querySelector(selector)?.focus();
+  }
+
   async function load() {
     const [tasks, subs] = await Promise.all([
       sb.from('tasks').select('id, kind, title, details, due_at, completed_at, created_at').eq('student_id', studentId),
@@ -51,7 +56,15 @@ export async function renderStudentView(container, { studentId, readOnly = false
         h('textarea', { name: 'note', rows: 2, maxlength: 1000 })),
       h('div', { class: 'form-actions' },
         h('button', { type: 'submit', class: 'btn btn-primary btn-small' }, 'Submit'),
-        h('button', { type: 'button', class: 'link-button', onclick: () => { openFormFor = null; draw(); } }, 'Cancel')),
+        h('button', {
+          type: 'button',
+          class: 'link-button',
+          onclick: async () => {
+            openFormFor = null;
+            await draw();
+            refocus(`button[data-submit-for="${CSS.escape(String(task.id))}"]`);
+          },
+        }, 'Cancel')),
       h('p', { class: 'form-message', role: 'alert', hidden: true }));
 
     form.addEventListener('submit', async (event) => {
@@ -98,8 +111,16 @@ export async function renderStudentView(container, { studentId, readOnly = false
           task.details ? h('p', { class: 'details' }, task.details) : null),
         canSubmit
           ? h('div', { class: 'row-actions' },
-              h('button', { type: 'button', class: 'btn btn-primary btn-small', onclick: () => { openFormFor = task.id; draw(); } },
-                subs.length ? 'Submit again' : 'Submit work'))
+              h('button', {
+                type: 'button',
+                class: 'btn btn-primary btn-small',
+                dataset: { submitFor: String(task.id) },
+                onclick: async () => {
+                  openFormFor = task.id;
+                  await draw();
+                  refocus('form input[name="file"]');
+                },
+              }, subs.length ? 'Submit again' : 'Submit work'))
           : null),
       openFormFor === task.id ? uploadForm(task) : null,
       subs.length ? h('ul', { class: 'submission-list' }, subs.map(submissionLine)) : null);
@@ -107,12 +128,13 @@ export async function renderStudentView(container, { studentId, readOnly = false
 
   function taskRow(task) {
     const overdue = isOverdue(task);
-    const box = h('input', { type: 'checkbox', checked: Boolean(task.completed_at), disabled: readOnly });
+    const box = h('input', { type: 'checkbox', checked: Boolean(task.completed_at), disabled: readOnly, dataset: { taskId: String(task.id) } });
     box.addEventListener('change', async () => {
       box.disabled = true;
       const { error } = await sb.rpc('set_task_done', { p_task_id: task.id, p_done: box.checked });
       if (error) showMessage(message, 'That did not save. Try again.');
       await draw();
+      refocus(`input[type="checkbox"][data-task-id="${CSS.escape(String(task.id))}"]`);
     });
     return h('li', {},
       h('div', { class: 'row' },
@@ -139,12 +161,14 @@ export async function renderStudentView(container, { studentId, readOnly = false
     const tasks = data.tasks.filter((t) => t.kind === 'task')
       .sort((a, b) => (Boolean(a.completed_at) - Boolean(b.completed_at)) || byDue(a, b));
     const row = (task) => assignmentRow(task, data.byTask.get(task.id) ?? []);
-    clear(container).append(
+    const parts = [
       message,
       section('Assignments due', due, row, 'Nothing due right now.'),
       section('Tasks', tasks, taskRow, 'No tasks right now.'),
       section('Submitted', submitted, row, 'Nothing submitted yet.'),
-      showUpdates ? updatesHost : null);
+    ];
+    if (showUpdates) parts.push(updatesHost);   // native append would print a null as the word "null"
+    clear(container).append(...parts);
   }
 
   async function drawUpdates() {
