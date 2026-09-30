@@ -229,6 +229,13 @@ describe.skipIf(!hasService)('portal row-level security', () => {
     const c = P.studentA.client;
     expect((await c.rpc('my_role')).error).not.toBeNull();
     expect((await c.rpc('can_teach', { p_student: P.studentA.id })).error).not.toBeNull();
+    // the helpers live in the private schema; reaching it must fail because it is not exposed (PGRST106)
+    const hiddenRole = await c.schema('private').rpc('my_role');
+    expect(hiddenRole.error?.code).toBe('PGRST106');
+    expect(hiddenRole.data).toBeNull();
+    const hiddenTeach = await c.schema('private').rpc('can_teach', { p_student: P.studentA.id });
+    expect(hiddenTeach.error?.code).toBe('PGRST106');
+    expect(hiddenTeach.data).toBeNull();
     const { data, error } = await c.rpc('staff_names');
     expect(error).toBeNull();
     expect(data.length).toBeGreaterThan(0);

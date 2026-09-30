@@ -14,5 +14,19 @@ for (let page = 1; ; page++) {
   leftovers.push(...data.users.filter((u) => EMAIL_PATTERN.test(u.email ?? '')));
   if (data.users.length < 200) break;
 }
-for (const user of leftovers) await removeUser(admin, user.id);
-console.log(`Removed ${leftovers.length} leftover test account(s).`);
+let removed = 0;
+let failed = 0;
+for (const user of leftovers) {
+  try {
+    await removeUser(admin, user.id);
+    removed++;
+  } catch (err) {
+    failed++;
+    console.error(err.message);
+  }
+}
+console.log(`Removed ${removed} leftover test account(s).`);
+if (failed) {
+  console.error(`${failed} test account(s) could not be removed; run this again.`);
+  process.exit(1);
+}
