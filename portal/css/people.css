@@ -636,3 +636,4 @@
   .stu-review-badge { border: 1px solid CanvasText; }
   .ppl-message-slot { border: 1px solid CanvasText; }
 }
+.callout + .stu-toolbar { margin-top: var(--s-4); }

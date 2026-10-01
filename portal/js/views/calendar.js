@@ -187,7 +187,9 @@ export function mount(ctx) {
     legendEl);
 
   const body = h('div', { class: 'cal-body' });
-  host.append(toolbar, body);
+  // A sessions load that failed: due dates still show, with this above them
+  const notice = h('div', { class: 'cal-notice' });
+  host.append(toolbar, notice, body);
 
   if (allScope && ctx.me.role === 'tutor') buildFilter();
 
@@ -324,7 +326,7 @@ export function mount(ctx) {
       keyButtons(seg, 'cal-who');
       filterSlot.append(seg);
     } else if (ctx.me.role === 'admin') {
-      const options = tutorOptions({ links: state.links, sessions: state.sessions, names: state.tutorNames });
+      const options = tutorOptions({ links: state.links ?? [], sessions: state.sessions, names: state.tutorNames });
       // A tutor in the hash that nobody has any more is dropped
       if (state.filter.tutor && !options.some((o) => o.value === state.filter.tutor)) {
         state.filter = { who: 'all', tutor: null };
@@ -351,7 +353,18 @@ export function mount(ctx) {
     return `Next ${state.range} days`;
   }
 
+  function renderNotice() {
+    notice.replaceChildren(...(state.status === 'ready' && state.sessionsFailed
+      ? [errorCallout({
+        title: 'We couldn’t load sessions.',
+        text: 'Due dates still show. Try again in a moment.',
+        onRetry: () => ctx.store.invalidate(allScope ? null : student?.id ?? null),
+      })]
+      : []));
+  }
+
   function render() {
+    renderNotice();
     // Only a real change reaches the live region (a new text node re-announces)
     const text = heading();
     if (title.textContent !== text) title.textContent = text;
@@ -883,7 +896,7 @@ export function mount(ctx) {
     const g = agendaWithSessions(
       agendaGroups(state.items, today, { days: state.range, audience }),
       state.shown, today, { days: state.range });
-    const notes = needsNotes(state.shown, ctx.now, ctx.me);
+    const notes = needsNotes(state.shown, ctx.now, ctx.me, { links: state.links ?? null });
     // A session in "Needs session notes" is not listed again under its day
     const noted = new Set(notes.map((s) => s.id));
     const days = g.days
@@ -991,13 +1004,19 @@ export function mount(ctx) {
       state.tutorNames = names;
       state.studentNames = studentNames;
       state.sessions = (ws.sessions ?? []).map((s) => ({ ...s, studentName: studentNames.get(String(s.student_id)) ?? 'Unknown student' }));
-      state.links = ws.links ?? [];
+      state.links = ws.links ?? null;
+      state.sessionsFailed = Boolean(ws.sessionsError);
       return deriveItems(ws.tasks, ws.submissions, ctx.now, { audience: 'staff' })
         .map((item) => ({ ...item, studentName: studentNames.get(String(item.task.student_id)) ?? 'Unknown student' }));
     }
     const [data, sessions, names] = await Promise.all([
       ctx.store.getStudentData(student.id),
-      ctx.store.getSessions(student.id),
+      // Sessions failing must not hide the due dates: show them with a notice
+      ctx.store.getSessions(student.id).catch((error) => {
+        console.error(error);
+        state.sessionsFailed = true;
+        return [];
+      }),
       staffNames(),
     ]);
     state.tutorNames = names;

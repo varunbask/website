@@ -116,6 +116,9 @@ export function mount(ctx) {
   const body = h('div', { class: 'stu-body' });
   ctx.host.append(body);
 
+  // When sessions fail to load, Next session reads "None" for everyone, so say why
+  let sessionsFailed = false;
+
   async function load() {
     body.replaceChildren(skeletonRows(5));
     body.setAttribute('aria-busy', 'true');
@@ -142,6 +145,7 @@ export function mount(ctx) {
     const known = new Map(names ?? []);
     if (ctx.me?.id && !known.has(String(ctx.me.id))) known.set(String(ctx.me.id), displayName(ctx.me));
     const summaries = studentSummaries(ws, ctx.now, { names: known });
+    sessionsFailed = Boolean(ws.sessionsError);
     render(summaries);
     ctx.announce(`Students, ${countLabel(summaries.length, summaries.length)}`);
   }
@@ -198,6 +202,9 @@ export function mount(ctx) {
     });
 
     body.replaceChildren(
+      sessionsFailed
+        ? errorCallout({ title: 'We couldn’t load sessions.', text: 'The Next session column may be empty. Try again in a moment.', onRetry: () => ctx.store.invalidate(null) })
+        : '',
       h('div', { class: 'stu-toolbar' },
         h('div', { class: 'stu-search' },
           h('label', { class: 'visually-hidden', for: inputId }, 'Find a student'),

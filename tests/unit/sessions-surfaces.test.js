@@ -82,10 +82,10 @@ describe('changeNote', () => {
 
 describe('changeNotes', () => {
   const moved = session('2026-10-16', '16:30', '17:30', {
-    moved_from: at('2026-10-15', '16:00'), updated_at: '2026-10-12T20:00:00Z',
+    moved_from: at('2026-10-15', '16:00'), changed_at: '2026-10-12T20:00:00Z',
   });
   const gone = session('2026-10-17', '10:00', '11:00', {
-    subject: 'SAT Reading', status: 'cancelled', updated_at: '2026-10-13T20:00:00Z',
+    subject: 'SAT Reading', status: 'cancelled', changed_at: '2026-10-13T20:00:00Z',
   });
   const quiet = session('2026-10-15', '16:00', '17:00');
   const all = [gone, quiet, moved];
@@ -98,7 +98,7 @@ describe('changeNotes', () => {
 
   test('a first visit ignores changes older than 7 days', () => {
     const old = session('2026-10-16', '16:30', '17:30', {
-      moved_from: at('2026-10-15', '16:00'), updated_at: '2026-10-01T20:00:00Z',
+      moved_from: at('2026-10-15', '16:00'), changed_at: '2026-10-01T20:00:00Z',
     });
     expect(changeNotes([old], null, NOW, inZone)).toEqual([]);
   });
@@ -114,7 +114,7 @@ describe('changeNotes', () => {
   });
 
   test('a session that already ended is left out', () => {
-    const past = session('2026-10-13', '16:00', '17:00', { status: 'cancelled', updated_at: '2026-10-12T00:00:00Z' });
+    const past = session('2026-10-13', '16:00', '17:00', { status: 'cancelled', changed_at: '2026-10-12T00:00:00Z' });
     expect(changeNotes([past], null, NOW, inZone)).toEqual([]);
   });
 });

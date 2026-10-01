@@ -822,3 +822,6 @@ td.is-today .cal-num {
   .cal-week-wrap,
   .cal-panel { border-color: CanvasText; }
 }
+
+/* A sessions load that failed sits between the toolbar and the calendar */
+.cal-notice:not(:empty) { margin-bottom: var(--s-4); }

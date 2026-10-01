@@ -90,7 +90,7 @@ export function changeNotes(sessions, seen, now = new Date(), { viewerInZone } =
   if (seen === undefined) return [];
   const today = todayKey(now);
   return recentChanges(sessions, null, now)
-    .filter((s) => isNewSince(s.updated_at ?? s.created_at, seen, now))
+    .filter((s) => isNewSince(s.changed_at, seen, now))
     .map((s) => ({
       id: s.id,
       kind: isCancelled(s) ? 'cancelled' : 'moved',
@@ -216,7 +216,9 @@ export function needsNotesDetail(n, { days = NOTES_WINDOW_DAYS } = {}) {
 //   upNextId    the first session today that has not started (never a cancelled one), or null
 //   later       with nothing left to start today, the next upcoming session on a later day
 //   needsNotes  count for the "Needs notes" line
-export function todayPlan(sessions, now = new Date(), { tutorId = null } = {}) {
+// links: the tutor's own tutor_students rows; past sessions with a student
+// they no longer teach cannot take notes, so they do not count as needing them
+export function todayPlan(sessions, now = new Date(), { tutorId = null, links = null } = {}) {
   const mine = (sessions ?? []).filter((s) => tutorId === null || same(s.tutor_id, tutorId));
   const key = todayKey(now);
   const t = ms(now);
@@ -229,7 +231,7 @@ export function todayPlan(sessions, now = new Date(), { tutorId = null } = {}) {
     liveIds,
     upNextId: upNext ? upNext.id : null,
     later,
-    needsNotes: needsNotesCount(mine, now),
+    needsNotes: needsNotesCount(links ? mine.filter((s) => links.some((l) => same(l.tutor_id, s.tutor_id) && same(l.student_id, s.student_id))) : mine, now),
   };
 }
 

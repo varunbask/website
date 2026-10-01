@@ -379,12 +379,12 @@ export function agendaWithSessions(groups, sessions, today, { days = AGENDA_DAYS
 
 // Sessions the viewer may still write up: over in the last NOTES_DAYS days, not
 // cancelled, no attendance yet, and theirs to change (canEditSession). Oldest first.
-export function needsNotes(sessions, now, me, { days = NOTES_DAYS } = {}) {
+export function needsNotes(sessions, now, me, { days = NOTES_DAYS, links = null } = {}) {
   const t = now instanceof Date ? now.getTime() : Date.parse(now);
   const from = t - days * 86_400_000;
   return sortSessions(sessions).filter((s) => {
     const ends = Date.parse(s.ends_at);
-    return !isCancelled(s) && !s.attendance && ends <= t && ends > from && canEditSession(s, me);
+    return !isCancelled(s) && !s.attendance && ends <= t && ends > from && canEditSession(s, me, { links });
   });
 }
 
@@ -510,7 +510,8 @@ export function sessionWho(session, {
   if (!allScope) return tutor;
   const student = name(studentNames, session.student_id);
   const showTutor = role === 'admin' || (viewerId !== null && String(session.tutor_id) !== String(viewerId));
-  if (!short && showTutor && tutor && student) return `${student} and ${tutor}`;
+  // "Algebra with Maya Lin, taught by Daniel Ortiz" in a spoken label
+  if (!short && showTutor && tutor && student) return `${student}, taught by ${tutor}`;
   return student;
 }
 

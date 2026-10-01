@@ -122,12 +122,15 @@ describe('lists', () => {
   });
 
   test('recent changes are moves and cancellations after a time, still ahead', () => {
-    const moved = session('2026-10-16', '16:00', '17:00', { moved_from: at('2026-10-15', '16:00'), updated_at: '2026-10-13T00:00:00Z' });
-    const cancelled = session('2026-10-17', '16:00', '17:00', { status: 'cancelled', updated_at: '2026-10-10T00:00:00Z' });
-    const plain = session('2026-10-18', '16:00', '17:00', { updated_at: '2026-10-13T00:00:00Z' });
-    const old = session('2026-10-12', '16:00', '17:00', { status: 'cancelled', updated_at: '2026-10-13T00:00:00Z' });
+    const moved = session('2026-10-16', '16:00', '17:00', { moved_from: at('2026-10-15', '16:00'), changed_at: '2026-10-13T00:00:00Z' });
+    const cancelled = session('2026-10-17', '16:00', '17:00', { status: 'cancelled', changed_at: '2026-10-10T00:00:00Z' });
+    const plain = session('2026-10-18', '16:00', '17:00', { changed_at: '2026-10-13T00:00:00Z' });
+    const old = session('2026-10-12', '16:00', '17:00', { status: 'cancelled', changed_at: '2026-10-13T00:00:00Z' });
     expect(recentChanges([moved, cancelled, plain, old], '2026-10-12T00:00:00Z', NOW)).toEqual([moved]);
     expect(recentChanges([moved, cancelled, plain, old], null, NOW)).toEqual([moved, cancelled]);
+    // A later edit of the plan (updated_at) does not bring a move back
+    const edited = { ...moved, changed_at: '2026-10-11T00:00:00Z', updated_at: '2026-10-13T00:00:00Z' };
+    expect(recentChanges([edited], '2026-10-12T00:00:00Z', NOW)).toEqual([]);
   });
 
   test('following in a series', () => {

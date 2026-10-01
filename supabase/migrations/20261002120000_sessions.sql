@@ -24,12 +24,13 @@ create table public.sessions (
   starts_at   timestamptz not null,
   ends_at     timestamptz not null,
   location    text check (char_length(location) <= 200),
-  meeting_url text check (char_length(meeting_url) <= 500 and meeting_url ~ '^https://'),
+  meeting_url text check (char_length(meeting_url) <= 500 and meeting_url ~ '^https://' and meeting_url !~ '\s'),
   notes       text check (char_length(notes) <= 2000),     -- the plan, before the session
   status      public.session_status not null default 'scheduled',
   attendance  text check (attendance in ('present', 'late', 'absent')),
   recap       text check (char_length(recap) <= 4000),     -- after: what was covered, next steps
   moved_from  timestamptz,                  -- the start before the latest move, set by trigger
+  changed_at  timestamptz,                  -- the latest move, cancel or restore, set by trigger
   created_by  uuid default auth.uid() references public.profiles (id) on delete set null,
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
@@ -60,6 +61,10 @@ begin
   if new.starts_at is distinct from old.starts_at then
     new.moved_from := old.starts_at;
   end if;
+  -- Only a change of time or status is news for the family; a new plan or place is not
+  if new.starts_at is distinct from old.starts_at or new.status is distinct from old.status then
+    new.changed_at := now();
+  end if;
   return new;
 end
 $$;
@@ -68,6 +73,25 @@ revoke execute on function private.session_touch() from public;
 create trigger sessions_touch
   before update on public.sessions
   for each row execute function private.session_touch();
+
+-- Unlinking a tutor from a student (or a role change, which unlinks) removes
+-- their sessions with that student that have not started; past ones stay as
+-- the record of what happened
+create function private.drop_future_sessions()
+returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  delete from public.sessions s
+   where s.tutor_id = old.tutor_id and s.student_id = old.student_id and s.starts_at > now();
+  return old;
+end
+$$;
+revoke execute on function private.drop_future_sessions() from public;
+
+create trigger tutor_unlink_drops_sessions
+  after delete on public.tutor_students
+  for each row execute function private.drop_future_sessions();
 
 -- Privileges: tutor_id and student_id are fixed once a session exists
 revoke all on public.sessions from anon, authenticated;
@@ -81,10 +105,12 @@ grant update (subject, starts_at, ends_at, location, meeting_url, notes, status,
 alter table public.sessions enable row level security;
 
 -- Everyone who can see the student sees the student's sessions (all of their
--- tutors included); a tutor also keeps seeing their own after an unlink
+-- tutors included); a tutor also keeps seeing their own past ones after an
+-- unlink, while they are still a tutor
 create policy "read sessions of viewable students" on public.sessions
   for select to authenticated
-  using (private.can_view_student(student_id) or tutor_id = (select auth.uid()));
+  using (private.can_view_student(student_id)
+         or (tutor_id = (select auth.uid()) and (select private.my_role()) in ('tutor', 'admin')));
 
 -- A tutor books their own sessions with their own students; an admin books for
 -- any tutor assigned to that student

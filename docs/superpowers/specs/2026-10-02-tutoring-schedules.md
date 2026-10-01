@@ -26,10 +26,12 @@ Research notes (other tutoring platforms):
   - `status` (`scheduled` or `cancelled`)
   - `attendance` (`present`, `late`, `absent` or null), `recap` (after the session)
   - `moved_from` (set by a trigger when `starts_at` changes)
+  - `changed_at` (set by the trigger only when the time or status changes; it drives the family's "New" marker, so a new plan or place is not news)
   - `created_by`, `created_at`, `updated_at`
   - Length is greater than 0 and at most 8 hours.
+- **Unlinking:** unlinking a tutor from a student (including by a role change) deletes that tutor's sessions with the student that have not started. Past sessions stay as the record.
 - **RLS:**
-  - **Read:** anyone who can see the student, plus the session's own tutor.
+  - **Read:** anyone who can see the student, plus the session's own tutor while they are still a tutor.
   - **Insert:** the tutor must be linked to the student, and the tutor is the caller or the caller is an admin.
   - **Update and delete:** an admin, or the session's tutor while still linked.
   - **Column grants:** `tutor_id` and `student_id` cannot be updated.
@@ -152,7 +154,8 @@ Research notes (other tutoring platforms):
   - **Clash warning:** a live, non-blocking warning callout that lists clashes from `findClashes`. It uses `getSessions(student)` and the workspace sessions for the tutor. It says "Daniel Ortiz already has Leo Park at 4:00 to 5:00 pm" or "Maya Lin has SAT Reading with Priya Shah then". The tutor can still save.
   - **Saving:** insert all rows in one `insert([...]).select('id')`, with `series_id` from `newSeriesId()` when repeating. Errors show in a danger callout. After saving, the drawer opens the new session (`dctx.go` to `open=s<firstId>`, replace) and shows a toast "Session scheduled" or "8 sessions scheduled".
 - **Edit:** the same form without Repeat. For a series, a segmented "Apply to: This session / This and following" appears.
-  - This and following uses `followingInSeries` and `retimeRows` for the times. Subject, location, link and notes are copied to each row (one update per row, in sequence; stop on the first error).
+  - This and following sends each later row only what changed on the edited session, one update per row, in sequence, stopping on the first error.
+  - New times are applied as the same shift in days, start and end (`retimeRows`), so a session moved or planned on its own keeps that difference.
   - The clash warning ignores the rows being edited.
 - **Session notes form:** attendance as a segmented "Present / Late / Absent", plus a recap textarea. Saving updates only `attendance` and `recap`.
 

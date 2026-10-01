@@ -192,7 +192,7 @@ describe('checking and writing', () => {
     expect(a.id).not.toBe(b.id);
   });
 
-  test('updates copy subject, place and plan to every row', () => {
+  test('following rows get only what changed on the edited session', () => {
     const b = session('2026-10-20', '16:00', '17:00', { series_id: 'x' });
     const c = session('2026-10-27', '16:00', '17:00', { series_id: 'x' });
     const { values } = checkSessionForm(
@@ -201,11 +201,22 @@ describe('checking and writing', () => {
     );
     const updates = buildUpdates({ values, session: b, rows: [b, c], apply: 'following' });
     expect(updates.map((u) => u.id)).toEqual([b.id, c.id]);
-    expect(updates[1].fields).toEqual({
-      subject: 'Geometry', location: null, meeting_url: 'https://m.example.com/a', notes: 'Proofs',
-      starts_at: at('2026-10-27', '16:00'), ends_at: at('2026-10-27', '17:00'),
-    });
+    // The time did not change, so c keeps its own; location was blank and stays so
+    expect(updates[1].fields).toEqual({ subject: 'Geometry', meeting_url: 'https://m.example.com/a', notes: 'Proofs' });
+    expect(Object.keys(updates[0].fields).sort()).toEqual(['ends_at', 'location', 'meeting_url', 'notes', 'starts_at', 'subject']);
     expect(buildUpdates({ values, session: b, rows: [b, c], apply: 'this' })).toHaveLength(1);
+  });
+
+  test('a session moved on its own keeps its time and plan when the series changes place', () => {
+    const b = session('2026-10-20', '16:00', '17:00', { series_id: 'x', location: 'Library', notes: 'Weekly plan' });
+    const moved = session('2026-10-27', '16:30', '17:30', { series_id: 'x', location: 'Library', notes: 'Bring the quiz' });
+    const { values } = checkSessionForm(state({ location: 'Room 4', notes: 'Weekly plan' }), { creating: false });
+    const updates = buildUpdates({ values, session: b, rows: [b, moved], apply: 'following' });
+    expect(updates[1].fields).toEqual({ location: 'Room 4' });
+    // Moving the series an hour later moves the odd one an hour too
+    const later = checkSessionForm(state({ location: 'Library', notes: 'Weekly plan', start: '17:00', end: '18:00' }), { creating: false });
+    const shifted = buildUpdates({ values: later.values, session: b, rows: [b, moved], apply: 'following' });
+    expect(shifted[1].fields).toEqual({ starts_at: at('2026-10-27', '17:30'), ends_at: at('2026-10-27', '18:30') });
   });
 
   test('an update that writes what the row already holds is dropped', () => {
@@ -213,8 +224,13 @@ describe('checking and writing', () => {
     const c = session('2026-10-27', '16:00', '17:00', { series_id: 'x', location: 'Library', notes: null });
     const { values } = checkSessionForm(state({ location: 'Library', notes: 'Fractions' }), { creating: false });
     const updates = buildUpdates({ values, session: b, rows: [b, c], apply: 'following' });
-    // b is the same as saved (the notes differ only by spaces); c gains notes
-    expect(changedUpdates(updates, [b, c]).map((u) => u.id)).toEqual([c.id]);
+    // b is the same as saved (the notes differ only by spaces), so nothing
+    // changed and c is left alone too
+    expect(changedUpdates(updates, [b, c]).map((u) => u.id)).toEqual([]);
+    // A new plan on b reaches c
+    const planned = checkSessionForm(state({ location: 'Library', notes: 'Decimals' }), { creating: false });
+    expect(changedUpdates(buildUpdates({ values: planned.values, session: b, rows: [b, c], apply: 'following' }), [b, c])
+      .map((u) => u.id)).toEqual([b.id, c.id]);
     // a new time counts as a change
     const moved = checkSessionForm(state({ location: 'Library', notes: 'Fractions', start: '16:30', end: '17:30' }), { creating: false });
     expect(changedUpdates(buildUpdates({ values: moved.values, session: b }), [b, c]).map((u) => u.id)).toEqual([b.id]);

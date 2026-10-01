@@ -649,7 +649,7 @@ export function startApp(config) {
           const updates = await store.getUpdates(student.id);
           out.fresh.updates = hasNewSince((updates ?? []).map((u) => u.created_at), getSeen('updates', me.id, student.id), now);
           // A moved or cancelled session the family has not seen on the calendar
-          const changed = recentChanges(await store.getSessions(student.id), null, now).map((s) => s.updated_at);
+          const changed = recentChanges(await store.getSessions(student.id), null, now).map((s) => s.changed_at);
           out.fresh.schedule = hasNewSince(changed, getSeen('schedule', me.id, student.id), now);
         }
       })().catch(() => {}));

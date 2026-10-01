@@ -147,7 +147,7 @@ function sessionRow(ctx, s, { plan, studentNames, staff, admin }) {
 // then the "Needs notes" count
 function sessionsCard(ctx, ws, { studentNames, staff, admin }) {
   const now = ctx.now;
-  const plan = todayPlan(ws.sessions ?? [], now, { tutorId: admin ? null : ctx.me.id });
+  const plan = todayPlan(ws.sessions ?? [], now, { tutorId: admin ? null : ctx.me.id, links: admin ? null : ws.links });
   const today = todayKey(now);
   const titleId = uid('tdy-title');
 
@@ -194,9 +194,11 @@ function sessionsCard(ctx, ws, { studentNames, staff, admin }) {
       h('h2', { class: 'card-title', id: titleId }, 'Today’s sessions'),
       count ? h('span', { class: 'card-meta num' }, String(count)) : null,
       h('a', { class: 'link card-link', href: SESSIONS_CALENDAR }, 'Open calendar')),
-    rows.length
-      ? h('ul', { class: 'tdy-list', 'aria-label': 'Today’s sessions' }, rows)
-      : quiet('calendar-blank', 'No sessions today.'),
+    ws.sessionsError
+      ? errorCallout({ title: 'We couldn’t load sessions.', text: 'Try again in a moment.', onRetry: () => ctx.store.invalidate(null) })
+      : rows.length
+        ? h('ul', { class: 'tdy-list', 'aria-label': 'Today’s sessions' }, rows)
+        : quiet('calendar-blank', 'No sessions today.'),
     foot.length ? h('div', { class: 'card-foot tdy-foot' }, foot) : null);
   return { card, count };
 }

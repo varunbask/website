@@ -333,8 +333,8 @@ describe('whose sessions', () => {
     expect(sessionWho(mine, { tutorNames: new Map() })).toBeNull();
     const all = { allScope: true, tutorNames, studentNames };
     expect(sessionWho(mine, { ...all, role: 'tutor', viewerId: 't1' })).toBe('Maya Lin');
-    expect(sessionWho(theirs, { ...all, role: 'tutor', viewerId: 't1' })).toBe('Maya Lin and Priya Shah');
-    expect(sessionWho(mine, { ...all, role: 'admin', viewerId: 'a1' })).toBe('Maya Lin and Daniel Ortiz');
+    expect(sessionWho(theirs, { ...all, role: 'tutor', viewerId: 't1' })).toBe('Maya Lin, taught by Priya Shah');
+    expect(sessionWho(mine, { ...all, role: 'admin', viewerId: 'a1' })).toBe('Maya Lin, taught by Daniel Ortiz');
     expect(sessionWho(mine, { ...all, role: 'admin', viewerId: 'a1', short: true })).toBe('Maya Lin');
     expect(sessionWho({ ...mine, student_id: 's9' }, { ...all, role: 'tutor', viewerId: 't1' })).toBeNull();
   });

@@ -6,7 +6,7 @@
 // A session row: { id, student_id, tutor_id, series_id, subject, starts_at,
 // ends_at, location, meeting_url, notes, status ('scheduled' | 'cancelled'),
 // attendance ('present' | 'late' | 'absent' | null), recap, moved_from,
-// created_at, updated_at }
+// changed_at, created_at, updated_at }
 
 import {
   WEEK_START, dayKey, addDays, weekday, zonedIso, businessTime, viewerIsInBusinessZone,
@@ -196,18 +196,23 @@ export function upcomingSessions(list, now = new Date(), { limit = Infinity, day
 
 // Moves and cancellations made after `since` (an ISO time or null) that still
 // matter: the session has not ended. These drive the family's "New" marker.
+// changed_at moves only on a change of time or status, never on a new plan.
 export function recentChanges(list, since, now = new Date()) {
   const t = now instanceof Date ? now.getTime() : ms(now);
   const from = since ? ms(since) : -Infinity;
   return sortSessions(list).filter((s) => (s.moved_from || isCancelled(s))
-    && ms(s.updated_at ?? s.created_at) > from
+    && s.changed_at && ms(s.changed_at) > from
     && ms(s.ends_at) > t);
 }
 
-// The rest of a weekly series from this session on (this one included)
+// The rest of a weekly series from this session on (this one included). The
+// tutor and student must match too: series_id comes from the browser.
 export function followingInSeries(list, session) {
   if (!session?.series_id) return [session];
-  return sortSessions(list).filter((s) => s.series_id === session.series_id && ms(s.starts_at) >= ms(session.starts_at));
+  return sortSessions(list).filter((s) => s.series_id === session.series_id
+    && String(s.tutor_id) === String(session.tutor_id)
+    && String(s.student_id) === String(session.student_id)
+    && ms(s.starts_at) >= ms(session.starts_at));
 }
 
 // ---------------------------------------------------------------------------
@@ -385,14 +390,30 @@ export function weeklyTimes({ date, start, end, weeks = 1 }) {
   });
 }
 
+const toMinutes = (time) => {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+};
+const toTime = (minutes) => {
+  const m = Math.min(Math.max(minutes, 0), 23 * 60 + 59);
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+};
+
 // New times for a run of sessions when the edited one moves to `date` at
-// start to end: every row keeps its own day, shifted by the same number of
-// days. [{ id, starts_at, ends_at }]
+// start to end. Each row moves by the same change (days, start and end), so a
+// row that was moved on its own keeps its difference; with no change in time,
+// every row keeps its times. [{ id, starts_at, ends_at }]
 export function retimeRows(rows, edited, { date, start, end }) {
   const shift = daysBetween(dayKey(edited.starts_at), date);
+  const startDelta = toMinutes(start) - toMinutes(timeInput(edited.starts_at));
+  const endDelta = toMinutes(end) - toMinutes(timeInput(edited.ends_at));
   return rows.map((row) => {
     const key = addDays(dayKey(row.starts_at), shift);
-    return { id: row.id, starts_at: zonedIso(key, start), ends_at: zonedIso(key, end) };
+    return {
+      id: row.id,
+      starts_at: zonedIso(key, toTime(toMinutes(timeInput(row.starts_at)) + startDelta)),
+      ends_at: zonedIso(key, toTime(toMinutes(timeInput(row.ends_at)) + endDelta)),
+    };
   });
 }
 
@@ -458,7 +479,8 @@ export function toIcs(sessions, { names = new Map(), now = new Date(), domain = 
     );
     const where = s.location || (s.meeting_url ? 'Online' : null);
     if (where) lines.push(fold(`LOCATION:${icsText(where)}`));
-    if (s.meeting_url) lines.push(fold(`URL:${s.meeting_url}`));
+    // No whitespace may reach the file: a line break would start a new property
+    if (s.meeting_url) lines.push(fold(`URL:${String(s.meeting_url).replace(/\s+/g, '')}`));
     if (details) lines.push(fold(`DESCRIPTION:${icsText(details)}`));
     lines.push('END:VEVENT');
   }
@@ -468,8 +490,12 @@ export function toIcs(sessions, { names = new Map(), now = new Date(), domain = 
 
 // ---------------------------------------------------------------------------
 // Who may change a session (the UI mirror of the RLS policies): an admin, or
-// the session's own tutor. me: { id, role }
-export function canEditSession(session, me) {
+// the session's own tutor while still assigned to the student. me: { id, role };
+// links: the tutor's tutor_students rows when known (without them the link is
+// assumed, and the database still has the last word).
+export function canEditSession(session, me, { links = null } = {}) {
   if (!session || !me) return false;
-  return me.role === 'admin' || (me.role === 'tutor' && String(session.tutor_id) === String(me.id));
+  if (me.role === 'admin') return true;
+  if (me.role !== 'tutor' || String(session.tutor_id) !== String(me.id)) return false;
+  return !links || links.some((l) => String(l.tutor_id) === String(me.id) && String(l.student_id) === String(session.student_id));
 }

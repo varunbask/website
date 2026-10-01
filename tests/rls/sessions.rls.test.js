@@ -93,14 +93,17 @@ describe.skipIf(!hasService)('session row-level security', () => {
     expect((await c.from('sessions').delete().eq('id', mine).select('id')).data).toEqual([]);
   });
 
-  test('moving a session keeps the old start; tutor and student cannot be changed', async () => {
+  test('a new plan is not news; moving a session keeps the old start and marks the change', async () => {
     const c = P.tutorA.client;
+    const planned = await c.from('sessions').update({ notes: 'Bring the quiz' }).eq('id', mine).select('changed_at').single();
+    expect(planned.data.changed_at).toBeNull();
     const before = (await w.admin.from('sessions').select('starts_at').eq('id', mine).single()).data.starts_at;
     const next = slot(26);
-    const { data, error } = await c.from('sessions').update(next).eq('id', mine).select('moved_from, starts_at').single();
+    const { data, error } = await c.from('sessions').update(next).eq('id', mine).select('moved_from, starts_at, changed_at').single();
     expect(error).toBeNull();
     expect(Date.parse(data.moved_from)).toBe(Date.parse(before));
     expect(Date.parse(data.starts_at)).toBe(Date.parse(next.starts_at));
+    expect(data.changed_at).not.toBeNull();
     expect((await c.from('sessions').update({ tutor_id: P.tutorB.id }).eq('id', mine)).error?.code).toBe('42501');
     expect((await c.from('sessions').update({ student_id: P.studentB.id }).eq('id', mine)).error?.code).toBe('42501');
   });
@@ -120,6 +123,8 @@ describe.skipIf(!hasService)('session row-level security', () => {
     expect((await c.from('sessions').insert({ student_id: P.studentA.id, starts_at: s.ends_at, ends_at: s.starts_at })).error).not.toBeNull();
     expect((await c.from('sessions').insert({ student_id: P.studentA.id, ...slot(70, 9) })).error).not.toBeNull();
     expect((await c.from('sessions').insert({ student_id: P.studentA.id, meeting_url: 'http://x.example', ...s })).error).not.toBeNull();
+    // A line break would let a link write extra lines into a calendar file
+    expect((await c.from('sessions').insert({ student_id: P.studentA.id, meeting_url: 'https://x.example\r\nBEGIN:VALARM', ...s })).error).not.toBeNull();
   });
 
   test('a weekly series shares one series id', async () => {
@@ -148,11 +153,22 @@ describe.skipIf(!hasService)('session row-level security', () => {
     expect(byAdmin.data).toEqual([{ subject: 'Geometry' }]);
   });
 
-  test('after an unlink the tutor still reads their sessions but cannot change them', async () => {
+  test('an unlink removes the tutor’s future sessions; past ones stay, read only', async () => {
+    const past = (await w.admin.from('sessions')
+      .insert({ student_id: P.studentA.id, tutor_id: P.tutorA.id, ...slot(-72) }).select('id').single()).data.id;
     await w.admin.from('tutor_students').delete().eq('tutor_id', P.tutorA.id).eq('student_id', P.studentA.id);
     const c = P.tutorA.client;
-    const { data } = await c.from('sessions').select('id').eq('id', mine);
-    expect(ids(data)).toEqual([String(mine)]);
-    expect((await c.from('sessions').update({ notes: 'x' }).eq('id', mine).select('id')).data).toEqual([]);
+    const { data } = await c.from('sessions').select('id, starts_at').eq('student_id', P.studentA.id);
+    expect(ids(data)).toEqual([String(past)]);
+    expect((await c.from('sessions').update({ recap: 'x' }).eq('id', past).select('id')).data).toEqual([]);
+    // Priya's session with the same student is untouched
+    const other = await w.admin.from('sessions').select('id').eq('id', theirs);
+    expect(ids(other.data)).toEqual([String(theirs)]);
+  });
+
+  test('a tutor who is no longer a tutor reads none of their old sessions', async () => {
+    await w.admin.from('profiles').update({ role: 'pending' }).eq('id', P.tutorA.id);
+    const { data } = await P.tutorA.client.from('sessions').select('id');
+    expect(data).toEqual([]);
   });
 });

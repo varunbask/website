@@ -86,12 +86,14 @@ export function getUpdates(studentId) {
 // ---------------------------------------------------------------------------
 // Sessions (tutoring schedule) and tutors
 
-export const SESSION_FIELDS = 'id, student_id, tutor_id, series_id, subject, starts_at, ends_at, location, meeting_url, notes, status, attendance, recap, moved_from, created_at, updated_at';
+export const SESSION_FIELDS = 'id, student_id, tutor_id, series_id, subject, starts_at, ends_at, location, meeting_url, notes, status, attendance, recap, moved_from, changed_at, created_at, updated_at';
 
 async function loadSessions(studentId) {
-  const { data, error } = await sb.from('sessions').select(SESSION_FIELDS)
+  // Pages past the 1000-row cap (a weekly series for years adds up)
+  const { data, error } = await selectAll(() => sb.from('sessions').select(SESSION_FIELDS)
     .eq('student_id', studentId)
-    .order('starts_at', { ascending: true });
+    .order('starts_at', { ascending: true })
+    .order('id', { ascending: true }));
   if (error) throw error;
   rememberSubjects((data ?? []).map((x) => x.subject));
   return data ?? [];
@@ -142,7 +144,7 @@ async function loadWorkspace() {
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })),
     selectAll(() => sb.from('sessions').select(SESSION_FIELDS).order('id')),
-    selectAll(() => sb.from('tutor_students').select('tutor_id, student_id, subject').order('student_id')),
+    selectAll(() => sb.from('tutor_students').select('tutor_id, student_id, subject').order('student_id').order('tutor_id')),
   ]);
   for (const result of [people, tasks, subs]) if (result.error) throw result.error;
   // Sessions are extra: if they fail (or the table is missing), the rest of the
@@ -156,9 +158,9 @@ async function loadWorkspace() {
     submissions: (subs.data ?? []).map(normalizeSub),
     sessions: sess.data ?? [],
     sessionsError: sess.error ?? null,
-    // tutor_students rows the viewer can read (own for a tutor, all for an admin);
-    // without the subject column yet, the links still load without subjects
-    links: links.error ? [] : (links.data ?? []),
+    // tutor_students rows the viewer can read (own for a tutor, all for an
+    // admin); null when they could not load
+    links: links.error ? null : (links.data ?? []),
   };
 }
 

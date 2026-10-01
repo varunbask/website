@@ -410,7 +410,8 @@ export function renderSessionDetail(dctx) {
 function buildDetail(dctx, found, { now, names, actions }) {
   const { session, student, sessions } = found;
   const staff = dctx.audience === 'staff';
-  const editable = staff && !dctx.readOnly && canEditSession(session, dctx.me);
+  // A tutor no longer assigned to the student can read but not change it
+  const editable = staff && !dctx.readOnly && canEditSession(session, dctx.me, { links: found.ws?.links ?? null });
   const status = sessionState(session, now);
   const cancelled = isCancelled(session);
   const started = Date.parse(session.starts_at) <= now.getTime();

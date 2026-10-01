@@ -177,19 +177,25 @@ export function buildInsertRows({ studentId, tutorId, values, seriesId }) {
   }));
 }
 
-// One update per row for an edit: [{ id, fields }]. Subject, place and plan
-// are copied to every row; each row gets its own new times.
+const textOf = (v) => (v === null || v === undefined || String(v).trim() === '' ? null : String(v).trim());
+const TEXT_FIELDS = ['subject', 'location', 'meeting_url', 'notes'];
+
+// One update per row for an edit: [{ id, fields }]. The edited session gets
+// every field. With "this and following", the later rows get only what the
+// tutor changed on the edited one (so a session moved or planned on its own
+// keeps that), and new times only when the time changed.
 export function buildUpdates({ values, session, rows = null, apply = 'this' }) {
-  const shared = {
-    subject: values.subject,
-    location: values.location,
-    meeting_url: values.meeting_url,
-    notes: values.notes,
-  };
-  return plannedTimes(values, { session, rows, apply }).map((t) => ({
-    id: t.id,
-    fields: { ...shared, starts_at: t.starts_at, ends_at: t.ends_at },
-  }));
+  const timed = plannedTimes(values, { session, rows, apply });
+  const changedText = TEXT_FIELDS.filter((k) => textOf(values[k]) !== textOf(session[k]));
+  const timeChanged = timed.some((t) => String(t.id) === String(session.id)
+    && (ms(t.starts_at) !== ms(session.starts_at) || ms(t.ends_at) !== ms(session.ends_at)));
+  return timed.map((t) => {
+    const own = String(t.id) === String(session.id);
+    const fields = {};
+    for (const k of (own ? TEXT_FIELDS : changedText)) fields[k] = values[k];
+    if (own || timeChanged) Object.assign(fields, { starts_at: t.starts_at, ends_at: t.ends_at });
+    return { id: t.id, fields };
+  });
 }
 
 // Drops the updates that would write what a row already holds, so a save with
@@ -203,12 +209,10 @@ export function changedUpdates(updates, current) {
     const row = byId.get(String(u.id));
     if (!row) return true;
     const f = u.fields;
-    return !(text(row.subject) === text(f.subject)
-      && text(row.location) === text(f.location)
-      && text(row.meeting_url) === text(f.meeting_url)
-      && text(row.notes) === text(f.notes)
-      && ms(row.starts_at) === ms(f.starts_at)
-      && ms(row.ends_at) === ms(f.ends_at));
+    // Only the fields this update carries count
+    return Object.keys(f).some((k) => (k === 'starts_at' || k === 'ends_at'
+      ? ms(row[k]) !== ms(f[k])
+      : text(row[k]) !== text(f[k])));
   });
 }
 
