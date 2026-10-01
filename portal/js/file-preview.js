@@ -1,7 +1,7 @@
 // The submitted file on the review page (spec 5.9).
 //
 // filePreview(sub, { signal, attempt }) -> HTMLElement
-//   Signs the storage path for an hour, fetches the file into a Blob and shows
+//   Signs the storage path for 10 minutes, fetches the file into a Blob and shows
 //   it: photos as an <img> from an object URL (the CSP allows blob: images),
 //   text in a Mono <pre> via textContent (first 200 KB), PDFs as a file card
 //   that opens the signed URL in a new tab. Object URLs are revoked when
@@ -21,8 +21,8 @@ import { sb } from './supabase.js';
 import { FILE_LABELS } from './labels.js';
 
 const BUCKET = 'homework';
-const SIGN_SECONDS = 3600;
-const SIGN_REUSE_MS = 50 * 60 * 1000;   // re-sign well before the hour runs out
+const SIGN_SECONDS = 600;
+const SIGN_REUSE_MS = 8 * 60 * 1000;    // re-sign before the 10 minutes run out
 const TEXT_LIMIT = 204800;              // 200 KB
 const CACHE_SIZE = 4;
 
