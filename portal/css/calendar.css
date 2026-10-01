@@ -1,16 +1,29 @@
-/* U3. Calendar month grid, chips, day panel, agenda list. Prefix: cal-. Tokens and components come from app.css; no raw hex.
-   Spec 5.10. Markup (views/calendar.js):
+/* U3. Calendar week grid, month grid, chips, day panel, agenda list. Prefix: cal-. Tokens and components come from app.css; no raw hex.
+   Spec 5.10 and the tutoring schedules spec. Markup (views/calendar.js):
      div.cal-toolbar
        div.cal-toolbar-main > h2.cal-title[aria-live] + div.cal-nav > .btn.cal-today + div.cal-steps > .icon-btn x2
-       div.cal-toolbar-controls > div.segmented.cal-seg (scope, staff) + div.segmented.cal-seg (Month / List)
+       div.cal-toolbar-controls > div.segmented.cal-seg (scope, staff) + div.cal-filter (tutor segmented or select)
+                                  + div.segmented.cal-seg (Week / Month / List) + .btn.cal-new (staff)
+       ul.cal-legend > li.cal-legend-item.subj-N > span.cal-swatch + span (two or more subjects only)
      div.cal-body
+       week:  div.cal-week-wrap > div.cal-week[--hours] (hour height --hour-h)
+                > div.cal-week-row.cal-week-head > div.cal-week-corner + div.cal-week-dayhead(.is-today .is-weekend) x7
+                    > span.cal-week-daylabel (span.cal-week-dow + span.cal-num) + button.icon-btn.cal-week-add (staff)
+                > div.cal-week-row.cal-week-dues > div.cal-week-duelabel + div.cal-week-due.cal-chips x7 > a.cal-chip.is-{kind}
+                > div.cal-week-row.cal-week-body > div.cal-week-hours > span.cal-week-hour[--i]
+                    + div.cal-week-track x7 > button.cal-block.subj-N(.is-tiny .is-short .is-cancelled .is-moved .is-now)[--top --height --col --cols]
+                        > span.cal-block-head (span.cal-block-time + span.cal-block-place) + span.cal-block-title
+                          + span.cal-block-foot (span.cal-block-who + span.cal-block-tag)
+                      and div.cal-now[--top] on today's column
+              phones: div.cal-agenda.cal-week-list (group headers and rows, as the list view)
        month: div.cal-layout > div.cal-grid-wrap > table.cal-month.cap-{0..3}
                 td(.is-outside .is-weekend .is-today .is-past .is-selected) > button.cal-day
-                  > span.cal-num(.is-label) + (span.cal-chips > span.cal-chip.is-{kind} ... + span.cal-more | span.cal-dots > span.cal-dot.is-{kind})
+                  > span.cal-num(.is-label) + (span.cal-chips > span.cal-chip(.cal-chip-session.subj-N) ... + span.cal-more | span.cal-dots > span.cal-dot.is-{kind})
               + section.cal-panel > div.cal-panel-head (h3.cal-panel-title, .cal-panel-tag, .cal-panel-meta, .btn.cal-panel-back)
-                + h4.cal-panel-day + ul.row-list ... | div.cal-panel-empty
+                + h4.cal-panel-day + ul.row-list ... | div.cal-panel-empty > p + div.cal-panel-actions
        list:  div.cal-agenda > group headers + ul.row-list, div.cal-agenda-more, details.group.cal-undated
-   Chip and dot kinds: open soon overdue submitted graded done missed draft failed. */
+     Session rows are a.row with span.row-lead.cal-lead.subj-N > span.cal-swatch.
+   Chip and dot kinds: open soon overdue submitted graded done missed draft failed (and session on dots). */
 
 
 /* Toolbar ------------------------------------------------------------------ */
@@ -39,7 +52,9 @@
   gap: var(--s-2);
 }
 .cal-steps { display: flex; align-items: center; gap: 2px; }
-.cal-today.btn-sm { height: 32px; padding: 0 12px; }
+.cal-today.btn-sm,
+.cal-new.btn-sm { height: 32px; padding: 0 12px; }
+.cal-new.btn-sm:has(> .icon:first-child) { padding-left: 10px; }
 .cal-title {
   font: var(--t-h2);
   letter-spacing: -0.01em;
@@ -52,17 +67,50 @@
   align-items: center;
   gap: var(--s-2) var(--s-3);
 }
+/* The tutor control (segmented or select) sits among the other controls */
+.cal-filter { display: contents; }
+.cal-filter .select { min-width: 168px; }
+.cal-new { flex: none; }
+
+/* Subject legend: a swatch and a name per subject in view */
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1 1 100%;
+  gap: var(--s-1) var(--s-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cal-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font: var(--t-meta);
+  color: var(--text-2);
+}
+.cal-swatch {
+  display: inline-block;
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background-color: var(--subj-solid);
+}
 
 @media (max-width: 767.98px) {
   .cal-toolbar { gap: var(--s-3); }
   .cal-toolbar-main { flex: 1 1 100%; justify-content: space-between; }
   .cal-toolbar-main > .cal-title { order: -2; overflow: hidden; text-overflow: ellipsis; }
   .cal-toolbar-controls { flex: 1 1 100%; }
-  .cal-toolbar-controls > .cal-seg { flex: 1 1 0; display: flex; }
-  .cal-toolbar-controls > .cal-seg > button { flex: 1 1 0; }
+  .cal-toolbar-controls .cal-seg { flex: 1 1 auto; display: flex; }
+  .cal-toolbar-controls .cal-seg > button { flex: 1 1 0; }
+  .cal-filter .select { flex: 1 1 auto; }
 }
 @media (pointer: coarse), (max-width: 1023.98px) {
-  .cal-today.btn-sm { height: 44px; }
+  .cal-today.btn-sm,
+  .cal-new.btn-sm { height: 44px; }
 }
 /* Phones: the step buttons sit at the right edge, so their tips end-align
    instead of centring past the viewport. Below 360 they wrap to the start of
@@ -88,6 +136,260 @@
 @media (min-width: 1280px) {
   .cal-layout { grid-template-columns: minmax(0, 1fr) 320px; }
 }
+
+
+/* Week grid ---------------------------------------------------------------- */
+
+.cal-week-wrap {
+  min-width: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  /* clip, not hidden: it rounds the corners without becoming a scroll
+     container, so the day headers can stick under the top bar */
+  overflow: clip;
+}
+/* On narrow tablets the grid scrolls sideways inside its frame (the page never
+   does). The frame is then the scroller, so the headers scroll with it. */
+@media (max-width: 1023.98px) {
+  .cal-week-wrap {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+}
+
+.cal-week {
+  --gutter: 48px;
+  --col-min: 84px;
+  --hour-h: 48px;
+  --today-tint: color-mix(in srgb, var(--accent-soft) 55%, var(--surface));
+  min-width: calc(var(--gutter) + 7 * var(--col-min));
+}
+/* Head, due row and hours share one column template, so the days line up */
+.cal-week-row {
+  display: grid;
+  grid-template-columns: var(--gutter) repeat(7, minmax(var(--col-min), 1fr));
+}
+
+.cal-week-dayhead,
+.cal-week-due,
+.cal-week-track {
+  min-width: 0;
+  border-left: 1px solid var(--line);
+  background-color: var(--surface);
+}
+.cal-week-dayhead.is-weekend,
+.cal-week-due.is-weekend,
+.cal-week-track.is-weekend { background-color: var(--weekend); }
+.cal-week-dayhead.is-today,
+.cal-week-due.is-today,
+.cal-week-track.is-today { background-color: var(--today-tint); }
+
+/* Sticky day headers */
+.cal-week-head {
+  position: sticky;
+  top: var(--sticky-top);
+  z-index: 4;
+  border-bottom: 1px solid var(--line-strong);
+  background-color: var(--surface);
+}
+.cal-week-corner {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  padding: 0 var(--s-2) var(--s-2) 0;
+  font: var(--t-caption);
+  color: var(--text-3);
+}
+.cal-week-dayhead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-1);
+  min-height: 56px;
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-2);
+}
+.cal-week-daylabel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+.cal-week-dow {
+  font: var(--t-caption);
+  color: var(--text-3);
+}
+.cal-week-dayhead.is-today .cal-week-dow { color: var(--accent-text); }
+.cal-week-dayhead.is-today .cal-num {
+  background-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.cal-week-add { color: var(--text-3); }
+@media (hover: hover) {
+  .cal-week-add:hover { color: var(--text); }
+}
+
+/* Due items (assignments and tasks) as small chips, above the hours */
+.cal-week-dues { border-bottom: 1px solid var(--line-strong); }
+.cal-week-duelabel {
+  padding: var(--s-2) var(--s-2) 0 0;
+  font: var(--t-caption);
+  color: var(--text-3);
+  text-align: right;
+}
+.cal-week-due { padding: var(--s-1); }
+
+/* The hours: the track is --hours rows of --hour-h, with a hairline at each
+   hour (offset by a pixel, so the header's own border is not doubled) */
+.cal-week-hours,
+.cal-week-track {
+  position: relative;
+  height: calc(var(--hours) * var(--hour-h));
+}
+.cal-week-hour {
+  position: absolute;
+  top: calc(var(--i) * var(--hour-h) + 2px);
+  right: var(--s-2);
+  font: var(--t-caption);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.cal-week-track {
+  background-image: linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: 100% var(--hour-h);
+  background-position: 0 -1px;
+  background-repeat: repeat-y;
+}
+.cal-week.can-create .cal-week-track { cursor: cell; }
+
+/* A session: a card in the subject's tone with a 3px bar. Its box comes from
+   layoutDay through --top and --height (fractions of the track) and --col and
+   --cols (side by side when sessions overlap). */
+.cal-block {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--top) * 100% + 1px);
+  left: calc(var(--col) / var(--cols) * 100% + 2px);
+  width: calc(100% / var(--cols) - 4px);
+  height: calc(var(--height) * 100% - 2px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 2px var(--s-1) 2px 5px;
+  overflow: hidden;
+  border-left: 3px solid var(--subj-solid);
+  border-radius: var(--r-xs);
+  background-color: var(--subj-bg);
+  color: var(--subj-text);
+  font: 500 12px/14px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow var(--dur-1) var(--ease-out);
+}
+@media (hover: hover) {
+  .cal-block:hover {
+    z-index: 3;
+    box-shadow: 0 0 0 1px var(--subj-solid);
+  }
+}
+/* Inside the block, so a block at the grid's edge is never clipped */
+.cal-block:focus-visible {
+  z-index: 3;
+  outline-offset: -2px;
+}
+.cal-block.is-now { box-shadow: 0 0 0 1px var(--subj-solid); }
+
+.cal-block-head,
+.cal-block-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  min-width: 0;
+}
+.cal-block-head { justify-content: space-between; }
+/* Every line is one line of text that ends in an ellipsis */
+.cal-block-time,
+.cal-block-title,
+.cal-block-who {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cal-block-time { font-variant-numeric: tabular-nums; }
+.cal-block-title { display: block; font-weight: 600; }
+.cal-block-who { flex: 1 1 0; font-weight: 400; }
+.cal-block-place {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+.cal-block-tag {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  background-color: var(--warning-bg);
+  color: var(--warning-text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Lines that fit: three at an hour or more, two under it, one under 43 minutes */
+.cal-block.is-short .cal-block-foot,
+.cal-block.is-tiny .cal-block-foot { display: none; }
+.cal-block.is-tiny {
+  flex-direction: row;
+  align-items: baseline;
+  gap: var(--s-1);
+  padding-block: 0;
+}
+.cal-block.is-tiny .cal-block-head { flex: none; }
+.cal-block.is-tiny .cal-block-place { display: none; }
+.cal-block.is-tiny .cal-block-title { flex: 1 1 0; }
+
+/* Moved: a dashed bar. Cancelled: struck through, faded and hatched. */
+.cal-block.is-moved { border-left-style: dashed; }
+.cal-block.is-cancelled {
+  background-color: color-mix(in srgb, var(--subj-bg) 55%, var(--surface));
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, var(--subj-solid) 28%, transparent) 5px 6px);
+}
+.cal-block.is-cancelled .cal-block-time,
+.cal-block.is-cancelled .cal-block-title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/* Now: a line across today's column, with a dot at its start */
+.cal-now {
+  position: absolute;
+  z-index: 2;
+  top: calc(var(--top) * 100%);
+  left: 0;
+  right: 0;
+  height: 2px;
+  margin-top: -1px;
+  background-color: var(--danger-solid);
+  pointer-events: none;
+}
+.cal-now::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background-color: var(--danger-solid);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cal-block { transition: none; }
+}
+
+/* Phones: the week as a list of days */
+.cal-week-list { max-width: none; }
 
 
 /* Month grid --------------------------------------------------------------- */
@@ -269,6 +571,31 @@ td.is-today .cal-num {
   color: var(--warning-text);
 }
 .cal-chip.is-failed { background-color: var(--danger-bg); color: var(--danger-text); }
+/* A session in a month cell: start time and subject in the subject's tone */
+.cal-chip-session {
+  background-color: var(--subj-bg);
+  border-left: 3px solid var(--subj-solid);
+  padding-left: 4px;
+  color: var(--subj-text);
+}
+.cal-chip-time {
+  margin-right: var(--s-1);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.cal-chip-session.is-cancelled {
+  background-color: color-mix(in srgb, var(--subj-bg) 55%, var(--surface));
+}
+.cal-chip-session.is-cancelled .cal-chip-title {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+@media (hover: hover) {
+  .cal-chip.cal-chip-session:hover {
+    border-color: color-mix(in srgb, var(--subj-solid) 50%, transparent);
+    border-left-color: var(--subj-solid);
+  }
+}
 @media (hover: hover) {
   .cal-chip.is-draft:hover { border-style: solid; }
   .cal-chip.is-submitted:hover { border-color: var(--control); }
@@ -342,6 +669,7 @@ td.is-today .cal-num {
 .cal-dot.is-graded { background-color: var(--success-solid); }
 .cal-dot.is-done,
 .cal-dot.is-missed { background-color: var(--text-4); }
+.cal-dot.is-session { background-color: var(--subj-solid); }
 
 
 /* Day panel ---------------------------------------------------------------- */
@@ -407,6 +735,11 @@ td.is-today .cal-num {
   font: 400 14px/20px var(--font-ui);
   color: var(--text-2);
 }
+.cal-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
 .cal-panel .skeleton-rows { padding: 0 var(--s-2) var(--s-2); }
 
 /* Beside the grid the panel is narrow: rows take the compact two-line layout,
@@ -445,6 +778,14 @@ td.is-today .cal-num {
 }
 
 
+/* Session rows (day panel and list): a swatch in the subject's tone leads */
+.cal-lead .cal-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+}
+
+
 /* List (agenda) ------------------------------------------------------------ */
 
 .cal-agenda { max-width: var(--content-max); }
@@ -460,6 +801,12 @@ td.is-today .cal-num {
   .cal-panel-tag,
   .cal-dot { border: 1px solid CanvasText; }
   .cal-chip.is-draft { border-style: dashed; }
+  .cal-block { border: 1px solid CanvasText; border-left-width: 3px; }
+  .cal-block.is-moved,
+  .cal-block.is-cancelled { border-style: dashed; }
+  .cal-now,
+  .cal-now::before { background-color: Highlight; }
+  .cal-swatch { border: 1px solid CanvasText; }
   /* Selection on a pseudo-element, so the focus outline stays separate */
   td.is-selected > .cal-day { position: relative; }
   td.is-selected > .cal-day::after {
@@ -469,7 +816,9 @@ td.is-today .cal-num {
     border: 2px solid Highlight;
     pointer-events: none;
   }
-  td.is-today .cal-num { border: 1px solid CanvasText; }
+  td.is-today .cal-num,
+  .cal-week-dayhead.is-today .cal-num { border: 1px solid CanvasText; }
   .cal-grid-wrap,
+  .cal-week-wrap,
   .cal-panel { border-color: CanvasText; }
 }

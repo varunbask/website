@@ -83,6 +83,17 @@ describe('subject colors', () => {
     expect(toneClass('Algebra')).toMatch(/^subj-[0-5]$/);
   });
 
+  test('a palette gives loaded subjects different tones while tones last', async () => {
+    const { buildPalette } = await import('../../portal/js/sessions-model.js');
+    const seven = ['Math', 'Algebra', 'SAT Reading', 'English', 'Physics', 'Chemistry', 'Spanish'];
+    const six = buildPalette(seven.slice(0, 6));
+    expect(new Set(six.values()).size).toBe(6);
+    expect(buildPalette(['math', ' Math ', 'Algebra']).size).toBe(2);
+    // Same input, same answer, whatever the order
+    expect([...buildPalette(seven).entries()]).toEqual([...buildPalette([...seven].reverse()).entries()]);
+    for (const tone of buildPalette(seven).values()) expect(tone).toBeLessThan(SUBJECT_TONES);
+  });
+
   test('legend lists each subject once', () => {
     const list = [session('2026-10-15', '16:00', '17:00'), session('2026-10-16', '16:00', '17:00', { subject: 'algebra' }),
       session('2026-10-17', '10:00', '11:00', { subject: 'SAT Reading' })];

@@ -1,31 +1,55 @@
-// Calendar (spec 5.10): a month grid with chips and a day panel, or an agenda
-// list. One route serves families, staff with a selected student and staff
-// looking at every student (scope=all). View, month and day live in the hash
-// and change with replaceState, so this view re-renders itself in place;
-// switching between one student and all students pushes and remounts.
+// Calendar (spec 5.10): a week grid, a month grid with chips and a day panel,
+// or an agenda list, showing the family's or the staff's due dates and the
+// tutoring sessions together. One route serves families, staff with a selected
+// student and staff looking at every student (scope=all). View, week, month,
+// day and the tutor filter live in the hash and change with replaceState, so
+// this view re-renders itself in place; switching between one student and all
+// students pushes and remounts.
 //
-// All pure decisions (matrix, chips, keyboard, labels, agenda) live in
-// calendar-model.js. Everything renders inside ctx.host.
+// All pure decisions (matrix, chips, keyboard, labels, agenda, week layout
+// inputs, filters) live in calendar-model.js and sessions-model.js. Everything
+// renders inside ctx.host.
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import {
   itemRow, rowList, groupHeader, emptyState, errorCallout, skeletonRows,
-  segmented, iconButton, button, initials,
+  segmented, iconButton, button, select as selectControl, pill, initials, visuallyHidden, drawerHref,
 } from '../ui.js';
 import { deriveItems } from '../buckets.js';
-import { todayKey, monthTitle, dayHeading } from '../dates.js';
+import {
+  todayKey, monthTitle, dayHeading, addDays, longDate, viewerIsInBusinessZone,
+} from '../dates.js';
 import { displayName } from '../format.js';
+import { markSeen } from '../seen.js';
+import { staffNames } from '../updates-feed.js';
+import {
+  clockText, timeRange, sessionTitle, sessionState, sessionAria, sessionsByDay, isCancelled,
+  toneClass, subjectLegend, hourRange, layoutDay, weekTitle,
+} from '../sessions-model.js';
 import {
   AGENDA_DAYS, PANEL_DAYS,
   monthOf, monthMatrix, shiftMonth, weekdayHeaders, cellText,
-  itemsByDay, moveKey, capacityForGrid, chipsFor, moreLabel, chipKind, dotsFor,
-  dayLabel, dateWords, shortDay, agendaGroups, resolveState, countInMonth, inGrid,
+  itemsByDay, moveKey, capacityForGrid, chipsFor, moreLabel, chipKind, chipTime,
+  dayLabel, itemAria, dateWords, shortDay, agendaGroups, agendaWithSessions, needsNotes,
+  resolveState, countInMonth, inGrid, dayEntries, dotsForDay,
+  deriveWeek, monthOfWeek, weekDays, hourLabel, hourMarks, nowFraction, slotTime, sessionsInRange, viewRange,
+  resolveSessionFilter, filterSessions, tutorOptions, sessionWho,
 } from '../calendar-model.js';
 
 const STORE_KEY = 'vb-cal-view';
 const BREAKPOINTS = ['(min-width: 768px)', '(min-width: 1024px)', '(min-width: 1280px)'];
 const ENTER_LIMIT = 8;
+const NOW_TICK_MS = 60_000;
+
+// A session's place: a link makes it online. The icon set has no camera or
+// pin, so the link icon stands for "online" and the group for "in person".
+const ONLINE_ICON = 'arrow-square-out';
+const PLACE_ICON = 'users-three';
+const STATE_ICONS = {
+  cancelled: 'x-circle', now: 'clock', moved: 'clock', scheduled: null,
+  attended: 'check-circle', late: 'clock', missed: 'minus-circle', finished: 'check',
+};
 
 // The list view's extended range per scope (a student id, or 'all'), so a
 // store refresh keeps "Show the next 30 days" instead of shrinking the list.
@@ -52,6 +76,7 @@ const matches = (query) => (typeof matchMedia === 'function' ? matchMedia(query)
 const viewportWidth = () => (typeof window === 'undefined' ? 1280 : window.innerWidth);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const cssEscape = (s) => (globalThis.CSS?.escape ? CSS.escape(String(s)) : String(s).replace(/["\\]/g, '\\$&'));
+const currentHash = () => (typeof location === 'undefined' ? '' : location.hash);
 
 export function mount(ctx) {
   const { host } = ctx;
@@ -66,35 +91,61 @@ export function mount(ctx) {
   const rangeKey = allScope ? 'all' : String(student?.id ?? '');
   if (!ctx.isRefresh) listRanges.delete(rangeKey);
 
+  // ctx.now is fixed for a render; the now line keeps time from it
+  const mountedAt = Date.now();
+  const clock = () => new Date(new Date(ctx.now).getTime() + (Date.now() - mountedAt));
+
   const state = {
     ...resolveState(ctx.route.params ?? {}, { today, wide: matches('(min-width: 768px)'), stored: readStoredView() }),
+    filter: allScope ? resolveSessionFilter(ctx.route.params ?? {}, ctx.me.role) : { who: 'all', tutor: null },
     focus: null,          // roving day in the month grid (keyboard), may differ from selected
     range: listRanges.get(rangeKey) ?? AGENDA_DAYS, // list view days, extended 30 at a time
     status: 'loading',    // 'loading' | 'ready' | 'error'
     items: [],
     byDay: new Map(),
+    sessions: [],         // every session loaded, before the tutor filter
+    shown: [],            // the sessions the filter lets through
+    sessionDays: new Map(), // shown sessions by Pacific day
+    tutorNames: new Map(),
+    studentNames: new Map(),
+    links: [],
+    hours: null,          // the week grid's { start, end } hours, for the now line
     capacity: capacityForGrid(0, viewportWidth()),
+    wide: matches('(min-width: 768px)'),
   };
 
-  ctx.setHeader({
-    title: 'Calendar',
-    lede: allScope ? 'Every student’s due dates in one place.' : null,
+  let lede = null;
+  if (allScope) lede = 'Every student’s sessions and due dates in one place.';
+  else if (!staff) lede = 'Your sessions and due dates.';
+  ctx.setHeader({ title: 'Calendar', lede });
+
+  // The name after "with": the tutor on one student's calendar, the student
+  // (and for an admin the tutor) on the all-students one
+  const whoOptions = () => ({
+    allScope,
+    tutorNames: state.tutorNames,
+    studentNames: state.studentNames,
+    role: ctx.me.role,
+    viewerId: ctx.me.id,
   });
+  const spokenWho = (s) => sessionWho(s, whoOptions());
+  const shortWho = (s) => sessionWho(s, { ...whoOptions(), short: true });
 
   // -------------------------------------------------------------------------
-  // Toolbar: month title, previous / next / Today, scope and layout controls
+  // Toolbar: title, previous / next / Today, scope, tutor filter, layout and
+  // "New session", then the subject legend
 
   const titleId = uid('cal-title');
   const title = h('h2', { class: 'cal-title', id: titleId, 'aria-live': 'polite' });
 
-  const prevBtn = iconButton({ icon: 'caret-left', label: 'Previous month', focusKey: 'cal-prev', onClick: () => goMonth(-1) });
-  const nextBtn = iconButton({ icon: 'caret-right', label: 'Next month', focusKey: 'cal-next', onClick: () => goMonth(1) });
+  const prevBtn = iconButton({ icon: 'caret-left', label: 'Previous month', focusKey: 'cal-prev', onClick: () => step(-1) });
+  const nextBtn = iconButton({ icon: 'caret-right', label: 'Next month', focusKey: 'cal-next', onClick: () => step(1) });
   const todayBtn = button({ label: 'Today', size: 'sm', className: 'cal-today', focusKey: 'cal-today', onClick: goToday });
   const navGroup = h('div', { class: 'cal-nav' }, todayBtn, h('div', { class: 'cal-steps' }, prevBtn, nextBtn));
 
   const viewSeg = segmented({
     label: 'Calendar layout',
-    options: [{ value: 'month', label: 'Month' }, { value: 'list', label: 'List' }],
+    options: [{ value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }, { value: 'list', label: 'List' }],
     value: state.view,
     onChange: setView,
     className: 'cal-seg',
@@ -107,18 +158,38 @@ export function mount(ctx) {
       label: 'Whose calendar',
       options: [{ value: 'one', label: 'This student' }, { value: 'all', label: 'All students' }],
       value: allScope ? 'all' : 'one',
-      onChange: (v) => ctx.setParams({ scope: v === 'all' ? 'all' : null }),
+      onChange: (v) => ctx.setParams(v === 'all' ? { scope: 'all' } : { scope: null, who: null, tutor: null }),
       className: 'cal-seg',
     });
     keyButtons(scopeSeg, 'cal-scope');
   }
 
+  // Tutors: "My sessions / All". Admins: a select of tutors, built once the
+  // tutor names are known
+  const filterSlot = h('div', { class: 'cal-filter' });
+
+  const newBtn = canCreate
+    ? button({
+      label: 'New session',
+      icon: 'plus',
+      size: 'sm',
+      className: 'cal-new',
+      focusKey: 'cal-new-session',
+      onClick: () => ctx.openNewSession({ due: newSessionDay() }),
+    })
+    : null;
+
+  const legendEl = h('ul', { class: 'cal-legend', 'aria-label': 'Subjects', hidden: true });
+
   const toolbar = h('div', { class: 'cal-toolbar' },
     h('div', { class: 'cal-toolbar-main' }, title, navGroup),
-    h('div', { class: 'cal-toolbar-controls' }, scopeSeg, viewSeg));
+    h('div', { class: 'cal-toolbar-controls' }, scopeSeg, filterSlot, viewSeg, newBtn),
+    legendEl);
 
   const body = h('div', { class: 'cal-body' });
   host.append(toolbar, body);
+
+  if (allScope && ctx.me.role === 'tutor') buildFilter();
 
   // -------------------------------------------------------------------------
   // State changes
@@ -127,10 +198,43 @@ export function mount(ctx) {
     ctx.setParams(params, { replace: true });
   }
 
+  // The day a toolbar "New session" starts on: the selected day in Month,
+  // today (or the first day of another week) in Week, otherwise today
+  function newSessionDay() {
+    if (state.view === 'month' && state.selected) return state.selected;
+    if (state.view === 'week') return weekDays(state.week, today).some((d) => d.isToday) ? today : state.week;
+    return today;
+  }
+
   function setView(view) {
+    const from = state.view;
     state.view = view;
     storeView(view);
-    setParams({ view });
+    if (view === 'week') {
+      // Coming from Month the week follows the selected day (or the month);
+      // from List it is the week last shown
+      if (from === 'month') state.week = deriveWeek({ selected: state.selected, month: state.month, today });
+      setParams({ view, w: state.week, m: state.month });
+    } else if (view === 'month') {
+      setParams({ view, w: null, m: state.month });
+    } else {
+      setParams({ view });
+    }
+    render();
+    if (view === 'month') syncLayout();
+  }
+
+  function step(n) {
+    if (state.view === 'week') goWeek(addDays(state.week, 7 * n));
+    else goMonth(n);
+  }
+
+  // Moves the week grid. A selected day outside the new week is cleared.
+  function goWeek(week) {
+    state.week = week;
+    state.month = monthOfWeek(week);
+    if (state.selected && !weekDays(week, today).some((d) => d.key === state.selected)) state.selected = null;
+    setParams({ w: week, m: state.month, d: state.selected });
     render();
   }
 
@@ -150,9 +254,15 @@ export function mount(ctx) {
 
   function goToday() {
     state.month = monthOf(today);
-    state.selected = today;
-    state.focus = today;
-    setParams({ m: state.month, d: today });
+    if (state.view === 'week') {
+      state.week = deriveWeek({ month: state.month, today });
+      state.selected = null;
+      setParams({ w: state.week, m: state.month, d: null });
+    } else {
+      state.selected = today;
+      state.focus = today;
+      setParams({ m: state.month, d: today });
+    }
     render();
   }
 
@@ -180,19 +290,81 @@ export function mount(ctx) {
     body.querySelector(`button.cal-day[data-date="${cssEscape(key)}"]`)?.focus();
   }
 
+  // ---- Whose sessions -----------------------------------------------------
+
+  function applyFilter() {
+    state.shown = allScope ? filterSessions(state.sessions, state.filter, ctx.me) : state.sessions;
+    state.sessionDays = sessionsByDay(state.shown);
+  }
+
+  function setWho(who) {
+    state.filter = { who, tutor: null };
+    setParams({ who: who === 'all' ? 'all' : null });
+    applyFilter();
+    render();
+  }
+
+  function setTutor(id) {
+    state.filter = { who: 'all', tutor: id || null };
+    setParams({ tutor: id || null });
+    applyFilter();
+    render();
+  }
+
+  function buildFilter() {
+    filterSlot.replaceChildren();
+    if (ctx.me.role === 'tutor') {
+      const seg = segmented({
+        label: 'Which sessions',
+        options: [{ value: 'mine', label: 'My sessions' }, { value: 'all', label: 'All' }],
+        value: state.filter.who,
+        onChange: setWho,
+        className: 'cal-seg',
+      });
+      keyButtons(seg, 'cal-who');
+      filterSlot.append(seg);
+    } else if (ctx.me.role === 'admin') {
+      const options = tutorOptions({ links: state.links, sessions: state.sessions, names: state.tutorNames });
+      // A tutor in the hash that nobody has any more is dropped
+      if (state.filter.tutor && !options.some((o) => o.value === state.filter.tutor)) {
+        state.filter = { who: 'all', tutor: null };
+        setParams({ tutor: null });
+      }
+      filterSlot.append(selectControl({
+        label: 'Filter by tutor',
+        options: [{ value: '', label: 'All tutors' }, ...options],
+        value: state.filter.tutor ?? '',
+        size: 'sm',
+        onChange: setTutor,
+      }));
+      const sel = filterSlot.querySelector('select');
+      if (sel) sel.dataset.focusKey = 'cal-tutor';
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Rendering
 
+  function heading() {
+    if (state.view === 'week') return weekTitle(state.week);
+    if (state.view === 'month') return monthTitle(state.month);
+    return `Next ${state.range} days`;
+  }
+
   function render() {
     // Only a real change reaches the live region (a new text node re-announces)
-    const heading = state.view === 'month' ? monthTitle(state.month) : `Next ${state.range} days`;
-    if (title.textContent !== heading) title.textContent = heading;
-    navGroup.hidden = state.view !== 'month';
-    const prevLabel = `Previous month, ${monthTitle(shiftMonth(state.month, -1))}`;
-    const nextLabel = `Next month, ${monthTitle(shiftMonth(state.month, 1))}`;
-    relabel(prevBtn, prevLabel);
-    relabel(nextBtn, nextLabel);
+    const text = heading();
+    if (title.textContent !== text) title.textContent = text;
+    navGroup.hidden = state.view === 'list';
+    if (state.view === 'week') {
+      relabel(prevBtn, `Previous week, ${weekTitle(addDays(state.week, -7))}`);
+      relabel(nextBtn, `Next week, ${weekTitle(addDays(state.week, 7))}`);
+    } else {
+      relabel(prevBtn, `Previous month, ${monthTitle(shiftMonth(state.month, -1))}`);
+      relabel(nextBtn, `Next month, ${monthTitle(shiftMonth(state.month, 1))}`);
+    }
     host.classList.toggle('cal-is-list', state.view === 'list');
+    renderLegend();
 
     body.setAttribute('aria-busy', state.status === 'loading' ? 'true' : 'false');
     if (state.status === 'error') {
@@ -203,7 +375,232 @@ export function mount(ctx) {
       }));
       return;
     }
-    body.replaceChildren(state.view === 'month' ? monthLayout() : listLayout());
+    if (state.view === 'week') body.replaceChildren(state.wide ? weekGrid() : weekList());
+    else body.replaceChildren(state.view === 'month' ? monthLayout() : listLayout());
+  }
+
+  // The subjects of the sessions in view, as swatch and name; one subject
+  // needs no legend
+  function renderLegend() {
+    let entries = [];
+    if (state.status === 'ready') {
+      const range = viewRange(state.view, state, today);
+      entries = subjectLegend(sessionsInRange(state.shown, range.start, range.end));
+    }
+    legendEl.hidden = entries.length < 2;
+    legendEl.replaceChildren(...entries.map((e) => h('li', { class: `cal-legend-item ${e.tone}` },
+      h('span', { class: 'cal-swatch', 'aria-hidden': 'true' }),
+      h('span', {}, e.subject))));
+  }
+
+  // ---- Shared rows ----------------------------------------------------------
+
+  function row(item) {
+    return itemRow(item, {
+      audience,
+      now: ctx.now,
+      variant: 'mixed',
+      showStudent: Boolean(item.studentName),
+      studentName: item.studentName ?? '',
+    });
+  }
+
+  // One session as a row: a subject swatch, the subject, who and where, then
+  // the time and the state pill. The link carries row-s<id> for focus return.
+  function sessionRow(s) {
+    const st = sessionState(s, ctx.now);
+    const who = spokenWho(s);
+    const place = s.meeting_url ? 'Online' : (s.location || null);
+    const meta = [who ? `with ${who}` : null, place].filter(Boolean).join(', ');
+    const link = h('a', {
+      class: ['row', isCancelled(s) ? 'is-done' : null].filter(Boolean).join(' '),
+      'aria-label': sessionAria(s, { who, now: ctx.now }),
+      href: drawerHref(currentHash(), `s${s.id}`),
+      dataset: { focusKey: `row-s${s.id}`, sessionId: String(s.id) },
+    },
+    h('span', { class: `row-lead cal-lead ${toneClass(s.subject)}` }, h('span', { class: 'cal-swatch' })),
+    h('span', { class: 'row-main' },
+      h('span', { class: 'row-title' }, sessionTitle(s)),
+      meta ? h('span', { class: 'row-meta' }, meta) : null),
+    h('span', { class: 'row-aside' },
+      h('span', { class: 'row-due num' }, timeRange(s)),
+      // A plain upcoming session needs no pill; changes and outcomes get one
+      st.key === 'scheduled' ? null : h('span', { class: 'row-status' }, pill({ ...st, icon: STATE_ICONS[st.key] }))),
+    icon('caret-right'));
+    link.lastChild.classList.add('row-caret');
+    return h('li', {}, link);
+  }
+
+  // A day's rows: its sessions by time, then its due items
+  const dayRows = (d) => [...d.sessions.map(sessionRow), ...d.items.map(row)];
+
+  // ---- Week ---------------------------------------------------------------
+
+  const dayWords = (day) => `${dateWords(day.key, today)}${day.isToday ? ', today' : ''}`;
+
+  function weekGrid() {
+    const days = weekDays(state.week, today);
+    const weekSessions = sessionsInRange(state.shown, state.week, addDays(state.week, 6));
+    const range = hourRange(weekSessions);
+    state.hours = range;
+    const hours = hourMarks(range);
+    const span = (range.end - range.start) * 60;
+    const loading = state.status === 'loading';
+    const dueOf = (key) => (loading ? [] : state.byDay.get(key) ?? []);
+    const hasDue = days.some((d) => dueOf(d.key).length);
+    const cellClass = (day, base) => [base, day.isToday ? 'is-today' : null, day.isWeekend ? 'is-weekend' : null].filter(Boolean).join(' ');
+
+    // Times are Pacific; a viewer in another zone is told once, in the corner
+    const zone = viewerIsInBusinessZone(ctx.now)
+      ? null
+      : h('span', { class: 'cal-week-zone' }, h('span', { 'aria-hidden': 'true' }, 'PT'), visuallyHidden('Times are shown in Pacific time'));
+
+    const head = h('div', { class: 'cal-week-row cal-week-head' },
+      h('div', { class: 'cal-week-corner' }, zone),
+      days.map((day) => h('div', { class: cellClass(day, 'cal-week-dayhead') },
+        h('span', { class: 'cal-week-daylabel', 'aria-hidden': 'true' },
+          h('span', { class: 'cal-week-dow' }, day.short),
+          h('span', { class: 'cal-num num' }, String(day.num))),
+        canCreate
+          ? iconButton({
+            icon: 'plus',
+            label: `New session on ${longDate(day.key)}`,
+            tip: false,
+            className: 'cal-week-add',
+            focusKey: `cal-add-${day.key}`,
+            onClick: () => ctx.openNewSession({ due: day.key, at: '16:00' }),
+          })
+          : null)));
+
+    const dues = hasDue
+      ? h('div', { class: 'cal-week-row cal-week-dues' },
+        h('div', { class: 'cal-week-duelabel' }, 'Due'),
+        days.map((day) => {
+          const list = dueOf(day.key);
+          const cell = h('div', { class: cellClass(day, 'cal-week-due cal-chips') }, list.map((item) => dueChip(item, { link: true })));
+          if (list.length) {
+            cell.setAttribute('role', 'group');
+            cell.setAttribute('aria-label', `Due on ${dayWords(day)}`);
+          }
+          return cell;
+        }))
+      : null;
+
+    const gutter = h('div', { class: 'cal-week-hours', 'aria-hidden': 'true' },
+      hours.map((hour, i) => {
+        const label = h('span', { class: 'cal-week-hour num' }, hourLabel(hour));
+        label.style.setProperty('--i', String(i));
+        return label;
+      }));
+
+    const tracks = days.map((day) => {
+      const track = h('div', { class: cellClass(day, 'cal-week-track'), dataset: { date: day.key } });
+      const blocks = layoutDay(state.sessionDays.get(day.key) ?? [], { startHour: range.start, endHour: range.end });
+      for (const layout of blocks) track.append(sessionBlock(layout, span));
+      if (blocks.length) {
+        track.setAttribute('role', 'group');
+        track.setAttribute('aria-label', `Sessions on ${dayWords(day)}`);
+      }
+      if (day.isToday) {
+        const fraction = nowFraction(clock(), range);
+        if (fraction !== null) {
+          const line = h('div', { class: 'cal-now', 'aria-hidden': 'true' });
+          line.style.setProperty('--top', String(fraction));
+          track.append(line);
+        }
+      }
+      // Mouse only: an empty spot starts a session at that hour. The keyboard
+      // reaches the same thing through the "New session" button in each header.
+      if (canCreate) track.addEventListener('click', onTrackClick);
+      return track;
+    });
+
+    const grid = h('div', {
+      class: ['cal-week', canCreate ? 'can-create' : null].filter(Boolean).join(' '),
+      role: 'group',
+      'aria-labelledby': titleId,
+    }, head, dues, h('div', { class: 'cal-week-row cal-week-body' }, gutter, tracks));
+    grid.style.setProperty('--hours', String(hours.length));
+    return h('div', { class: 'cal-week-wrap' }, grid);
+  }
+
+  // A session block: time, subject and who, with an online or in-person icon.
+  // Its box comes from the layout's fractions through custom properties.
+  function sessionBlock(layout, span) {
+    const s = layout.session;
+    const st = sessionState(s, ctx.now);
+    const cancelled = isCancelled(s);
+    const moved = Boolean(s.moved_from) && !cancelled && Date.parse(s.ends_at) > new Date(ctx.now).getTime();
+    const minutes = Math.round(layout.height * span);
+    // Lines that fit: one under 43 minutes, two under an hour, else three
+    const size = minutes < 43 ? 'is-tiny' : minutes < 60 ? 'is-short' : null;
+    const who = allScope ? shortWho(s) : spokenWho(s);
+    const placeIcon = s.meeting_url ? ONLINE_ICON : s.location ? PLACE_ICON : null;
+
+    const el = h('button', {
+      type: 'button',
+      class: [
+        'cal-block', toneClass(s.subject), size,
+        cancelled ? 'is-cancelled' : null,
+        moved ? 'is-moved' : null,
+        st.key === 'now' ? 'is-now' : null,
+      ].filter(Boolean).join(' '),
+      'aria-label': sessionAria(s, { who: spokenWho(s), now: ctx.now }),
+      dataset: { focusKey: `row-s${s.id}`, sessionId: String(s.id) },
+      onClick: () => ctx.openSession(s.id),
+    },
+    h('span', { class: 'cal-block-head' },
+      h('span', { class: 'cal-block-time num' }, clockText(s.starts_at)),
+      placeIcon ? h('span', { class: 'cal-block-place' }, icon(placeIcon, { size: 12 })) : null),
+    h('span', { class: 'cal-block-title' }, sessionTitle(s)),
+    who || moved
+      ? h('span', { class: 'cal-block-foot' },
+        who ? h('span', { class: 'cal-block-who' }, allScope ? who : `with ${who}`) : null,
+        moved ? h('span', { class: 'cal-block-tag' }, 'Moved') : null)
+      : null);
+    el.style.setProperty('--top', String(layout.top));
+    el.style.setProperty('--height', String(layout.height));
+    el.style.setProperty('--col', String(layout.col));
+    el.style.setProperty('--cols', String(layout.cols));
+    return el;
+  }
+
+  function onTrackClick(e) {
+    const track = e.currentTarget;
+    if (e.target !== track || !state.hours) return;
+    const rect = track.getBoundingClientRect();
+    if (!(rect.height > 0)) return;
+    ctx.openNewSession({ due: track.dataset.date, at: slotTime((e.clientY - rect.top) / rect.height, state.hours) });
+  }
+
+  // The now line moves once a minute without a re-render
+  function updateNow() {
+    const line = body.querySelector('.cal-now');
+    if (!line || !state.hours) return;
+    const fraction = nowFraction(clock(), state.hours);
+    line.hidden = fraction === null;
+    if (fraction !== null) line.style.setProperty('--top', String(fraction));
+  }
+
+  // Below 768px the week is a list of its days instead of a grid
+  function weekList() {
+    const wrap = h('div', { class: 'cal-agenda cal-week-list' });
+    if (state.status === 'loading') {
+      wrap.append(skeletonRows(4));
+      return wrap;
+    }
+    let any = false;
+    for (const day of weekDays(state.week, today)) {
+      const d = { key: day.key, sessions: state.sessionDays.get(day.key) ?? [], items: state.byDay.get(day.key) ?? [] };
+      if (!d.sessions.length && !d.items.length) continue;
+      any = true;
+      const heading = dayHeading(day.key, today);
+      const list = rowList(dayRows(d), { label: heading });
+      list.dataset.day = day.key;
+      wrap.append(groupHeader({ label: heading, count: d.sessions.length + d.items.length }), list);
+    }
+    if (!any) wrap.append(emptyState({ icon: 'calendar-blank', text: 'Nothing scheduled or due this week.' }));
+    return wrap;
   }
 
   // ---- Month --------------------------------------------------------------
@@ -257,12 +654,13 @@ export function mount(ctx) {
   function dayCell(cell, { cap, loading, roving }) {
     const { key } = cell;
     const dayItems = state.byDay.get(key) ?? [];
+    const daySessions = state.sessionDays.get(key) ?? [];
     const isToday = key === today;
     const selected = key === state.selected;
 
     let label;
     if (loading) label = isToday ? `${dateWords(key, today)}, today` : dateWords(key, today);
-    else label = dayLabel(key, dayItems, today, audience);
+    else label = dayLabel(key, dayItems, today, audience, { sessions: daySessions, whoFor: spokenWho, now: ctx.now });
 
     const btn = h('button', {
       type: 'button',
@@ -274,7 +672,9 @@ export function mount(ctx) {
       dataset: { date: key, focusKey: `day-${key}` },
     }, numLabel(cell));
 
-    if (!loading && dayItems.length) btn.append(cap > 0 ? chipStack(dayItems, cap) : dotRow(dayItems));
+    if (!loading && (dayItems.length || daySessions.length)) {
+      btn.append(cap > 0 ? chipStack(dayEntries(daySessions, dayItems), cap) : dotRow(daySessions, dayItems));
+    }
 
     const cls = [
       cell.inMonth ? null : 'is-outside',
@@ -292,35 +692,57 @@ export function mount(ctx) {
     return h('span', { class: text.includes(' ') ? 'cal-num num is-label' : 'cal-num num' }, text);
   }
 
-  function chipStack(dayItems, cap) {
-    const { shown, more } = chipsFor(dayItems, cap);
+  // Sessions first, then due items; both count against the capacity
+  function chipStack(entries, cap) {
+    const { shown, more } = chipsFor(entries, cap);
     return h('span', { class: 'cal-chips', 'aria-hidden': 'true' },
-      shown.map(chip),
+      shown.map((entry) => (entry.type === 'session' ? sessionChip(entry.session) : dueChip(entry.item))),
       more ? h('span', { class: 'cal-more num' }, moreLabel(more, cap)) : null);
   }
 
-  function chip(item) {
+  // A due item. In the month it is a span inside the day button; in the week
+  // grid it is a link that opens the drawer.
+  function dueChip(item, { link = false } = {}) {
     const { kind, icon: iconName } = chipKind(item, audience);
     const name = item.task.title || 'Untitled';
     const score = item.grade?.score;
     const showScore = staff && kind === 'graded' && score !== null && score !== undefined;
+    const props = { class: `cal-chip is-${kind}`, dataset: { taskId: String(item.task.id) } };
+    if (link) {
+      props.href = drawerHref(currentHash(), item.task.id);
+      props['aria-label'] = itemAria(item, audience);
+      props.dataset.focusKey = `row-${item.task.id}`;
+    } else {
+      props.title = item.studentName ? `${name}, ${item.studentName}` : name;
+    }
     // The score (floated right), initials and icon sit inline in the title,
     // so a wrapped title's later lines get the chip's full width
-    return h('span', {
-      class: `cal-chip is-${kind}`,
-      title: item.studentName ? `${name}, ${item.studentName}` : name,
-      dataset: { taskId: String(item.task.id) },
-    },
-    h('span', { class: 'cal-chip-title' },
-      showScore ? h('span', { class: 'cal-chip-score' }, String(score)) : null,
-      item.studentName ? h('span', { class: 'cal-chip-who' }, initials(item.studentName)) : null,
-      icon(iconName, { size: 12 }),
-      name));
+    return h(link ? 'a' : 'span', props,
+      h('span', { class: 'cal-chip-title' },
+        showScore ? h('span', { class: 'cal-chip-score' }, String(score)) : null,
+        item.studentName ? h('span', { class: 'cal-chip-who' }, initials(item.studentName)) : null,
+        icon(iconName, { size: 12 }),
+        name));
   }
 
-  function dotRow(dayItems) {
+  // A session on a month cell: start time and subject in the subject's tone,
+  // struck through when cancelled
+  function sessionChip(s) {
+    return h('span', {
+      class: ['cal-chip', 'cal-chip-session', toneClass(s.subject), isCancelled(s) ? 'is-cancelled' : null].filter(Boolean).join(' '),
+      title: sessionAria(s, { who: spokenWho(s), now: ctx.now }),
+      dataset: { sessionId: String(s.id) },
+    },
+    h('span', { class: 'cal-chip-title' },
+      h('span', { class: 'cal-chip-time num' }, chipTime(s.starts_at)),
+      sessionTitle(s)));
+  }
+
+  function dotRow(daySessions, dayItems) {
     return h('span', { class: 'cal-dots', 'aria-hidden': 'true' },
-      dotsFor(dayItems, audience).map((kind) => h('span', { class: `cal-dot is-${kind}` })));
+      dotsForDay(daySessions, dayItems, audience).map((dot) => h('span', {
+        class: dot.kind === 'session' ? `cal-dot is-session ${toneClass(dot.session.subject)}` : `cal-dot is-${dot.kind}`,
+      })));
   }
 
   // One listener for the whole grid: a chip opens its drawer (and selects its
@@ -333,7 +755,8 @@ export function mount(ctx) {
     const chipEl = e.target.closest('.cal-chip');
     if (chipEl) {
       if (state.selected !== key) select(key);
-      ctx.open(chipEl.dataset.taskId);
+      if (chipEl.dataset.sessionId) ctx.openSession(chipEl.dataset.sessionId);
+      else ctx.open(chipEl.dataset.taskId);
       return;
     }
     select(key);
@@ -362,14 +785,9 @@ export function mount(ctx) {
 
   // ---- Day panel ----------------------------------------------------------
 
-  function row(item) {
-    return itemRow(item, {
-      audience,
-      now: ctx.now,
-      variant: 'mixed',
-      showStudent: Boolean(item.studentName),
-      studentName: item.studentName ?? '',
-    });
+  function panelHeading(label, count) {
+    return h('h4', { class: 'cal-panel-day' }, h('span', {}, label),
+      h('span', { class: 'cal-panel-count num' }, String(count)));
   }
 
   function dayPanel() {
@@ -380,10 +798,15 @@ export function mount(ctx) {
     if (state.selected) {
       const key = state.selected;
       const dayItems = state.byDay.get(key) ?? [];
+      const daySessions = state.sessionDays.get(key) ?? [];
+      const meta = [
+        daySessions.length ? plural(daySessions.length, 'session') : null,
+        dayItems.length ? `${dayItems.length} due` : null,
+      ].filter(Boolean).join(', ');
       panel.append(h('div', { class: 'cal-panel-head' },
         h('h3', { class: 'cal-panel-title', id: headId }, dateWords(key, today)),
         key === today ? h('span', { class: 'cal-panel-tag' }, 'Today') : null,
-        !loading && dayItems.length ? h('span', { class: 'cal-panel-meta num' }, plural(dayItems.length, 'item')) : null,
+        !loading && meta ? h('span', { class: 'cal-panel-meta num' }, meta) : null,
         button({
           label: `Show next ${PANEL_DAYS} days`,
           variant: 'ghost',
@@ -393,16 +816,32 @@ export function mount(ctx) {
           onClick: clearSelection,
         })));
       if (loading) panel.append(skeletonRows(2));
-      else if (dayItems.length) panel.append(rowList(dayItems.map(row), { label: dateWords(key, today) }));
-      else {
+      else if (daySessions.length || dayItems.length) {
+        if (daySessions.length) {
+          panel.append(panelHeading('Sessions', daySessions.length), rowList(daySessions.map(sessionRow), { label: 'Sessions' }));
+        }
+        if (dayItems.length) {
+          if (daySessions.length) panel.append(panelHeading('Due', dayItems.length));
+          panel.append(rowList(dayItems.map(row), { label: daySessions.length ? 'Due' : dateWords(key, today) }));
+        }
+      } else {
         panel.append(h('div', { class: 'cal-panel-empty' },
-          h('p', {}, 'Nothing due this day.'),
-          canCreate ? button({
-            label: `New assignment due ${shortDay(key, today)}`,
-            icon: 'plus',
-            size: 'sm',
-            onClick: () => ctx.openNew({ kind: 'assignment', due: key }),
-          }) : null));
+          h('p', {}, 'Nothing scheduled or due this day.'),
+          canCreate
+            ? h('div', { class: 'cal-panel-actions' },
+              button({
+                label: 'New session',
+                icon: 'plus',
+                size: 'sm',
+                onClick: () => ctx.openNewSession({ due: key }),
+              }),
+              button({
+                label: `New assignment due ${shortDay(key, today)}`,
+                icon: 'plus',
+                size: 'sm',
+                onClick: () => ctx.openNew({ kind: 'assignment', due: key }),
+              }))
+            : null));
       }
       return panel;
     }
@@ -413,9 +852,11 @@ export function mount(ctx) {
       panel.append(skeletonRows(3));
       return panel;
     }
-    const g = agendaGroups(state.items, today, { days: PANEL_DAYS, audience });
+    const g = agendaWithSessions(
+      agendaGroups(state.items, today, { days: PANEL_DAYS, audience }),
+      state.shown, today, { days: PANEL_DAYS });
     if (!g.overdue.length && !g.days.length) {
-      panel.append(h('div', { class: 'cal-panel-empty' }, h('p', {}, `Nothing due in the next ${PANEL_DAYS} days.`)));
+      panel.append(h('div', { class: 'cal-panel-empty' }, h('p', {}, `Nothing scheduled or due in the next ${PANEL_DAYS} days.`)));
       return panel;
     }
     if (g.overdue.length) {
@@ -425,11 +866,8 @@ export function mount(ctx) {
         rowList(g.overdue.map(row), { label: 'Overdue' }));
     }
     for (const d of g.days) {
-      const heading = dayHeading(d.key, today);
-      panel.append(
-        h('h4', { class: 'cal-panel-day' }, h('span', {}, heading),
-          h('span', { class: 'cal-panel-count num' }, String(d.items.length))),
-        rowList(d.items.map(row), { label: heading }));
+      const dayTitle = dayHeading(d.key, today);
+      panel.append(panelHeading(dayTitle, d.sessions.length + d.items.length), rowList(dayRows(d), { label: dayTitle }));
     }
     return panel;
   }
@@ -442,21 +880,35 @@ export function mount(ctx) {
       wrap.append(skeletonRows(5));
       return wrap;
     }
-    const g = agendaGroups(state.items, today, { days: state.range, audience });
+    const g = agendaWithSessions(
+      agendaGroups(state.items, today, { days: state.range, audience }),
+      state.shown, today, { days: state.range });
+    const notes = needsNotes(state.shown, ctx.now, ctx.me);
+    // A session in "Needs session notes" is not listed again under its day
+    const noted = new Set(notes.map((s) => s.id));
+    const days = g.days
+      .map((d) => ({ ...d, sessions: d.sessions.filter((s) => !noted.has(s.id)) }))
+      .filter((d) => d.sessions.length || d.items.length);
 
     if (g.overdue.length) {
       wrap.append(
         groupHeader({ label: 'Overdue', count: g.overdue.length, tone: 'danger' }),
         rowList(g.overdue.map(row), { label: 'Overdue' }));
     }
-    for (const d of g.days) {
-      const heading = dayHeading(d.key, today);
-      const list = rowList(d.items.map(row), { label: heading });
-      list.dataset.day = d.key;
-      wrap.append(groupHeader({ label: heading, count: d.items.length }), list);
+    // Finished sessions the tutor has not written up yet; Today links here
+    if (notes.length) {
+      wrap.append(
+        groupHeader({ label: 'Needs session notes', count: notes.length, icon: 'note-pencil' }),
+        rowList(notes.map(sessionRow), { label: 'Needs session notes' }));
     }
-    if (!g.overdue.length && !g.days.length) {
-      wrap.append(emptyState({ icon: 'calendar-blank', text: `Nothing due in the next ${state.range} days.` }));
+    for (const d of days) {
+      const dayTitle = dayHeading(d.key, today);
+      const list = rowList(dayRows(d), { label: dayTitle });
+      list.dataset.day = d.key;
+      wrap.append(groupHeader({ label: dayTitle, count: d.sessions.length + d.items.length }), list);
+    }
+    if (!g.overdue.length && !days.length && !notes.length) {
+      wrap.append(emptyState({ icon: 'calendar-blank', text: `Nothing scheduled or due in the next ${state.range} days.` }));
     }
     if (g.later) {
       wrap.append(h('div', { class: 'cal-agenda-more' }, button({
@@ -496,16 +948,20 @@ export function mount(ctx) {
   }
 
   // -------------------------------------------------------------------------
-  // Width changes move the chip capacity (and the phone dot grid). The
-  // capacity follows the grid's own width, which also moves with the sidebar
-  // and the day panel, so the view watches its body as well as the viewport.
+  // Width changes move the chip capacity (and the phone dot grid), and the week
+  // swaps between its grid and its phone list at 768px. The capacity follows
+  // the grid's own width, which also moves with the sidebar and the day panel,
+  // so the view watches its body as well as the viewport.
 
-  function syncCapacity() {
+  function syncLayout() {
+    const wide = matches('(min-width: 768px)');
     const wrap = body.querySelector('.cal-grid-wrap');
     const cap = capacityForGrid(wrap ? wrap.clientWidth : 0, viewportWidth());
-    if (cap === state.capacity) return;
+    const changed = state.view === 'month' ? cap !== state.capacity
+      : state.view === 'week' ? wide !== state.wide : false;
     state.capacity = cap;
-    if (state.view !== 'month' || state.status === 'error') return;
+    state.wide = wide;
+    if (!changed || state.status === 'error') return;
     const focused = body.contains(document.activeElement) ? document.activeElement.dataset?.focusKey : null;
     render();
     if (focused) body.querySelector(`[data-focus-key="${cssEscape(focused)}"]`)?.focus();
@@ -513,26 +969,39 @@ export function mount(ctx) {
 
   for (const query of BREAKPOINTS) {
     if (typeof matchMedia !== 'function') break;
-    matchMedia(query).addEventListener('change', syncCapacity, { signal: ctx.signal });
+    matchMedia(query).addEventListener('change', syncLayout, { signal: ctx.signal });
   }
   if (typeof ResizeObserver === 'function') {
     // Runs after layout and before paint, so a corrected capacity never flashes
-    const observer = new ResizeObserver(() => syncCapacity());
+    const observer = new ResizeObserver(() => syncLayout());
     observer.observe(body);
     ctx.signal?.addEventListener('abort', () => observer.disconnect(), { once: true });
   }
+
+  const nowTimer = setInterval(updateNow, NOW_TICK_MS);
+  ctx.signal?.addEventListener('abort', () => clearInterval(nowTimer), { once: true });
 
   // -------------------------------------------------------------------------
   // Data
 
   async function load() {
     if (allScope) {
-      const ws = await ctx.store.getWorkspace();
-      const names = new Map((ws.students ?? []).map((s) => [String(s.id), displayName(s)]));
+      const [ws, names] = await Promise.all([ctx.store.getWorkspace(), staffNames()]);
+      const studentNames = new Map((ws.students ?? []).map((s) => [String(s.id), displayName(s)]));
+      state.tutorNames = names;
+      state.studentNames = studentNames;
+      state.sessions = (ws.sessions ?? []).map((s) => ({ ...s, studentName: studentNames.get(String(s.student_id)) ?? 'Unknown student' }));
+      state.links = ws.links ?? [];
       return deriveItems(ws.tasks, ws.submissions, ctx.now, { audience: 'staff' })
-        .map((item) => ({ ...item, studentName: names.get(String(item.task.student_id)) ?? 'Unknown student' }));
+        .map((item) => ({ ...item, studentName: studentNames.get(String(item.task.student_id)) ?? 'Unknown student' }));
     }
-    const data = await ctx.store.getStudentData(student.id);
+    const [data, sessions, names] = await Promise.all([
+      ctx.store.getStudentData(student.id),
+      ctx.store.getSessions(student.id),
+      staffNames(),
+    ]);
+    state.tutorNames = names;
+    state.sessions = sessions;
     return ctx.store.itemsFor(data, { now: ctx.now, audience, viewerId: ctx.me.id });
   }
 
@@ -556,17 +1025,29 @@ export function mount(ctx) {
     }
     if (!ctx.alive()) return;
     state.byDay = itemsByDay(state.items, audience).byDay;
+    applyFilter();
     state.status = 'ready';
+    if (allScope && ctx.me.role === 'admin') buildFilter();
     render();
-    if (state.view === 'list') animateEntry();
+    if (state.view === 'list' || (state.view === 'week' && !state.wide)) animateEntry();
 
-    if (state.view === 'month') {
-      const n = countInMonth(state.byDay, state.month);
-      ctx.announce(`Calendar, ${monthTitle(state.month)}, ${plural(n, 'item')}`);
+    // A family that has looked at the calendar has seen every change to it
+    if (!staff && student && markSeen('schedule', ctx.me.id, student.id, ctx.now)) ctx.refreshNav?.();
+
+    if (state.view === 'list') {
+      const g = agendaWithSessions(
+        agendaGroups(state.items, today, { days: state.range, audience }),
+        state.shown, today, { days: state.range });
+      const items = g.overdue.length + g.days.reduce((sum, d) => sum + d.items.length, 0);
+      const sessions = g.days.reduce((sum, d) => sum + d.sessions.length, 0);
+      ctx.announce(`Calendar, ${plural(sessions, 'session')} and ${plural(items, 'item')} in the next ${state.range} days`);
     } else {
-      const g = agendaGroups(state.items, today, { days: state.range, audience });
-      const n = g.overdue.length + g.days.reduce((sum, d) => sum + d.items.length, 0);
-      ctx.announce(`Calendar, ${plural(n, 'item')} in the next ${state.range} days`);
+      const range = viewRange(state.view, state, today);
+      const sessions = sessionsInRange(state.shown, range.start, range.end).length;
+      const items = state.view === 'month'
+        ? countInMonth(state.byDay, state.month)
+        : weekDays(state.week, today).reduce((sum, d) => sum + (state.byDay.get(d.key)?.length ?? 0), 0);
+      ctx.announce(`Calendar, ${heading()}, ${plural(sessions, 'session')}, ${plural(items, 'item')}`);
     }
   })();
 }

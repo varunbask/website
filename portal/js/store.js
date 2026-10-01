@@ -10,6 +10,7 @@ import { sb } from './supabase.js';
 import { one, displayName } from './format.js';
 import { deriveItems } from './buckets.js';
 import { loadUpdates } from './updates-feed.js';
+import { rememberSubjects } from './sessions-model.js';
 
 const students = new Map();   // studentId -> Promise<StudentData>
 const updates = new Map();    // studentId -> Promise<Update[]>
@@ -92,6 +93,7 @@ async function loadSessions(studentId) {
     .eq('student_id', studentId)
     .order('starts_at', { ascending: true });
   if (error) throw error;
+  rememberSubjects((data ?? []).map((x) => x.subject));
   return data ?? [];
 }
 
@@ -103,6 +105,7 @@ export function getSessions(studentId) {
 async function loadTutors(studentId) {
   const { data, error } = await sb.rpc('student_tutors', { p_student: studentId });
   if (error) throw error;
+  rememberSubjects((data ?? []).map((x) => x.subject));
   return data ?? [];
 }
 
@@ -141,14 +144,21 @@ async function loadWorkspace() {
     selectAll(() => sb.from('sessions').select(SESSION_FIELDS).order('id')),
     selectAll(() => sb.from('tutor_students').select('tutor_id, student_id, subject').order('student_id')),
   ]);
-  for (const result of [people, tasks, subs, sess, links]) if (result.error) throw result.error;
+  for (const result of [people, tasks, subs]) if (result.error) throw result.error;
+  // Sessions are extra: if they fail (or the table is missing), the rest of the
+  // workspace still loads and sessionsError says why the schedule is empty
+  if (sess.error) console.error(sess.error);
+  rememberSubjects([...(sess.data ?? []), ...(links.data ?? [])].map((x) => x.subject));
   return {
     loadedAt: Date.now(),
     students: [...(people.data ?? [])].sort(byName),
     tasks: tasks.data ?? [],
     submissions: (subs.data ?? []).map(normalizeSub),
     sessions: sess.data ?? [],
-    links: links.data ?? [],     // tutor_students rows the viewer can read (own for a tutor, all for an admin)
+    sessionsError: sess.error ?? null,
+    // tutor_students rows the viewer can read (own for a tutor, all for an admin);
+    // without the subject column yet, the links still load without subjects
+    links: links.error ? [] : (links.data ?? []),
   };
 }
 

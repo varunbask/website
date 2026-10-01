@@ -1,7 +1,11 @@
 // People (people.html, admin; spec 5.14). Two link tabs over one data load:
 //   #/pending   Waiting for approval: one card per sign-up, oldest first
 //   #/everyone  Everyone else, filtered by role (?role=, replaceState) and an
-//               in-memory search; role changes and tutor and parent links
+//               in-memory search; role changes and tutor and parent links.
+//               Each tutor link carries the subject that tutor teaches the
+//               student (tutor_students.subject), shown and edited in an
+//               inline field beside the chip; adding a tutor takes an optional
+//               subject.
 //
 // act() keeps the order the old page used: on error, redraw first so every
 // control shows what the database really holds, then show the message and
@@ -23,6 +27,7 @@ import {
 import { displayName } from '../format.js';
 import { filterPeople, roleChangeBody } from '../app-model.js';
 import { relativeTime } from '../dates.js';
+import { SUBJECT_MAX, linkSubject, normalizeSubject } from '../schedule-summary.js';
 
 // ---------------------------------------------------------------------------
 // Pure logic
@@ -102,7 +107,7 @@ export function approveText(name, role) {
 async function load() {
   const [people, tutorLinks, parentLinks] = await Promise.all([
     sb.from('profiles').select('id, email, full_name, role, requested_role, signup_note, created_at'),
-    sb.from('tutor_students').select('tutor_id, student_id'),
+    sb.from('tutor_students').select('tutor_id, student_id, subject'),
     sb.from('parent_students').select('parent_id, student_id'),
   ]);
   for (const result of [people, tutorLinks, parentLinks]) if (result.error) throw result.error;
@@ -520,7 +525,9 @@ export function mount(ctx) {
       self ? h('p', { class: 'ppl-self-note', id: noteId }, 'You can’t change your own role') : null);
   }
 
-  // Tutors or Parents linked to a student: removable chips and an add select
+  // Tutors or Parents linked to a student: removable chips and an add select.
+  // A tutor's chip has an inline field beside it for the subject;
+  // the add select takes an optional subject typed beside it.
   function linkGroup(student, kind, linked, candidates) {
     const isTutor = kind === 'tutor';
     const label = isTutor ? 'Tutors' : 'Parents';
@@ -531,19 +538,78 @@ export function mount(ctx) {
     const labelId = uid('ppl-links');
 
     const nameOf = (id) => displayName(data.byId.get(id));
-    const add = (id) => act(sb.from(table).insert({ [key]: id, student_id: student.id }),
-      isTutor ? `Assigned ${nameOf(id)} to ${studentName}.` : `Linked ${nameOf(id)} to ${studentName}.`,
-      { key: `remove-${kind}-${student.id}-${id}`, fallback: addKey });
+    const add = (id, subject = null) => {
+      const row = { [key]: id, student_id: student.id };
+      if (isTutor) row.subject = subject;
+      const done = isTutor
+        ? `Assigned ${nameOf(id)} to ${studentName}${subject ? ` for ${subject}` : ''}.`
+        : `Linked ${nameOf(id)} to ${studentName}.`;
+      return act(sb.from(table).insert(row), done, { key: `remove-${kind}-${student.id}-${id}`, fallback: addKey });
+    };
     const remove = (id) => act(sb.from(table).delete().eq(key, id).eq('student_id', student.id),
       isTutor ? `Removed ${nameOf(id)} from ${studentName}.` : `Unlinked ${nameOf(id)} from ${studentName}.`,
       { key: addKey, fallback: null });
 
+    const tooLong = () => {
+      say(`That didn’t save: the subject can be at most ${SUBJECT_MAX} characters.`, 'error');
+      message.scrollIntoView({ block: 'center' });
+    };
+
+    // Changes the subject a tutor teaches this student: on change or Enter,
+    // zero rows back means the link changed or was removed (act reports it)
+    function subjectField(tutor, tutorName, current) {
+      const fieldKey = `subject-${student.id}-${tutor.id}`;
+      const input = h('input', {
+        class: 'input ppl-subject-input',
+        type: 'text',
+        maxlength: String(SUBJECT_MAX),
+        autocomplete: 'off',
+        spellcheck: 'false',
+        placeholder: 'Subject',
+        'aria-label': `Subject ${tutorName} teaches ${studentName}`,
+        dataset: { focusKey: fieldKey },
+      });
+      input.value = current ?? '';
+      let saving = false;
+      const commit = (fromKey) => {
+        if (saving) return;
+        const parsed = normalizeSubject(input.value);
+        if (!parsed.ok) {
+          tooLong();
+          return;
+        }
+        if (parsed.subject === (current ?? null)) {
+          input.value = current ?? '';
+          return;
+        }
+        saving = true;
+        input.disabled = true;
+        // Enter keeps focus on the field; leaving it (Tab, a click) keeps focus
+        // wherever the person went
+        act(sb.from('tutor_students').update({ subject: parsed.subject }).eq('tutor_id', tutor.id).eq('student_id', student.id).select('tutor_id'),
+          parsed.subject
+            ? `${tutorName} now teaches ${parsed.subject} to ${studentName}.`
+            : `Cleared the subject ${tutorName} teaches ${studentName}.`,
+          fromKey ? { key: fieldKey } : null);
+      };
+      input.addEventListener('change', () => commit(false));
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit(true);
+        } else if (e.key === 'Escape') {
+          input.value = current ?? '';
+        }
+      });
+      return input;
+    }
+
     const linkedIds = new Set(linked.map((p) => p.id));
     const available = candidates.filter((p) => !linkedIds.has(p.id));
 
-    let picker = null;
+    let adder = null;
     if (available.length) {
-      picker = select({
+      const picker = select({
         label: `${isTutor ? 'Add a tutor' : 'Add a parent'} for ${studentName}`,
         size: 'sm',
         value: '',
@@ -552,16 +618,44 @@ export function mount(ctx) {
       picker.classList.add('ppl-add');
       const sel = picker.firstElementChild;
       sel.dataset.focusKey = addKey;
+
+      // Type the subject first, then choose the tutor: the choice adds them
+      let newSubject = null;
+      if (isTutor) {
+        newSubject = h('input', {
+          class: 'input ppl-subject-input is-new',
+          type: 'text',
+          maxlength: String(SUBJECT_MAX),
+          autocomplete: 'off',
+          spellcheck: 'false',
+          placeholder: 'Subject (optional)',
+          'aria-label': `Subject for the tutor you add to ${studentName}`,
+          dataset: { focusKey: `new-subject-${student.id}` },
+        });
+      }
       sel.addEventListener('change', () => {
         if (!sel.value) return;
+        let subject = null;
+        if (newSubject) {
+          const parsed = normalizeSubject(newSubject.value);
+          if (!parsed.ok) {
+            sel.value = '';
+            tooLong();
+            return;
+          }
+          subject = parsed.subject;
+        }
         sel.disabled = true;
-        add(sel.value);
+        if (newSubject) newSubject.disabled = true;
+        add(sel.value, subject);
       });
+      adder = h('div', { class: 'ppl-add-row' }, newSubject, picker);
     }
 
     const chips = linked.length
-      ? h('ul', { class: 'ppl-chips', 'aria-labelledby': labelId }, linked.map((p) => {
+      ? h('ul', { class: isTutor ? 'ppl-chips is-tutors' : 'ppl-chips', 'aria-labelledby': labelId }, linked.map((p) => {
         const pname = displayName(p);
+        const subject = isTutor ? linkSubject(data.tutorLinks, p.id, student.id) : null;
         const x = iconButton({
           icon: 'x',
           label: `Remove ${pname}`,
@@ -574,13 +668,18 @@ export function mount(ctx) {
           },
         });
         x.dataset.focusFallback = addKey;
-        return h('li', { class: 'ppl-chip' }, avatar(pname, { size: 24 }), h('span', { class: 'ppl-chip-name' }, pname), x);
+        const chip = h(isTutor ? 'span' : 'li', { class: 'ppl-chip' },
+          avatar(pname, { size: 24 }),
+          // The subject sits in the editable field beside a tutor's chip
+          h('span', { class: 'ppl-chip-name' }, pname),
+          x);
+        return isTutor ? h('li', { class: 'ppl-tutor' }, chip, subjectField(p, pname, subject)) : chip;
       }))
       : h('p', { class: 'ppl-none' }, 'None yet');
 
     return h('div', { class: 'ppl-link-group' },
       h('span', { class: 'ppl-link-label', id: labelId }, label),
-      h('div', { class: 'ppl-link-body' }, chips, picker));
+      h('div', { class: 'ppl-link-body' }, chips, adder));
   }
 
   function personRow(person, { tutors, parents }) {

@@ -30,7 +30,7 @@ const item = (t, subs = [], audience = 'family') => items([t], subs, audience)[0
 
 describe('constants and key checks', () => {
   test('match the spec', () => {
-    expect(CAL_VIEWS).toEqual(['month', 'list']);
+    expect(CAL_VIEWS).toEqual(['week', 'month', 'list']);
     expect([AGENDA_DAYS, PANEL_DAYS, MAX_DOTS]).toEqual([30, 7, 3]);
   });
 
@@ -441,9 +441,12 @@ describe('inGrid', () => {
 });
 
 describe('resolveState', () => {
+  // October 14, 2026 is a Wednesday, so its week starts on Sunday October 11
+  const WEEK = '2026-10-11';
+
   test('drops a selected day the month grid does not show', () => {
-    expect(resolveState({ m: '2026-11', d: '2026-10-14' }, { today: TODAY, wide: true }))
-      .toEqual({ view: 'month', month: '2026-11', selected: null });
+    expect(resolveState({ view: 'month', m: '2026-11', d: '2026-10-14' }, { today: TODAY, wide: true }))
+      .toEqual({ view: 'month', month: '2026-11', selected: null, week: '2026-11-01' });
     // December 2026 starts on a Tuesday: Nov 29 and 30 lead the grid
     expect(resolveState({ m: '2026-12', d: '2026-11-30' }, { today: TODAY, wide: true }).selected)
       .toBe('2026-11-30');
@@ -451,26 +454,50 @@ describe('resolveState', () => {
 
   test('reads view, month and day from the hash params', () => {
     expect(resolveState({ view: 'list', m: '2026-12', d: '2026-12-03' }, { today: TODAY, wide: true }))
-      .toEqual({ view: 'list', month: '2026-12', selected: '2026-12-03' });
+      .toEqual({ view: 'list', month: '2026-12', selected: '2026-12-03', week: '2026-11-29' });
   });
 
   test('the month follows the selected day, then today', () => {
-    expect(resolveState({ d: '2027-02-10' }, { today: TODAY, wide: true }))
-      .toEqual({ view: 'month', month: '2027-02', selected: '2027-02-10' });
+    expect(resolveState({ view: 'month', d: '2027-02-10' }, { today: TODAY, wide: true }))
+      .toEqual({ view: 'month', month: '2027-02', selected: '2027-02-10', week: '2027-02-07' });
+    expect(resolveState({ view: 'month' }, { today: TODAY, wide: true }))
+      .toEqual({ view: 'month', month: '2026-10', selected: null, week: WEEK });
+  });
+
+  test('wide screens open on Week, phones on List', () => {
     expect(resolveState({}, { today: TODAY, wide: true }))
-      .toEqual({ view: 'month', month: '2026-10', selected: null });
+      .toEqual({ view: 'week', month: '2026-10', selected: null, week: WEEK });
+    expect(resolveState({}, { today: TODAY, wide: false }).view).toBe('list');
   });
 
   test('the stored view is used only when the hash has none; then the width decides', () => {
     expect(resolveState({}, { today: TODAY, wide: true, stored: 'list' }).view).toBe('list');
+    expect(resolveState({}, { today: TODAY, wide: true, stored: 'month' }).view).toBe('month');
+    expect(resolveState({}, { today: TODAY, wide: false, stored: 'week' }).view).toBe('week');
     expect(resolveState({ view: 'month' }, { today: TODAY, wide: false, stored: 'list' }).view).toBe('month');
+    expect(resolveState({ view: 'week' }, { today: TODAY, wide: true, stored: 'list' }).view).toBe('week');
     expect(resolveState({}, { today: TODAY, wide: false }).view).toBe('list');
     expect(resolveState({}, { today: TODAY, wide: false, stored: 'bogus' }).view).toBe('list');
+    expect(resolveState({}, { today: TODAY, wide: true, stored: 'bogus' }).view).toBe('week');
+  });
+
+  test('w is any day of the week and reads as its Sunday', () => {
+    expect(resolveState({ view: 'week', w: '2026-10-20' }, { today: TODAY }).week).toBe('2026-10-18');
+    expect(resolveState({ view: 'week', w: '2026-10-18' }, { today: TODAY }).week).toBe('2026-10-18');
+    // with no m or d the month follows the week (its Wednesday)
+    expect(resolveState({ view: 'week', w: '2026-11-01' }, { today: TODAY }).month).toBe('2026-11');
+    expect(resolveState({ view: 'week', w: '2026-09-27' }, { today: TODAY }).month).toBe('2026-09');
+  });
+
+  test('without w the week comes from the selected day, then today', () => {
+    expect(resolveState({ view: 'week', m: '2026-10', d: '2026-10-28' }, { today: TODAY }).week).toBe('2026-10-25');
+    expect(resolveState({ view: 'week' }, { today: TODAY }).week).toBe(WEEK);
+    expect(resolveState({ view: 'week', m: '2027-01' }, { today: TODAY }).week).toBe('2026-12-27');
   });
 
   test('bad values fall back', () => {
-    expect(resolveState({ view: 'week', m: '2026-13', d: '2026-02-30' }, { today: TODAY, wide: true }))
-      .toEqual({ view: 'month', month: '2026-10', selected: null });
+    expect(resolveState({ view: 'weekly', m: '2026-13', d: '2026-02-30', w: '2026-02-30' }, { today: TODAY, wide: true }))
+      .toEqual({ view: 'week', month: '2026-10', selected: null, week: WEEK });
   });
 });
 

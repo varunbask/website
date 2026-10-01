@@ -26,6 +26,7 @@ import { staffNames } from './updates-feed.js';
 import { taskCheck } from './task-check.js';
 import { itemForm } from './item-form.js';
 import { submitWorkSection } from './submit-work.js';
+import { renderSessionCreate, renderSessionDetail } from './session-drawer.js';
 import { sb } from './supabase.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -65,6 +66,9 @@ function section(title, ...children) {
 }
 
 export function renderItemDrawer(dctx) {
+  // Tutoring sessions share the drawer: open=s<id> and open=new-session
+  if (dctx.taskId === 'new-session') return renderSessionCreate(dctx);
+  if (/^s\d+$/.test(dctx.taskId)) return renderSessionDetail(dctx);
   if (dctx.taskId === 'new') return renderCreate(dctx);
   return renderItem(dctx);
 }

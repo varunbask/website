@@ -7,14 +7,15 @@
        div.stu-results > div.stu-table > div.stu-scroll >
          div.stu-head[aria-hidden] (column labels) + ul.stu-list > li > a.stu-row
            span.stu-who (avatar + span.stu-id > .stu-name + .stu-email)
+           span.stu-tutors > span.stu-chip.subj-N (a tutor and the subject), under the name
            span.stu-cell.stu-review (> .stu-review-badge) | .is-empty
-           span.stu-cell.stu-next | .stu-last | .stu-avg > span.stu-label + span.stu-value
+           span.stu-cell.stu-session | .stu-next | .stu-last | .stu-avg > span.stu-label + span.stu-value
            svg.stu-caret
      Stacked below 1024px (labels shown in each cell); a column grid with a
-     header row at 1024px and up when the panel is at least 680px wide. The
-     grid's minimum (tracks 556 + gaps 60 + row padding and margin 32 = 648px)
-     fits a 680px panel, so it never scrolls sideways at 1024 with the sidebar
-     open, with or without a classic scrollbar (the panel is 718 or 703px).
+     header row at 1024px and up when the panel is at least 820px wide. The
+     grid's minimum (tracks 690 + gaps 72 + row padding and margin 32 = 794px)
+     fits an 820px panel, so it never scrolls sideways. At 1024 with the
+     sidebar open the panel is 718 or 703px, so that width stacks.
 
    People (people.html)
      div.ppl-message-slot > svg.ppl-message-icon.is-success + .is-error + p#people-message
@@ -30,6 +31,9 @@
            div.ppl-person-head (avatar, .ppl-id > .ppl-name > .ppl-name-text + .ppl-you,
              .ppl-controls > .ppl-open + .ppl-role)
            div.ppl-links > div.ppl-link-group x2 (students only)
+             tutors: ul.ppl-chips.is-tutors > li.ppl-tutor > span.ppl-chip + input.ppl-subject-input
+                     (the chip names the tutor and subject; the input changes the subject)
+                     div.ppl-add-row > input.ppl-subject-input.is-new + .select.ppl-add
 */
 
 
@@ -79,12 +83,14 @@
 .stu-list > li:has(> .stu-row:hover)::before,
 .stu-list > li:has(> .stu-row:hover) + li::before { opacity: 0; }
 
-/* Stacked rows (default): name and review load, then the three figures */
+/* Stacked rows (default): name and review load, the next session, then the
+   three figures */
 .stu-row {
   display: grid;
   grid-template-columns: 32px minmax(0, 1.4fr) minmax(0, 1fr) auto 16px;
   grid-template-areas:
     "who  who  who  review caret"
+    ".    sess sess sess   caret"
     ".    next last avg    caret";
   align-items: center;
   gap: var(--s-3);
@@ -125,6 +131,7 @@
 .stu-cell { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .stu-review { grid-area: review; align-items: flex-end; }
 .stu-review.is-empty { display: none; }
+.stu-session { grid-area: sess; }
 .stu-next { grid-area: next; }
 .stu-last { grid-area: last; }
 .stu-avg { grid-area: avg; }
@@ -151,6 +158,30 @@
 .stu-next-due.is-warning { color: var(--warning-text); font-weight: 500; }
 .stu-next-due.is-danger { color: var(--danger-text); font-weight: 500; }
 .stu-none { font-weight: 400; color: var(--text-3); }
+
+/* A student's tutors, each in the colour of the subject (app.css .subj-N) */
+.stu-tutors {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  min-width: 0;
+  margin-top: var(--s-1);
+}
+.stu-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background-color: var(--subj-bg, var(--neutral-bg));
+  color: var(--subj-text, var(--neutral-text));
+  font: var(--t-caption);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.stu-chip.is-more { background-color: var(--surface-2); color: var(--text-2); }
 .stu-avg-value {
   font: 500 14px/18px var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -186,13 +217,14 @@
   .stu-row:hover .stu-caret { transform: translateX(2px); }
 }
 
-/* Phones: next due gets the full width, the other two share a line */
+/* Phones: the next session and next due get the full width, the other two share a line */
 @media (max-width: 767.98px) {
   .stu-search { flex-basis: 100%; max-width: none; }
   .stu-row {
     grid-template-columns: 32px minmax(0, 1fr) auto 16px;
     grid-template-areas:
       "who  who  review caret"
+      ".    sess sess   caret"
       ".    next next   caret"
       ".    last avg    caret";
     row-gap: var(--s-3);
@@ -204,13 +236,13 @@
 
 /* Column grid with a header row: 1024px and up, when the panel has the room */
 @media (min-width: 1024px) {
-  @container stu (min-width: 680px) {
+  @container stu (min-width: 820px) {
     .stu-head,
     .stu-row {
       grid-template-columns:
-        minmax(144px, 1.5fr) minmax(76px, .5fr) minmax(132px, 1.5fr)
-        minmax(92px, 1fr) minmax(96px, .7fr) 16px;
-      grid-template-areas: "who review next last avg caret";
+        minmax(168px, 1.7fr) minmax(76px, .5fr) minmax(118px, 1.2fr) minmax(132px, 1.4fr)
+        minmax(92px, .9fr) minmax(88px, .6fr) 16px;
+      grid-template-areas: "who review sess next last avg caret";
       column-gap: var(--s-3);
     }
     .stu-scroll {
@@ -220,7 +252,7 @@
       scrollbar-width: thin;
     }
     .stu-head,
-    .stu-list { min-width: 648px; }
+    .stu-list { min-width: 794px; }
     .stu-head {
       display: grid;
       align-items: center;
@@ -535,9 +567,37 @@
 .ppl-add { width: auto; max-width: 100%; }
 .ppl-add > select { width: auto; min-width: 140px; max-width: 220px; color: var(--text-2); }
 
+/* A tutor link: the chip (name and subject) and, beside it, the field that
+   changes the subject. They wrap together. */
+.ppl-chips.is-tutors { gap: var(--s-2) var(--s-3); }
+.ppl-tutor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+.ppl-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.input.ppl-subject-input {
+  width: 148px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  font: 400 13px/18px var(--font-ui);
+}
+.input.ppl-subject-input.is-new { width: 164px; }
+
 @media (max-width: 1023.98px), (pointer: coarse) {
   .ppl-chip { height: 36px; }
   .ppl-chip > .ppl-chip-remove { width: 28px; height: 28px; }
+  .input.ppl-subject-input { height: 44px; }
 }
 /* Touch: a 44px hit area without a 44px chip. It reaches 4px past the chip
    on each side, which is half the 8px gap, so neighbouring targets never
@@ -572,6 +632,7 @@
 @media (forced-colors: active) {
   .ppl-chip,
   .ppl-you,
+  .stu-chip,
   .stu-review-badge { border: 1px solid CanvasText; }
   .ppl-message-slot { border: 1px solid CanvasText; }
 }

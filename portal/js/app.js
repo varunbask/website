@@ -705,20 +705,23 @@ export function startApp(config) {
     }
     let tasks = [];
     let submissions = [];
+    let sessions = [];
     try {
       if (id && await store.loadedAt(id)) {
         const data = await store.getStudentData(id);
         tasks = data.tasks;
         submissions = data.submissions;
+        sessions = await store.getSessions(id).catch(() => []);
       } else if (staff && await store.loadedAt(null)) {
         const ws = await store.getWorkspace();
         tasks = ws.tasks;
         submissions = ws.submissions;
+        sessions = ws.sessions ?? [];
       }
     } catch {
       return;
     }
-    if (clockCrossed(tasks, submissions, lastRenderAt, Date.now())) {
+    if (clockCrossed(tasks, submissions, lastRenderAt, Date.now(), sessions)) {
       updateNav();
       refreshView();
     }

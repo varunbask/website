@@ -1,14 +1,20 @@
-// Staff Today, #/today (spec 5.4). What needs review, what is due this week
-// across every student, and what was released recently. Reads the workspace
-// (getWorkspace), so its counts match the Review queue badge.
+// Staff Today, #/today (spec 5.4). Today's tutoring sessions first, then what
+// needs review, what is due this week across every student, and what was
+// released recently. Reads the workspace (getWorkspace), so its counts match
+// the Review queue badge. A tutor sees their own sessions, an admin everyone's.
 
-import { h } from '../dom.js';
+import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import { displayName } from '../format.js';
 import { deriveItems } from '../buckets.js';
 import { itemStatus } from '../status.js';
-import { dueLabel } from '../dates.js';
-import { avatar, button, drawerHref, emptyState, errorCallout, rowList } from '../ui.js';
+import { dueLabel, todayKey } from '../dates.js';
+import { avatar, button, drawerHref, emptyState, errorCallout, pill, rowList, visuallyHidden } from '../ui.js';
+import { staffNames } from '../updates-feed.js';
+import { sessionTitle, timeRange, toneClass } from '../sessions-model.js';
+import {
+  todayPlan, todayPill, todayRowLabel, nextLine, needsNotesDetail, placeText, canJoin,
+} from '../schedule-summary.js';
 import { queueRow, releasedRow } from '../review-row.js';
 import {
   queueOrder, attemptInfo, subsByTask, recentlyReleased, todayLede, pendingLabel, dueThisWeek,
@@ -17,6 +23,8 @@ import {
 const NEEDS_REVIEW_ROWS = 5;
 const DUE_ROWS = 6;
 const PEOPLE_PENDING = '/portal/people.html#/pending';
+const SESSIONS_CALENDAR = '#/calendar?scope=all';
+const NOTES_CALENDAR = '#/calendar?scope=all&view=list';
 
 function card({ title, meta, link, className }, ...content) {
   return h('section', { class: ['card', 'is-list', 'rvw-card', className].filter(Boolean).join(' ') },
@@ -43,6 +51,7 @@ function skeletonCard(rows, className) {
 
 function skeleton() {
   return h('div', { class: 'grid-12', 'aria-busy': 'true' },
+    h('div', { class: 'span-12' }, skeletonCard(2)),
     h('div', { class: 'span-8' }, skeletonCard(4)),
     h('div', { class: 'span-4' }, skeletonCard(4, 'rvw-compact-card')),
     h('div', { class: 'span-12' }, skeletonCard(3)),
@@ -74,6 +83,124 @@ function dueRow(item, { studentName, now }) {
   caret));
 }
 
+// A plain click opens the drawer through ctx.openSession; a modified click
+// (new tab) falls back to the link's own href
+function opensSession(ctx, id) {
+  return (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    ctx.openSession(id);
+  };
+}
+
+// One of today's sessions: time, student, subject (in its colour), the place and
+// a pill. Opens the session drawer. The live one says "Now"; the next to start
+// is shaded. An online session near its start gets a Join link under the row
+// (a sibling, so the row stays one link).
+function sessionRow(ctx, s, { plan, studentNames, staff, admin }) {
+  const now = ctx.now;
+  const upNext = plan.upNextId === s.id;
+  const live = plan.liveIds.has(s.id);
+  const state = todayPill(s, now, { upNext });
+  const student = studentNames.get(s.student_id) ?? 'Student';
+  const tutor = admin ? (staff.get(String(s.tutor_id)) ?? null) : null;
+  const place = placeText(s);
+  const subject = sessionTitle(s);
+  const label = todayRowLabel(s, { student, tutor, now, pill: state });
+
+  const caret = icon('caret-right');
+  caret.classList.add('tdy-caret');
+  const link = h('a', {
+    class: ['row', 'tdy-row', toneClass(s.subject)].join(' '),
+    href: drawerHref(typeof location === 'undefined' ? '' : location.hash, `s${s.id}`),
+    'aria-label': label,
+    dataset: { focusKey: `row-s${s.id}`, sessionId: String(s.id) },
+    onClick: opensSession(ctx, s.id),
+  },
+  h('span', { class: 'tdy-time num' }, timeRange(s)),
+  h('span', { class: 'tdy-main' },
+    h('span', { class: 'tdy-student' }, student),
+    h('span', { class: 'tdy-meta' },
+      h('span', { class: 'tdy-subject' }, subject),
+      tutor ? h('span', { class: 'tdy-with' }, `with ${tutor}`) : null,
+      place ? h('span', { class: 'tdy-place' }, place) : null)),
+  h('span', { class: 'tdy-state' }, pill({ label: state.label, tone: state.tone })),
+  caret);
+
+  const join = canJoin(s, now)
+    ? h('div', { class: 'tdy-actions' },
+      button({
+        label: 'Join',
+        size: 'sm',
+        icon: 'arrow-square-out',
+        href: s.meeting_url,
+        ariaLabel: `Join ${subject} with ${student} online, opens in a new tab`,
+      }))
+    : null;
+  join?.firstElementChild.setAttribute('target', '_blank');
+  join?.firstElementChild.setAttribute('rel', 'noopener noreferrer');
+
+  return h('li', { class: ['tdy-item', live ? 'is-live' : null, upNext ? 'is-next' : null].filter(Boolean).join(' ') }, link, join);
+}
+
+// Today's sessions, then the line for the next one when nothing is left today,
+// then the "Needs notes" count
+function sessionsCard(ctx, ws, { studentNames, staff, admin }) {
+  const now = ctx.now;
+  const plan = todayPlan(ws.sessions ?? [], now, { tutorId: admin ? null : ctx.me.id });
+  const today = todayKey(now);
+  const titleId = uid('tdy-title');
+
+  const rows = plan.today.map((s, i) => {
+    const li = sessionRow(ctx, s, { plan, studentNames, staff, admin });
+    if (!ctx.isRefresh && i < 8) {
+      li.classList.add('enter');
+      li.style.setProperty('--i', String(i));
+    }
+    return li;
+  });
+
+  const foot = [];
+  if (plan.later) {
+    const s = plan.later;
+    foot.push(h('p', { class: 'tdy-next' },
+      h('a', {
+        class: 'link',
+        href: drawerHref(typeof location === 'undefined' ? '' : location.hash, `s${s.id}`),
+        dataset: { focusKey: `row-s${s.id}` },
+        onClick: opensSession(ctx, s.id),
+      }, nextLine(s, {
+        student: studentNames.get(s.student_id) ?? 'Student',
+        tutor: staff.get(String(s.tutor_id)) ?? null,
+        today,
+        admin,
+      }))));
+  }
+  if (plan.needsNotes > 0) {
+    const caret = icon('caret-right');
+    caret.classList.add('tdy-notes-caret');
+    foot.push(h('a', { class: 'tdy-notes', href: NOTES_CALENDAR },
+      icon('note-pencil'),
+      h('span', { class: 'tdy-notes-text' },
+        h('strong', {}, 'Needs notes'),
+        visuallyHidden(': '),
+        h('span', { class: 'tdy-notes-count' }, needsNotesDetail(plan.needsNotes))),
+      caret));
+  }
+
+  const count = plan.today.length;
+  const card = h('section', { class: 'card is-list tdy-card', 'aria-labelledby': titleId },
+    h('div', { class: 'card-head' },
+      h('h2', { class: 'card-title', id: titleId }, 'Today’s sessions'),
+      count ? h('span', { class: 'card-meta num' }, String(count)) : null,
+      h('a', { class: 'link card-link', href: SESSIONS_CALENDAR }, 'Open calendar')),
+    rows.length
+      ? h('ul', { class: 'tdy-list', 'aria-label': 'Today’s sessions' }, rows)
+      : quiet('calendar-blank', 'No sessions today.'),
+    foot.length ? h('div', { class: 'card-foot tdy-foot' }, foot) : null);
+  return { card, count };
+}
+
 function enter(li, index, ctx) {
   if (!ctx.isRefresh && index < 8) {
     li.classList.add('enter');
@@ -90,10 +217,13 @@ export async function mount(ctx) {
 
   let ws;
   let pending = 0;
+  let staff = new Map();
   try {
-    [ws, pending] = await Promise.all([
+    // staffNames never rejects; it names each session's tutor for an admin
+    [ws, pending, staff] = await Promise.all([
       ctx.store.getWorkspace(),
       admin ? ctx.store.getPendingCount().catch(() => 0) : 0,
+      admin ? staffNames() : new Map(),
     ]);
   } catch (error) {
     if (!ctx.alive()) return;
@@ -140,6 +270,10 @@ export async function mount(ctx) {
   // Lede (added now that the counts are known; the h1 keeps its focus)
   const ledeText = todayLede(queue.length, queueStudents);
   header?.querySelector('.view-heading')?.append(h('p', { class: 'view-lede' }, ledeText));
+
+  // Today's tutoring sessions, above everything else
+  const sessions = sessionsCard(ctx, ws, { studentNames: names, staff, admin });
+  nodes.push(sessions.card);
 
   let index = 0;
 
@@ -205,5 +339,8 @@ export async function mount(ctx) {
     h('div', { class: 'span-12' }, releasedCard)));
 
   body.replaceChildren(...nodes);
-  ctx.announce(`Today, ${ledeText}`);
+  const sessionsSaid = sessions.count
+    ? `${sessions.count} ${sessions.count === 1 ? 'session' : 'sessions'}. `
+    : '';
+  ctx.announce(`Today, ${sessionsSaid}${ledeText}`);
 }

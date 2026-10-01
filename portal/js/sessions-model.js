@@ -105,13 +105,51 @@ export function sessionState(session, now = new Date()) {
 }
 
 // ---------------------------------------------------------------------------
-// Subject colors: the same subject always gets the same tone
+// Subject colors. Each subject prefers a tone from a hash of its name; the
+// subjects loaded on the page share out the tones so two subjects never look
+// alike while there are tones to spare (rememberSubjects, called by the store).
+
+const subjectKey = (subject) => subject.trim().toLowerCase();
+
+function hashTone(key) {
+  let hash = 5381;
+  for (const ch of key) hash = ((hash * 33) ^ ch.codePointAt(0)) >>> 0;
+  return hash % SUBJECT_TONES;
+}
+
+// Map<subject key, tone>: in name order, each takes its preferred tone or the
+// next free one; once all tones are used, a subject keeps its preferred tone
+export function buildPalette(subjects) {
+  const keys = [...new Set((subjects ?? []).filter((x) => !blank(x)).map(subjectKey))].sort();
+  const used = new Set();
+  const palette = new Map();
+  for (const key of keys) {
+    let tone = hashTone(key);
+    if (used.size < SUBJECT_TONES) while (used.has(tone)) tone = (tone + 1) % SUBJECT_TONES;
+    used.add(tone);
+    palette.set(key, tone);
+  }
+  return palette;
+}
+
+const knownSubjects = new Set();
+let palette = new Map();
+
+// Adds subjects to the page's palette (the store calls this as data loads)
+export function rememberSubjects(subjects) {
+  let changed = false;
+  for (const x of subjects ?? []) {
+    if (blank(x) || knownSubjects.has(subjectKey(x))) continue;
+    knownSubjects.add(subjectKey(x));
+    changed = true;
+  }
+  if (changed) palette = buildPalette([...knownSubjects]);
+}
 
 export function subjectTone(subject) {
   if (blank(subject)) return -1;
-  let hash = 5381;
-  for (const ch of subject.trim().toLowerCase()) hash = ((hash * 33) ^ ch.codePointAt(0)) >>> 0;
-  return hash % SUBJECT_TONES;
+  const key = subjectKey(subject);
+  return palette.get(key) ?? hashTone(key);
 }
 
 export function toneClass(subject) {
