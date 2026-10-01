@@ -175,7 +175,7 @@ export async function gradeClaimed(repo, sub, { env = process.env, fetchImpl = f
  * the student's own call missed, one at a time, until the time budget runs out.
  */
 export async function sweep(repo, {
-  env = process.env, fetchImpl = fetch, now = () => new Date(), budgetMs = 180_000, limit = 5,
+  env = process.env, fetchImpl = fetch, now = () => new Date(), budgetMs = 180_000, limit = 20,
 } = {}) {
   const started = now().getTime();
   const summary = { reset: 0, ai_graded: 0, pending: 0, failed: 0, skipped: 0 };

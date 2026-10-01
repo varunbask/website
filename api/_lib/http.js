@@ -50,7 +50,7 @@ export async function handleGrade(request, {
     const since = new Date(now().getTime() - HOUR_MS);
     const started = await repo.countStartedSince(caller.id, since);
     if (started >= STUDENT_GRADES_PER_HOUR) {
-      return json(429, { error: 'Too many submissions this hour. Your work will be graded later.' });
+      return json(429, { error: 'Too many submissions this hour. Your work is saved and will be graded within a day.' });
     }
   }
 
