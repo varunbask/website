@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/grade.js": { "maxDuration": 120 },
+    "api/cron/sweep.js": { "maxDuration": 300 }
+  },
+  "crons": [
+    { "path": "/api/cron/sweep", "schedule": "0 13 * * *" }
+  ],
+  "headers": [
+    {
+      "source": "/((?!portal/).*)",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-/Mx3WuPm8VE5Itxtp9y9slUUofHm6XSdMYyFXfbn64w=' 'unsafe-hashes' 'sha256-9f8ZK5epjuMsYtXFjPqrgJI0L4QOAUYmJdHtT+RSH/c='; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" }
+      ]
+    },
+    {
+      "source": "/portal/:path*",
+      "headers": [
+        { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://enwrankobjdivyxhmwus.supabase.co; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'" },
+        { "key": "Referrer-Policy", "value": "same-origin" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
+  ]
+}

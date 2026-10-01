@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#EEEFF2">
+  <meta name="robots" content="noindex">
+  <title>Sign in | VP Education Group</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="/portal/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/portal/css/app.css?v=3">
+  <link rel="stylesheet" href="/portal/css/auth.css?v=2">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous" defer></script>
+  <script type="module" src="/portal/js/auth-page.js"></script>
+</head>
+<body class="auth-body">
+
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="auth-toolbar">
+    <span class="auth-theme-slot" id="theme-toggle"></span>
+  </header>
+
+  <main id="main" class="auth-main">
+    <div class="auth-column">
+
+      <a class="brand auth-brand" href="/">
+        <span class="brand-mark" aria-hidden="true">VP</span>
+        <span class="brand-text"><span class="brand-name">VP Education Group</span><span class="brand-sub">Portal</span></span>
+      </a>
+
+      <div class="auth-panel" id="panel-sign-in">
+        <div class="auth-card">
+          <div class="auth-head">
+            <h1 class="auth-title" tabindex="-1">Sign in to your portal</h1>
+            <p class="auth-lede">Students, parents and tutors sign in here.</p>
+          </div>
+          <form id="sign-in-form" class="auth-form" method="post" novalidate>
+            <div class="field">
+              <label class="field-label" for="sign-in-email">Email</label>
+              <input class="input" id="sign-in-email" type="email" name="email" autocomplete="email" required>
+            </div>
+            <div class="field">
+              <label class="field-label" for="sign-in-password">Password</label>
+              <span class="auth-pass">
+                <input class="input" id="sign-in-password" type="password" name="password" autocomplete="current-password" required>
+              </span>
+            </div>
+            <p class="form-message auth-message" role="alert" hidden></p>
+            <button class="btn btn-primary btn-lg btn-block auth-submit" type="submit"><span class="btn-label">Sign in</span></button>
+          </form>
+        </div>
+        <div class="auth-links">
+          <p><button type="button" class="link auth-link" data-show="forgot">Forgot your password?</button></p>
+          <p>New here? <button type="button" class="link auth-link" data-show="sign-up">Request an account</button></p>
+        </div>
+      </div>
+
+      <div class="auth-panel" id="panel-sign-up" hidden>
+        <div class="auth-card">
+          <div class="auth-head">
+            <h1 class="auth-title" tabindex="-1">Request an account</h1>
+            <p class="auth-lede">We review every new account. Once it’s approved, you’ll see your work or your child’s work here.</p>
+          </div>
+          <form id="sign-up-form" class="auth-form" method="post" novalidate>
+            <fieldset class="auth-roles">
+              <legend class="field-label">I am a</legend>
+              <div class="auth-role-grid">
+                <label class="auth-role">
+                  <input class="auth-role-input" type="radio" name="requested_role" value="student" checked>
+                  <span class="auth-role-mark" aria-hidden="true"></span>
+                  <span class="auth-role-icon" data-icon="clipboard-text" data-icon-size="20"></span>
+                  <span class="auth-role-name">Student</span>
+                </label>
+                <label class="auth-role">
+                  <input class="auth-role-input" type="radio" name="requested_role" value="parent">
+                  <span class="auth-role-mark" aria-hidden="true"></span>
+                  <span class="auth-role-icon" data-icon="users-three" data-icon-size="20"></span>
+                  <span class="auth-role-name">Parent</span>
+                </label>
+                <label class="auth-role">
+                  <input class="auth-role-input" type="radio" name="requested_role" value="tutor">
+                  <span class="auth-role-mark" aria-hidden="true"></span>
+                  <span class="auth-role-icon" data-icon="identification-badge" data-icon-size="20"></span>
+                  <span class="auth-role-name">Tutor</span>
+                </label>
+              </div>
+            </fieldset>
+            <div class="field">
+              <label class="field-label" for="sign-up-name">Full name</label>
+              <input class="input" id="sign-up-name" type="text" name="full_name" autocomplete="name" maxlength="120" required>
+            </div>
+            <div class="field">
+              <label class="field-label" for="sign-up-email">Email</label>
+              <input class="input" id="sign-up-email" type="email" name="email" autocomplete="email" required>
+            </div>
+            <div class="field">
+              <label class="field-label" for="sign-up-password">Password</label>
+              <span class="auth-pass">
+                <input class="input" id="sign-up-password" type="password" name="password" autocomplete="new-password" minlength="8" required aria-describedby="sign-up-password-hint">
+              </span>
+              <p class="field-hint" id="sign-up-password-hint">At least 8 characters.</p>
+            </div>
+            <div class="field">
+              <label class="field-label" for="sign-up-note">Anything we should know? <span class="field-optional">Optional</span></label>
+              <textarea class="input textarea" id="sign-up-note" name="signup_note" rows="3" maxlength="500" aria-describedby="sign-up-note-hint"></textarea>
+              <p class="field-hint" id="sign-up-note-hint">Parents: your child’s name. Students: your tutor’s name.</p>
+            </div>
+            <p class="form-message auth-message" role="alert" hidden></p>
+            <button class="btn btn-primary btn-lg btn-block auth-submit" type="submit"><span class="btn-label">Request account</span></button>
+          </form>
+        </div>
+        <div class="auth-links">
+          <p>Already have an account? <button type="button" class="link auth-link" data-show="sign-in">Sign in</button></p>
+        </div>
+      </div>
+
+      <div class="auth-panel" id="panel-check-email" hidden>
+        <div class="auth-card">
+          <div class="auth-head">
+            <span class="auth-icon" data-icon="envelope-simple" data-icon-size="20"></span>
+            <h1 class="auth-title" tabindex="-1">Check your email</h1>
+            <p class="auth-lede">We sent a link to <strong class="auth-strong" id="check-email-address"></strong>. Open it to confirm your account. After that, we’ll review it and let you know.</p>
+          </div>
+        </div>
+        <div class="auth-links">
+          <p><button type="button" class="link auth-link" data-show="sign-in">Back to sign in</button></p>
+        </div>
+      </div>
+
+      <div class="auth-panel" id="panel-forgot" hidden>
+        <div class="auth-card">
+          <div class="auth-head">
+            <h1 class="auth-title" tabindex="-1">Reset your password</h1>
+            <p class="auth-lede">Enter your email and we’ll send you a link to choose a new password.</p>
+          </div>
+          <form id="forgot-form" class="auth-form" method="post" novalidate>
+            <div class="field">
+              <label class="field-label" for="forgot-email">Email</label>
+              <input class="input" id="forgot-email" type="email" name="email" autocomplete="email" required>
+            </div>
+            <p class="form-message auth-message" role="alert" hidden></p>
+            <button class="btn btn-primary btn-lg btn-block auth-submit" type="submit"><span class="btn-label">Send reset link</span></button>
+          </form>
+        </div>
+        <div class="auth-links">
+          <p><button type="button" class="link auth-link" data-show="sign-in">Back to sign in</button></p>
+        </div>
+      </div>
+
+      <div class="auth-panel" id="panel-waiting" hidden>
+        <div class="auth-card">
+          <div class="auth-head">
+            <span class="auth-icon" data-icon="hourglass-medium" data-icon-size="20"></span>
+            <h1 class="auth-title" tabindex="-1">Thanks, <span id="waiting-name"></span></h1>
+            <p class="auth-lede">Your account is waiting for approval. You can sign in once an admin approves it.</p>
+          </div>
+          <p class="auth-note">Questions? Email <a class="link" href="mailto:vbmgroupsllc@gmail.com">vbmgroupsllc@gmail.com</a>.</p>
+          <div class="auth-actions">
+            <button type="button" class="btn btn-secondary btn-lg btn-block" id="waiting-sign-out"><span class="btn-label">Sign out</span></button>
+          </div>
+        </div>
+      </div>
+
+      <p class="auth-back">
+        <a class="auth-back-link" href="/"><span class="auth-back-icon" data-icon="caret-left"></span><span>Back to VP Education Group</span></a>
+      </p>
+
+    </div>
+    <p class="visually-hidden" id="auth-status" role="status"></p>
+  </main>
+
+</body>
+</html>

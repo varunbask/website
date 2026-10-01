@@ -1,0 +1,207 @@
+/* U5. Updates feed and composer. Prefix: upd-. Tokens and components come from app.css; no raw hex.
+
+   Markup (portal/js/updates-feed.js, portal/js/views/updates.js)
+     div.upd-layout                      the view column, max 680px
+       form.card.upd-composer            staff: .field (textarea.upd-textarea) + div.upd-composer-foot
+                                         > label.check.upd-share + .btn.upd-post
+       div.upd-feed-host                 skeleton, empty state, error callout or the feed
+     ul.upd-feed (+ .is-compact)         hairlines between items only
+       li.upd-item (+ .is-compact, .is-removing)
+         span.avatar.is-staff
+         div.upd-main > div.upd-top > (div.upd-head > span.upd-author + time.upd-time
+                                       + span.upd-tags > .pill, .new-pill) + div.menu.upd-actions
+                      + p.upd-body       15/24 (16/24 on phones), pre-wrap
+     div.upd-skeleton > div.upd-skel x3 > span.skeleton.upd-sk-avatar + span.upd-sk-lines > span.skeleton.upd-sk-line
+*/
+
+/* Layout ------------------------------------------------------------------ */
+
+.upd-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+  max-width: 680px;
+}
+
+/* Composer (staff) --------------------------------------------------------- */
+
+.upd-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+.upd-textarea {
+  min-height: 152px;
+  resize: vertical;
+}
+.upd-composer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3) var(--s-4);
+}
+.upd-share {
+  color: var(--text-2);
+  transition: color var(--dur-1) var(--ease-out);
+}
+.upd-share:hover,
+.upd-share:has(> .checkbox:checked) { color: var(--text); }
+.upd-post { margin-left: auto; }
+
+@media (max-width: 767.98px) {
+  .upd-layout { gap: var(--s-6); }
+  .upd-composer-foot { flex-direction: column; align-items: stretch; }
+  .upd-share { min-height: 44px; }
+  .upd-post { margin-left: 0; width: 100%; }
+}
+
+/* Feed ---------------------------------------------------------------------- */
+
+.upd-feed {
+  display: flex;
+  flex-direction: column;
+}
+
+.upd-item {
+  --upd-avatar: 32px;
+  display: grid;
+  grid-template-columns: var(--upd-avatar) minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--s-3);
+  padding: var(--s-5) 0;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+.upd-item:first-child { padding-top: 0; }
+.upd-item:last-child { padding-bottom: 0; }
+.upd-item + .upd-item { border-top: 1px solid var(--line); }
+.upd-item.is-removing { opacity: .45; pointer-events: none; animation: none; }
+
+/* An open menu sits above the items after it (entry animations make each item
+   its own stacking context) */
+.upd-item:has(.menu-list:not([hidden])) { position: relative; z-index: 2; }
+
+.upd-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.upd-top {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.upd-head {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-2);
+  min-width: 0;
+  min-height: var(--upd-avatar);
+}
+.upd-author {
+  min-width: 0;
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.upd-time {
+  font: var(--t-meta);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.upd-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* The menu trigger lines up with the 32px head row; larger on touch */
+.upd-actions {
+  flex: none;
+  margin-left: auto;
+  margin-right: calc(-1 * var(--s-1));
+}
+.upd-actions > .icon-btn { color: var(--text-3); }
+.upd-actions > .icon-btn:hover,
+.upd-actions > .icon-btn[aria-expanded="true"] { color: var(--text); }
+@media (pointer: coarse), (max-width: 1023.98px) {
+  .upd-actions { margin-block: -6px; margin-right: -10px; }
+}
+
+.upd-body {
+  max-width: 65ch;
+  font: var(--t-read);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+@media (max-width: 767.98px) {
+  .upd-item { padding: var(--s-4) 0; }
+}
+
+/* Compact (Overview cards): smaller avatar, tighter rhythm, three lines */
+.upd-item.is-compact {
+  --upd-avatar: 28px;
+  padding: var(--s-3) 0;
+}
+.upd-item.is-compact:first-child { padding-top: 0; }
+.upd-item.is-compact:last-child { padding-bottom: 0; }
+.upd-item.is-compact .upd-body {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  font: 400 14px/22px var(--font-ui);
+  color: var(--text-2);
+}
+
+/* Loading ------------------------------------------------------------------- */
+
+.upd-skeleton { display: flex; flex-direction: column; }
+.upd-skel {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  column-gap: var(--s-3);
+  padding: var(--s-5) 0;
+}
+.upd-skel:first-child { padding-top: 0; }
+.upd-skel + .upd-skel { border-top: 1px solid var(--line); }
+.upd-sk-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+}
+.upd-sk-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 10px;
+  min-width: 0;
+}
+.upd-sk-line { height: 12px; width: 92%; }
+.upd-sk-line.is-head { width: 34%; margin-bottom: 6px; }
+.upd-sk-line.is-short { width: 58%; }
+.upd-skel:nth-child(2) .upd-sk-line.is-short { width: 72%; }
+.upd-skel:nth-child(3) .upd-sk-line.is-head { width: 28%; }
+
+/* Motion and forced colours ------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .upd-item,
+  .upd-share { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .upd-item + .upd-item,
+  .upd-skel + .upd-skel { border-top-color: CanvasText; }
+}

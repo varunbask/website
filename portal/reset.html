@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#EEEFF2">
+  <meta name="robots" content="noindex">
+  <title>New password | VP Education Group</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="/portal/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/portal/css/app.css?v=3">
+  <link rel="stylesheet" href="/portal/css/auth.css?v=2">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous" defer></script>
+  <script type="module" src="/portal/js/reset-page.js"></script>
+</head>
+<body class="auth-body">
+
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="auth-toolbar">
+    <span class="auth-theme-slot" id="theme-toggle"></span>
+  </header>
+
+  <main id="main" class="auth-main">
+    <div class="auth-column">
+
+      <a class="brand auth-brand" href="/">
+        <span class="brand-mark" aria-hidden="true">VP</span>
+        <span class="brand-text"><span class="brand-name">VP Education Group</span><span class="brand-sub">Portal</span></span>
+      </a>
+
+      <div class="auth-card" id="reset-card" aria-busy="true">
+        <div class="auth-head">
+          <span class="auth-icon" id="reset-icon" hidden></span>
+          <h1 class="auth-title" tabindex="-1">Choose a new password</h1>
+        </div>
+
+        <div class="auth-loading" id="reset-loading">
+          <span class="skeleton auth-sk-label"></span>
+          <span class="skeleton auth-sk-input"></span>
+          <span class="skeleton auth-sk-label"></span>
+          <span class="skeleton auth-sk-input"></span>
+          <span class="skeleton auth-sk-button"></span>
+          <span class="visually-hidden">Loading…</span>
+        </div>
+
+        <form id="reset-form" class="auth-form" method="post" novalidate hidden>
+          <div class="field">
+            <label class="field-label" for="reset-password">New password</label>
+            <span class="auth-pass">
+              <input class="input" id="reset-password" type="password" name="password" autocomplete="new-password" minlength="8" required aria-describedby="reset-password-hint">
+            </span>
+            <p class="field-hint" id="reset-password-hint">At least 8 characters.</p>
+          </div>
+          <div class="field">
+            <label class="field-label" for="reset-confirm">Type it again</label>
+            <span class="auth-pass">
+              <input class="input" id="reset-confirm" type="password" name="confirm" autocomplete="new-password" minlength="8" required>
+            </span>
+          </div>
+          <p class="form-message auth-message" role="alert" hidden></p>
+          <button class="btn btn-primary btn-lg btn-block auth-submit" type="submit"><span class="btn-label">Save password</span></button>
+        </form>
+
+        <div class="auth-result" id="reset-expired" hidden>
+          <p class="auth-lede">This reset link has expired or was already used. Request a new one from the sign-in page.</p>
+          <a class="btn btn-primary btn-lg btn-block" href="/portal/index.html"><span class="btn-label">Request a new link</span></a>
+        </div>
+
+        <div class="auth-result" id="reset-done" hidden>
+          <p class="auth-lede auth-done-text" id="reset-done-text" tabindex="-1">Your password is saved.</p>
+          <a class="btn btn-primary btn-lg btn-block" href="/portal/index.html"><span class="btn-label">Continue</span></a>
+        </div>
+      </div>
+
+      <p class="auth-back">
+        <a class="auth-back-link" href="/"><span class="auth-back-icon" data-icon="caret-left"></span><span>Back to VP Education Group</span></a>
+      </p>
+
+    </div>
+  </main>
+
+</body>
+</html>

@@ -1,0 +1,547 @@
+/* U6. Today, review queue and review page. Prefix: rvw-. Tokens and components come from app.css; no raw hex.
+   Spec sections 5.4 (Today), 5.8 (Review queue), 5.9 (Review page). */
+
+
+/* 1. Shared: queue rows ------------------------------------------------------- */
+
+/* Second line of a review row: the assignment in --text-2, then short facts in --text-3 */
+.rvw-row-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.rvw-row-task {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+}
+.rvw-row-fact {
+  flex: none;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.rvw-row-newer { color: var(--text-2); }
+
+.rvw-inline-error {
+  font: 500 13px/18px var(--font-ui);
+  color: var(--danger-text);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767.98px) {
+  .rvw-row-meta { flex-wrap: wrap; row-gap: 2px; column-gap: var(--s-2); }
+}
+
+
+/* 2. Review queue (spec 5.8) ------------------------------------------------- */
+
+.view-title > .rvw-title-badge {
+  margin-left: var(--s-3);
+  vertical-align: 5px;
+}
+
+.rvw-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-6);
+}
+/* four segments can outgrow a phone; the control scrolls inside its own strip */
+.rvw-filter-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* keeps the focus ring visible inside the scroller */
+  padding: 2px;
+  margin: -2px;
+}
+.rvw-filter-scroll::-webkit-scrollbar { display: none; }
+.rvw-filter-scroll > .segmented { max-width: none; }
+
+.rvw-seg-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background-color: var(--surface-2);
+  font: 500 12px/18px var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  text-align: center;
+  transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+}
+.segmented > button[aria-pressed="true"] > .rvw-seg-count {
+  background-color: var(--surface-2);
+  color: var(--text-2);
+}
+.segmented > button[aria-pressed="false"] > .rvw-seg-count { background-color: transparent; }
+
+/* Each group is its own list; fixed trailing columns keep the waiting time
+   and pills lined up from one group to the next */
+@media (min-width: 1024px) {
+  .rvw-queue-list .row-list {
+    grid-template-columns: calc(var(--row-lead) + 16px) minmax(0, 1fr) 128px 240px 32px;
+  }
+  .rvw-queue-list .row-due { justify-self: end; }
+  .rvw-queue-list .row-status { justify-content: flex-end; }
+}
+
+.rvw-group + .rvw-group,
+.rvw-group + .rvw-grading,
+.rvw-queue-list > .empty-state + .rvw-grading { margin-top: var(--s-6); }
+
+/* Still grading: a quiet line with the retry button under each stuck row */
+.rvw-retry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  padding: 0 var(--s-4) var(--s-3) calc(var(--row-lead) + 16px + var(--s-3));
+}
+.rvw-retry-text {
+  font: 400 13px/18px var(--font-ui);
+  color: var(--text-3);
+}
+.rvw-retry > .rvw-inline-error { flex-basis: 100%; }
+
+@media (max-width: 767.98px) {
+  .rvw-toolbar { margin-bottom: var(--s-4); }
+  .rvw-retry { padding-left: calc(var(--row-lead) + 16px + var(--s-3)); }
+}
+
+
+/* 3. Today (spec 5.4) --------------------------------------------------------- */
+
+.rvw-today { display: flex; flex-direction: column; gap: var(--s-6); }
+
+.rvw-card { height: 100%; display: flex; flex-direction: column; }
+.rvw-card > .row-list { flex: none; }
+.rvw-card > .card-foot { margin-top: auto; }
+.rvw-card .card-head { align-items: center; }
+.rvw-card .card-head > .badge { margin-left: auto; }
+.rvw-card-foot { display: flex; align-items: center; padding-top: var(--s-3); }
+
+.rvw-foot-link { font: 500 13px/18px var(--font-ui); }
+
+/* Nothing to list: a single quiet line, no nested box */
+.rvw-quiet {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-3) var(--s-4);
+  font: 400 14px/20px var(--font-ui);
+  color: var(--text-2);
+}
+.rvw-quiet > .icon { color: var(--text-3); }
+
+/* Due this week: a narrow card, so rows drop the due and status columns */
+.rvw-compact-card .row-list {
+  grid-template-columns: calc(var(--row-lead) + 16px) minmax(0, 1fr) 32px;
+}
+.rvw-due-row .row-caret { grid-column: 3; }
+.rvw-due-row .row-lead > .avatar { margin-left: 0; }
+.rvw-due-text {
+  flex: none;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.rvw-due-text.is-warning { color: var(--warning-text); }
+.rvw-due-text.is-danger { color: var(--danger-text); }
+
+/* Admin: sign-ups waiting */
+.rvw-signups {
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+}
+.rvw-signups .callout-title { font-weight: 500; }
+
+@media (max-width: 767.98px) {
+  .rvw-due-row { grid-template-rows: auto; row-gap: 0; }
+  .rvw-due-row .row-caret { grid-row: 1; }
+  .rvw-signups { grid-template-columns: 20px minmax(0, 1fr); }
+  .rvw-signups > .btn { grid-column: 1 / -1; }
+}
+
+/* Skeleton pieces */
+.rvw-sk-title { width: 120px; height: 14px; margin: 4px 0; }
+.rvw-sk-avatar { width: 24px; height: 24px; border-radius: var(--r-sm); }
+.rvw-card .skeleton-row { grid-template-columns: 24px minmax(0, 1fr) 72px; padding-inline: var(--s-3); }
+.rvw-compact-card .skeleton-row { grid-template-columns: 24px minmax(0, 1fr); }
+.rvw-compact-card .skeleton-row > .sk-pill { display: none; }
+
+
+/* 4. Review page (spec 5.9) --------------------------------------------------- */
+
+.rvw-lede {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--s-3);
+}
+.rvw-lede-name { color: var(--text-2); font-weight: 500; }
+.rvw-lede-due { font: 400 13px/18px var(--font-ui); color: var(--text-3); }
+
+@media (min-width: 768px) {
+  .view-header:has(.rvw-lede) { align-items: center; flex-wrap: nowrap; }
+}
+
+.rvw-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-6);
+  align-items: start;
+}
+.rvw-main { display: flex; flex-direction: column; gap: var(--s-6); min-width: 0; }
+.rvw-side { min-width: 0; }
+
+@media (min-width: 1280px) {
+  .rvw-layout { grid-template-columns: minmax(0, 1fr) 400px; }
+  /* sticky beside the file; a tall editor (an open "Edit or unrelease")
+     scrolls inside itself so its buttons are never out of reach */
+  .rvw-side {
+    position: sticky;
+    top: 76px;
+    max-height: calc(100dvh - 92px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+}
+
+/* Pager in the top bar */
+.rvw-pager {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.rvw-pager-pos {
+  min-width: 48px;
+  padding: 0 var(--s-1);
+  font: 500 13px/18px var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* File panel: a --surface-2 frame with a slim toolbar over the stage */
+.rvw-file {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface-2);
+  overflow: hidden;
+}
+.rvw-file-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 44px;
+  padding: var(--s-1) var(--s-2) var(--s-1) var(--s-4);
+  border-bottom: 1px solid var(--line);
+}
+.rvw-file-kind {
+  display: inline-flex;
+  white-space: nowrap;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font: 500 13px/18px var(--font-ui);
+  color: var(--text);
+}
+.rvw-file-kind > .icon { color: var(--text-3); }
+.rvw-file-attempt { color: var(--text-3); font-weight: 400; }
+.rvw-file-size {
+  font: 400 13px/18px var(--font-ui);
+  color: var(--text-3);
+}
+.rvw-file-size:empty { display: none; }
+.rvw-file-open { margin-left: auto; }
+.rvw-file-bar > .rvw-sk-bar { width: 140px; height: 12px; }
+
+.rvw-file-stage {
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+  padding: var(--s-4);
+}
+.rvw-file-stage:has(> .callout),
+.rvw-file-stage:has(> .rvw-text) { place-items: stretch; }
+.rvw-file-stage > .callout { align-self: start; }
+
+.rvw-file-loading { width: 100%; }
+.rvw-file-skeleton { width: 100%; height: min(60dvh, 480px); border-radius: var(--r-sm); }
+
+/* Photos: contained to 70dvh; click for actual size (then the stage scrolls) */
+.rvw-zoom {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--r-sm);
+  cursor: zoom-in;
+}
+.rvw-zoom:focus-visible { outline-offset: 2px; }
+.rvw-img {
+  max-width: 100%;
+  max-height: 70dvh;
+  width: auto;
+  height: auto;
+  margin-inline: auto;
+  border-radius: var(--r-sm);
+  background-color: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.rvw-file-stage.is-actual-size {
+  display: block;
+  max-height: 80dvh;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.rvw-file-stage.is-actual-size .rvw-zoom { max-width: none; cursor: zoom-out; }
+.rvw-file-stage.is-actual-size .rvw-img { max-width: none; max-height: none; }
+
+/* Text files */
+.rvw-text {
+  max-height: 70dvh;
+  margin: 0;
+  padding: var(--s-4) var(--s-5);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background-color: var(--surface);
+  color: var(--text);
+  font: 400 13px/20px var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+.rvw-text:focus-visible { outline-offset: -2px; }
+.rvw-file-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
+  margin-top: var(--s-3);
+}
+.rvw-file-more > .link { font: 500 13px/18px var(--font-ui); }
+
+/* PDF and other files: a file card */
+.rvw-file-card {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-4);
+  width: min(100%, 480px);
+  padding: var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.rvw-file-card-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  color: var(--text-2);
+}
+.rvw-file-card-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rvw-file-card-title {
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.rvw-file-card-text { font: 400 13px/18px var(--font-ui); color: var(--text-3); }
+
+/* Below the file: note, instructions, other attempts */
+.rvw-block { min-width: 0; }
+.rvw-block-title {
+  margin-bottom: var(--s-2);
+  font: var(--t-h3);
+  letter-spacing: -0.005em;
+}
+.rvw-note { max-width: 65ch; font-size: 14px; line-height: 22px; }
+.rvw-muted { font: 400 14px/20px var(--font-ui); color: var(--text-3); }
+
+.rvw-disclosure {
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.rvw-disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 44px;
+  font: var(--t-h3);
+  letter-spacing: -0.005em;
+  color: var(--text);
+  border-radius: var(--r-sm);
+  transition: color var(--dur-1) var(--ease-out);
+}
+.rvw-disclosure-summary:hover { color: var(--text-2); }
+.rvw-disclosure-summary:focus-visible { outline-offset: -2px; }
+.rvw-disclosure-caret {
+  color: var(--text-3);
+  transition: transform var(--dur-2) var(--ease-out);
+}
+.rvw-disclosure[open] .rvw-disclosure-caret { transform: rotate(90deg); }
+.rvw-disclosure > :not(summary) { padding: 0 0 var(--s-4) var(--s-6); }
+.rvw-instructions { color: var(--text); }
+
+.rvw-attempts { margin-inline: calc(-1 * var(--s-2)); }
+
+
+/* 5. Grade editor ------------------------------------------------------------- */
+
+.rvw-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  padding: var(--s-5);
+}
+.rvw-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.rvw-editor-title { font: var(--t-h3); letter-spacing: -0.005em; }
+.rvw-editor-meta {
+  margin-top: calc(-1 * var(--s-3));
+  font: 400 13px/18px var(--font-ui);
+  color: var(--text-3);
+}
+.rvw-editor-note { padding: 10px 12px; border-radius: var(--r-sm); background-color: var(--surface-2); }
+
+.rvw-form { display: flex; flex-direction: column; gap: var(--s-4); }
+
+.rvw-score {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 148px;
+}
+.input.rvw-score-input {
+  height: 44px;
+  padding-right: 60px;
+  font: 500 20px/28px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.rvw-score-max {
+  position: absolute;
+  right: 12px;
+  font: 400 14px/20px var(--font-mono);
+  color: var(--text-3);
+  pointer-events: none;
+}
+.rvw-feedback { min-height: 200px; font: var(--t-read); }
+
+.rvw-form-error:empty { display: none; }
+
+.rvw-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--s-2);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.rvw-editor-actions > .btn-danger-ghost { margin-right: auto; order: -1; }
+
+/* Released: read-only grade */
+.rvw-released {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border-radius: var(--r-md);
+  background-color: var(--surface-2);
+}
+.rvw-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+.rvw-figure-score { font: var(--t-figure); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text); }
+.rvw-figure-max { font: 500 15px/20px var(--font-mono); color: var(--text-3); }
+.rvw-released-feedback { color: var(--text); }
+.rvw-released-by { font: 400 13px/18px var(--font-ui); color: var(--text-3); }
+
+.rvw-edit { border-top: 1px solid var(--line); }
+.rvw-edit-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 44px;
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text-2);
+  border-radius: var(--r-sm);
+  transition: color var(--dur-1) var(--ease-out);
+}
+.rvw-edit-summary:hover { color: var(--text); }
+.rvw-edit-summary:focus-visible { outline-offset: -2px; }
+.rvw-edit-summary > .icon { color: var(--text-3); }
+.rvw-edit-caret { transition: transform var(--dur-2) var(--ease-out); }
+.rvw-edit[open] .rvw-edit-caret { transform: rotate(90deg); }
+.rvw-edit > .rvw-form { padding-top: var(--s-2); }
+
+.rvw-just-released .callout-actions { margin-top: var(--s-3); }
+
+/* Editor skeleton */
+.rvw-sk-line { width: 60%; height: 14px; }
+.rvw-sk-line.is-short { width: 40%; height: 12px; }
+.rvw-sk-input { width: 148px; height: 44px; border-radius: var(--r-sm); }
+.rvw-sk-area { width: 100%; height: 200px; border-radius: var(--r-sm); }
+
+/* Phones: the two editor buttons sit in a bar pinned above the safe area
+   (the tab bar hides on this route), so they are always in reach */
+@media (max-width: 767.98px) {
+  .rvw-page:has(.rvw-editor-actions.is-floating) { padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+  .rvw-editor-actions.is-floating {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 30;
+    padding: var(--s-3) max(var(--s-4), env(safe-area-inset-right)) calc(var(--s-3) + env(safe-area-inset-bottom)) max(var(--s-4), env(safe-area-inset-left));
+    border-top: 1px solid var(--line);
+    background-color: var(--canvas);
+  }
+  @supports ((backdrop-filter: blur(12px)) or (-webkit-backdrop-filter: blur(12px))) {
+    .rvw-editor-actions.is-floating {
+      background-color: color-mix(in srgb, var(--canvas) 92%, transparent);
+      -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(12px);
+    }
+  }
+  .rvw-editor-actions > .btn { flex: 1 1 0; }
+  .rvw-editor { padding: var(--s-4); }
+  .rvw-file-stage { min-height: 200px; padding: var(--s-3); }
+  .rvw-file-card { grid-template-columns: 40px minmax(0, 1fr); }
+  .rvw-file-card > .btn { grid-column: 1 / -1; }
+  .rvw-pager-pos { min-width: 0; }
+  .rvw-file-size { display: none; }
+  /* the name is in the lede; the avatar would stack above the title */
+  .view-header:has(.rvw-lede) > .avatar { display: none; }
+  .rvw-disclosure > :not(summary) { padding-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rvw-disclosure-caret,
+  .rvw-edit-caret { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .rvw-file,
+  .rvw-file-card,
+  .rvw-text,
+  .rvw-released,
+  .rvw-seg-count { border: 1px solid CanvasText; }
+}

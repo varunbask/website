@@ -5,4 +5,7 @@ skills-lock.json
 .vercel
 supabase/.temp/
 .env
+.env.*
+.env*.local
 node_modules/
+*.log

@@ -1,0 +1,14 @@
+.env
+.env.*
+tests
+supabase
+docs
+vitest.config.js
+vitest.rls.config.js
+*.md
+.worktrees
+.superpowers
+.claude
+.agents
+.hermes
+skills-lock.json

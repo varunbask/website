@@ -1,10 +1,11 @@
 /* ============================================================
    VP Education Group: light / dark theme
 
-   The inline script in <head> sets data-theme before first paint.
-   Light is the default. This file owns the header toggle, remembers
-   the viewer's choice, and keeps the toggle's label in the current
-   language (the labels live in translations.js).
+   A script in <head> sets data-theme before first paint (inline on
+   the main site, portal/js/theme-boot.js in the portal). Light is
+   the default. This file owns the header toggle, remembers the
+   viewer's choice, and keeps the toggle's label in the current
+   language when the page has i18n (the portal is English only).
    ============================================================ */
 
 const THEME_KEY = "vb-theme";
@@ -21,10 +22,14 @@ function savedTheme() {
   }
 }
 
+function themeLabel(text) {
+  return window.VB_I18N ? VB_I18N.translate(text, VB_I18N.currentLang()) : text;
+}
+
 function updateThemeLabel() {
-  const lang = VB_I18N.currentLang();
+  if (!themeButton) return;
   const dark = document.documentElement.dataset.theme === "dark";
-  themeButton.setAttribute("aria-label", VB_I18N.translate(dark ? "Switch to light mode" : "Switch to dark mode", lang));
+  themeButton.setAttribute("aria-label", themeLabel(dark ? "Switch to light mode" : "Switch to dark mode"));
 }
 
 function applyTheme(theme) {
@@ -33,17 +38,19 @@ function applyTheme(theme) {
   updateThemeLabel();
 }
 
-themeButton.addEventListener("click", () => {
-  const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-  try {
-    /* Light is the default, so only a dark choice needs remembering. */
-    if (next === "dark") localStorage.setItem(THEME_KEY, "dark");
-    else localStorage.removeItem(THEME_KEY);
-  } catch (e) {
-    /* private browsing: the choice just will not persist */
-  }
-  applyTheme(next);
-});
+if (themeButton) {
+  themeButton.addEventListener("click", () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    try {
+      /* Light is the default, so only a dark choice needs remembering. */
+      if (next === "dark") localStorage.setItem(THEME_KEY, "dark");
+      else localStorage.removeItem(THEME_KEY);
+    } catch (e) {
+      /* private browsing: the choice just will not persist */
+    }
+    applyTheme(next);
+  });
+}
 
 document.addEventListener("langchange", updateThemeLabel);
 
