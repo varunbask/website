@@ -38,6 +38,11 @@ export async function requireRole(allowed) {
     location.replace(HOME[profile.role] ?? '/portal/index.html');
     return never();
   }
+  // A session that ends while the page is open (expired refresh token, sign-out
+  // in another tab) goes back to sign-in instead of failing every request
+  sb.auth.onAuthStateChange((event) => {
+    if (event === 'SIGNED_OUT') location.replace('/portal/index.html');
+  });
   return profile;
 }
 

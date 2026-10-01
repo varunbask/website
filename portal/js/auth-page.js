@@ -114,7 +114,8 @@ async function route() {
     /* fall through to sign in */
   }
   if (!profile) {
-    show('sign-in', false);
+    // reset.html's "Request a new link" opens the forgot-password panel
+    show(location.hash === '#forgot' ? 'forgot' : 'sign-in', false);
     return;
   }
   if (profile.role === 'pending') {

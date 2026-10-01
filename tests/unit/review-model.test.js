@@ -183,6 +183,14 @@ describe('stillGrading', () => {
     expect(stillGrading([])).toEqual([]);
     expect(stillGrading(undefined)).toEqual([]);
   });
+
+  test('only the newest attempt for a task counts', () => {
+    const subs = [
+      sub(1, { task_id: 9, status: 'pending', created_at: ago(DAY) }),
+      sub(2, { task_id: 9, status: 'ai_graded', created_at: ago(HOUR) }),
+    ];
+    expect(stillGrading(subs)).toEqual([]);
+  });
 });
 
 describe('waitingLabel', () => {
@@ -337,6 +345,15 @@ describe('validateGrade', () => {
     expect(validateGrade({ score: '101', feedback: '' }, { release: false }).errors).toEqual({ score: 'Enter a score from 0 to 100.' });
     expect(validateGrade({ score: 'abc', feedback: '' }, { release: false }).ok).toBe(false);
     expect(validateGrade({ score: '-1', feedback: '' }, { release: false }).ok).toBe(false);
+  });
+
+  test('a score is a plain decimal with at most two places', () => {
+    for (const score of ['1e1', '0x10', '85.555', '+5', '.5', '5.', '1,5']) {
+      expect(validateGrade({ score, feedback: 'x' }, { release: false }).errors, score).toEqual({ score: 'Enter a score from 0 to 100.' });
+    }
+    for (const [score, value] of [['0', 0], ['100', 100], ['85.5', 85.5], ['85.55', 85.55], ['007', 7]]) {
+      expect(validateGrade({ score, feedback: 'x' }, { release: false }).values.score, score).toBe(value);
+    }
   });
 
   test('draft: a blank score and blank feedback do not save', () => {
