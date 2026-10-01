@@ -70,7 +70,8 @@ test('the portal CSP covers fonts, supabase-js, the Supabase API and blob previe
     const [name, ...values] = part.split(/\s+/);
     return [name, values];
   }));
-  expect(directives.get('script-src')).toContain('https://cdn.jsdelivr.net');
+  // Only the one pinned supabase-js file, not all of jsdelivr
+  expect(directives.get('script-src')).toEqual(["'self'", 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js']);
   expect(directives.get('style-src')).toContain('https://fonts.googleapis.com');
   expect(directives.get('font-src')).toContain('https://fonts.gstatic.com');
   expect(directives.get('img-src')).toEqual(expect.arrayContaining(['blob:', 'data:']));
