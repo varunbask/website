@@ -30,6 +30,7 @@ import { sb } from './supabase.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SUBMITTED = 'Work submitted. Your tutor will review it soon.';
+const GONE = 'This item was changed or removed. Refresh the page and try again.';
 const AT_CAP = 'You’ve used all 5 attempts for this assignment. Message your tutor if you need to send another file.';
 const MISSING = 'This assignment isn’t available. It may have been deleted.';
 const HAS_WORK = 'This assignment has submitted work, so it cannot be deleted.';
@@ -319,10 +320,11 @@ function renderItem(dctx) {
     const done = !found.task.completed_at;
     const result = await sb.from('tasks')
       .update({ completed_at: done ? new Date().toISOString() : null })
-      .eq('id', found.task.id);
-    if (result.error) {
-      console.error(result.error);
-      if (dctx.alive()) showActionError('We couldn’t update that task. Try again.');
+      .eq('id', found.task.id)
+      .select('id');
+    if (result.error || !result.data?.length) {
+      if (result.error) console.error(result.error);
+      if (dctx.alive()) showActionError(result.error ? 'We couldn’t update that task. Try again.' : GONE);
       return;
     }
     dctx.store.invalidate(found.studentId);
@@ -341,12 +343,16 @@ function renderItem(dctx) {
       tone: 'danger',
     });
     if (!ok || !dctx.alive()) return;
-    const result = await sb.from('tasks').delete().eq('id', found.task.id);
+    const result = await sb.from('tasks').delete().eq('id', found.task.id).select('id');
     if (result.error) {
       console.error(result.error);
       if (dctx.alive()) {
         showActionError(result.error.code === '23503' ? HAS_WORK : 'We couldn’t delete this. Try again.');
       }
+      return;
+    }
+    if (!result.data?.length) {
+      if (dctx.alive()) showActionError(GONE);
       return;
     }
     // Ignore the refresh this causes: the drawer is on its way out

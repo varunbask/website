@@ -201,8 +201,15 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
     try {
       await busy(submit, editing ? 'Saving…' : 'Creating…', async () => {
         const result = editing
-          ? await sb.from('tasks').update(values).eq('id', task.id)
+          ? await sb.from('tasks').update(values).eq('id', task.id).select('id')
           : await sb.from('tasks').insert({ kind: currentKind, ...values, student_id: studentId }).select('id').single();
+        // An edit that matched no row: the item was deleted or moved elsewhere
+        if (editing && !result.error && !result.data?.length) {
+          if (dctx.alive?.() === false) return;
+          errorSlot.append(dangerCallout('We couldn’t save your changes.', 'This item was changed or removed. Refresh the page and try again.'));
+          errorSlot.scrollIntoView?.({ block: 'nearest' });
+          return;
+        }
         if (result.error) {
           console.error(result.error);
           if (dctx.alive?.() === false) return;

@@ -134,6 +134,15 @@ export function filePreview(sub, { signal, attempt } = {}) {
     }
   }
 
+  // Middle-click and "Open in new tab" skip the click handler and use the href
+  // as it is, so a stale link is signed again as soon as the pointer or focus
+  // reaches it
+  function prewarm(a) {
+    const warm = () => { if (stale()) freshUrl().catch(() => {}); };
+    a.addEventListener('pointerenter', warm);
+    a.addEventListener('focus', warm);
+  }
+
   // A plain link while its URL is fresh; signs again first when it is not
   function signedLink(attrs, ...children) {
     const a = h('a', { ...attrs, href: signed?.url ?? '', target: '_blank', rel: 'noopener noreferrer', dataset: { signedLink: '' } }, ...children);
@@ -142,6 +151,7 @@ export function filePreview(sub, { signal, attempt } = {}) {
       event.preventDefault();
       openFresh();
     });
+    prewarm(a);
     return a;
   }
   openLink.dataset.signedLink = '';
@@ -150,6 +160,7 @@ export function filePreview(sub, { signal, attempt } = {}) {
     event.preventDefault();
     openFresh();
   });
+  prewarm(openLink);
 
   function loading() {
     stage.setAttribute('aria-busy', 'true');
