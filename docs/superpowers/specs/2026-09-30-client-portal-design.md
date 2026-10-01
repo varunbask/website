@@ -20,7 +20,7 @@ Decisions (from you):
 
 - **Data:** Supabase Postgres in the existing project (`enwrankobjdivyxhmwus`). Row-level security on every table does the access control, so the browser talks to Supabase directly with the public anon key.
 - **Files:** a private Supabase Storage bucket `homework`, with paths `{student_id}/{uuid}.{ext}`. The browser uploads straight to Storage, because Vercel functions cap request bodies at 4.5 MB. Photos are shrunk in the browser first (2000 px long edge, JPEG 0.85). That keeps well inside the 1 GB free tier and still reads handwriting.
-- **Grading:** `POST /api/grade` (Vercel function) verifies the caller and claims the submission with a compare-and-set, answers 202, and grades in the background with `waitUntil`. It downloads the file with the service role key and extracts PDF text with `unpdf` (small, serverless-safe; replaces `pdf-parse`). It adds the assignment's title and instructions to the prompt and writes a **draft** grade. An hourly Vercel cron (`/api/cron/sweep`, protected by `CRON_SECRET`) retries stuck or transiently failed rows, up to 3 attempts. Permanent failures, such as a scanned PDF with no text, stop at `failed` with a readable message. A tutor can press Retry.
+- **Grading:** `POST /api/grade` (Vercel function) verifies the caller and claims the submission with a compare-and-set, answers 202, and grades in the background with `waitUntil`. It downloads the file with the service role key and extracts PDF text with `unpdf` (small, serverless-safe; replaces `pdf-parse`). It adds the assignment's title and instructions to the prompt and writes a **draft** grade. A daily Vercel cron (`/api/cron/sweep`, protected by `CRON_SECRET`) retries stuck or transiently failed rows, up to 3 attempts. Permanent failures, such as a scanned PDF with no text, stop at `failed` with a readable message. A tutor can press Retry.
 - **Frontend:** vanilla ES modules under `portal/`, no build step, same styles.css tokens and fonts. Ruled lines, not card boxes. No eyebrows, no em dashes. supabase-js is loaded as a pinned UMD build with an SRI hash. User text is rendered with `textContent` only, and there is a CSP header on `/portal/*`.
 - **Retired:** Express, knex, SQLite, multer, node-cron, `src/`, `dashboard/`, `submissions/`, `login/`, `app-auth.js`, `app-config.js`.
 
@@ -61,7 +61,7 @@ Marketing site: keep your "Log in" header button and its five translations (from
   - `content.js`: file-type sniffing, unpdf, text/image content
   - `grader.js`: keeps `RESULTS_FORMAT` and `parseResults` from the current grader; adds a `<student_work>` wrapper against prompt injection, per-attempt timeout, and transient vs permanent errors
   - `http.js`: the who-may-grade matrix
-- `vercel.json`: function durations, the hourly cron, and CSP/security headers for `/portal/*`.
+- `vercel.json`: function durations, the daily cron, and CSP/security headers for `/portal/*`.
 - `.vercelignore`: keeps tests, migrations, docs and `.env` off the public site. No `build` script.
 - `package.json`: ESM, with `@supabase/supabase-js`, `@vercel/functions`, `unpdf`, and vitest as a dev dependency.
 
@@ -104,8 +104,8 @@ Marketing site: keep your "Log in" header button and its five translations (from
 
 ## Operational notes
 
-- **Supabase free tier:** pauses after 7 days idle (the hourly cron should keep it awake), 1 GB storage, no backups. Move to Pro ($25/mo) once real client data is in.
-- **Vercel Hobby** is for non-commercial use under Vercel's terms, so a paying-client portal is a reason to move to Pro. Hobby crons run once a day, so the hourly retry cron needs Pro.
+- **Supabase free tier:** pauses after 7 days idle (the daily cron should keep it awake), 1 GB storage, no backups. Move to Pro ($25/mo) once real client data is in.
+- **Vercel Hobby** is for non-commercial use under Vercel's terms, so a paying-client portal is a reason to move to Pro. Hobby crons run once a day. On Pro, run the retry cron each hour to clear a backlog faster.
 - **Minors' homework goes to an AI provider.** Use one that doesn't train on API data, and say so in a short privacy note. Tutor review before release is the main safeguard against bad or injected grades.
 - **Parallel work:** `7fa498e` landed on `homework-submission` during this session. If another session is still working on that branch, pause it before task 1 so the branches don't diverge.
 

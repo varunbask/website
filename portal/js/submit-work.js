@@ -228,7 +228,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
             .insert({ task_id: task.id, storage_path: path, file_type: type, note: note.value.trim() || null })
             .select('id').single();
           if (inserted.error) throw inserted.error;
-          startGrading(inserted.data.id, { keepalive: true });   // not awaited: the hourly sweep catches misses
+          startGrading(inserted.data.id, { keepalive: true });   // not awaited: the daily sweep catches misses
           if (onSubmitted) onSubmitted({ submissionId: inserted.data.id });
           else {
             dctx.store?.invalidate(studentId);

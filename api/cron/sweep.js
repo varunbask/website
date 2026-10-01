@@ -2,7 +2,7 @@ import { adminClient } from '../_lib/supabase.js';
 import { createRepo } from '../_lib/repo.js';
 import { handleSweep } from '../_lib/http.js';
 
-// Vercel Cron calls this each hour with Authorization: Bearer $CRON_SECRET
+// Vercel Cron calls this once a day with Authorization: Bearer $CRON_SECRET
 export async function GET(request) {
   let db;
   try {
