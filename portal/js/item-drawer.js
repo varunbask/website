@@ -15,7 +15,7 @@
 
 import { h } from './dom.js';
 import { icon } from './icons.js';
-import { pill, draftChip, emptyState, errorCallout, button, visuallyHidden, timeEl } from './ui.js';
+import { pill, draftChip, emptyState, errorCallout, button, visuallyHidden, timeEl, drawerHref } from './ui.js';
 import { menu } from './overlays.js';
 import { itemStatus, submissionStatus } from './status.js';
 import { dueLabel, dayKey, parseKey, todayKey, relativeTime } from './dates.js';
@@ -26,6 +26,9 @@ import { staffNames } from './updates-feed.js';
 import { taskCheck } from './task-check.js';
 import { itemForm } from './item-form.js';
 import { submitWorkSection } from './submit-work.js';
+import { materialsSection } from './materials-ui.js';
+import { materialsFor, lessonLabel } from './materials-model.js';
+import { toneClass } from './sessions-model.js';
 import { renderSessionCreate, renderSessionDetail } from './session-drawer.js';
 import { sb } from './supabase.js';
 
@@ -99,18 +102,57 @@ async function renderCreate(dctx) {
     }
     if (!dctx.alive()) return;
   }
+  // Homework set in a lesson (open=new&session=<id>): the lesson fixes the student
+  let lesson = null;
+  if (/^\d+$/.test(String(dctx.params?.session ?? ''))) {
+    lesson = await findSession(dctx, dctx.params.session).catch(() => null);
+    if (!dctx.alive()) return;
+  }
   // Keep what the tutor typed through any store change
   dctx.onRefresh(() => {});
   const form = itemForm(dctx, {
     kind,
     due: dctx.params?.due,
-    studentOptions,
-    selectedStudent: dctx.scope?.student?.id ?? null,
+    studentOptions: lesson ? null : studentOptions,
+    selectedStudent: lesson ? lesson.student_id : dctx.scope?.student?.id ?? null,
+    lesson,
   });
   dctx.header.replaceChildren();
   dctx.headerActions.replaceChildren();
   dctx.body.replaceChildren(form);
   dctx.setTitle(form.dataset.title);
+}
+
+// A session by id: the scoped student's sessions first, then (staff) the
+// workspace's, then that student's fresh list
+async function findSession(dctx, id) {
+  const { store } = dctx;
+  const pick = (list) => (list ?? []).find((s) => sameId(s.id, id)) ?? null;
+  const scoped = dctx.scope?.student ?? null;
+  if (scoped) {
+    const found = pick(await store.getSessions(scoped.id));
+    if (found) return found;
+  }
+  if (dctx.audience !== 'staff') return null;
+  const summary = pick((await store.getWorkspace()).sessions);
+  return summary ? pick(await store.getSessions(summary.student_id)) : null;
+}
+
+// The task's attachments and the lesson it was set in. Either failing leaves
+// that part out instead of failing the drawer.
+async function loadExtras(dctx, found) {
+  const [materials, lesson] = await Promise.all([
+    dctx.store.getMaterials(found.studentId).catch((error) => { console.error(error); return null; }),
+    found.task.session_id !== null && found.task.session_id !== undefined
+      ? dctx.store.getSessions(found.studentId)
+        .then((list) => list.find((s) => sameId(s.id, found.task.session_id)) ?? null)
+        .catch(() => null)
+      : null,
+  ]);
+  return {
+    attachments: materials ? materialsFor(materials, { taskId: found.task.id }) : null,
+    lesson,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +241,7 @@ function renderItem(dctx) {
     let found;
     try {
       found = await locate(dctx, now);
+      if (found) Object.assign(found, await loadExtras(dctx, found));
     } catch (error) {
       if (!current()) return;
       console.error(error);
@@ -426,10 +469,39 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
   const nodes = [headBlock(dctx, found, status, { now, showStudent: staff && crossScope, student })];
   nodes.push(h('div', { class: 'asg-action-error' }));
 
+  // Homework from a lesson: a link back to it
+  if (found.lesson) {
+    const hash = typeof location === 'undefined' ? '' : location.hash;
+    const caret = icon('caret-right');
+    caret.classList.add('asg-lesson-caret');
+    nodes.push(h('a', {
+      class: `asg-lesson ${toneClass(found.lesson.subject)}`,
+      href: drawerHref(hash, `s${found.lesson.id}`),
+      dataset: { focusKey: 'asg-lesson' },
+    },
+    icon('book-open-text'),
+    h('span', {}, `Set in ${lessonLabel(found.lesson, todayKey(now))}`),
+    caret));
+  }
+
   // 1. Instructions
   nodes.push(section('Instructions', task.details
     ? h('p', { class: 'read is-pre asg-instructions' }, task.details)
     : h('p', { class: 'asg-muted' }, 'No extra instructions.')));
+
+  // Worksheets and files from the tutor (staff add and remove them)
+  if (found.attachments) {
+    const files = materialsSection(dctx, {
+      studentId: found.studentId,
+      taskId: task.id,
+      items: found.attachments,
+      canEdit: staff && !dctx.readOnly,
+      heading: isTask ? 'Files' : 'Worksheets and files',
+      emptyText: 'No files yet. Add a worksheet, slides or a link.',
+      keyPrefix: 'asg-mat',
+    });
+    if (files) nodes.push(files);
+  }
 
   if (isTask) {
     // Students tick it off here; parents see where it stands

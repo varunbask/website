@@ -16,6 +16,7 @@ const students = new Map();   // studentId -> Promise<StudentData>
 const updates = new Map();    // studentId -> Promise<Update[]>
 const sessions = new Map();   // studentId -> Promise<Session[]>
 const tutors = new Map();     // studentId -> Promise<{ tutor_id, full_name, subject }[]>
+const materials = new Map();  // studentId -> Promise<Material[]>
 const children = new Map();   // parentId -> Promise<Profile[]>
 let workspace = null;         // Promise<Workspace> | null
 let pending = null;           // Promise<number> | null
@@ -45,7 +46,7 @@ function normalizeSub(sub) {
 async function loadStudentData(studentId) {
   const [tasks, subs] = await Promise.all([
     sb.from('tasks')
-      .select('id, student_id, kind, title, details, due_at, completed_at, created_at, created_by')
+      .select('id, student_id, kind, title, details, due_at, completed_at, created_at, created_by, session_id')
       .eq('student_id', studentId),
     sb.from('submissions')
       .select('id, task_id, student_id, file_type, note, status, error, attempts, status_changed_at, created_at, grade:grades(score, feedback, reviewed_by, reviewed_at, released_at)')
@@ -117,6 +118,24 @@ export function getTutors(studentId) {
 }
 
 // ---------------------------------------------------------------------------
+// Lesson materials and assignment attachments (materials-model.js)
+
+export const MATERIAL_FIELDS = 'id, student_id, session_id, task_id, title, storage_path, file_type, size_bytes, url, created_by, created_at';
+
+async function loadMaterials(studentId) {
+  const { data, error } = await sb.from('materials').select(MATERIAL_FIELDS)
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Every material of one student, on their sessions and their assignments
+export function getMaterials(studentId) {
+  return remember(materials, String(studentId), () => loadMaterials(studentId));
+}
+
+// ---------------------------------------------------------------------------
 // Staff workspace: every student the viewer can see, with their tasks and work
 
 // Supabase caps every response at the project's max-rows (1000 by default),
@@ -138,7 +157,7 @@ async function selectAll(makeQuery) {
 async function loadWorkspace() {
   const [people, tasks, subs, sess, links] = await Promise.all([
     selectAll(() => sb.from('profiles').select('id, full_name, email').eq('role', 'student').order('id')),
-    selectAll(() => sb.from('tasks').select('id, student_id, kind, title, due_at, completed_at, created_at').order('id')),
+    selectAll(() => sb.from('tasks').select('id, student_id, kind, title, due_at, completed_at, created_at, session_id').order('id')),
     selectAll(() => sb.from('submissions')
       .select('id, task_id, student_id, file_type, status, error, attempts, status_changed_at, created_at, grade:grades(score, reviewed_at, released_at)')
       .order('created_at', { ascending: false })
@@ -239,6 +258,7 @@ export function invalidate(studentId) {
     updates.delete(String(studentId));
     sessions.delete(String(studentId));
     tutors.delete(String(studentId));
+    materials.delete(String(studentId));
   }
   workspace = null;
   emit([studentId === null || studentId === undefined ? '*' : String(studentId)]);
@@ -257,6 +277,7 @@ export function invalidateAll() {
   updates.clear();
   sessions.clear();
   tutors.clear();
+  materials.clear();
   children.clear();
   workspace = null;
   pending = null;

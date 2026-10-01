@@ -10,6 +10,8 @@ const SPEC_NAMES = [
   'arrow-counter-clockwise', 'sign-out', 'sun', 'moon', 'circle', 'clock', 'warning-circle',
   'hourglass-medium', 'x-circle', 'check-circle', 'check', 'archive', 'minus-circle', 'file-text',
   'file-pdf', 'image-square', 'eye', 'eye-slash', 'envelope-simple', 'trend-up', 'trend-down', 'info',
+  // Lesson materials and homework (schedules spec)
+  'presentation', 'paperclip', 'link-simple', 'book-open-text',
 ];
 
 test('ICON_NAMES lists exactly the icons in the spec', () => {

@@ -18,9 +18,11 @@
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
-import { button, field, select, setFieldError, busy } from './ui.js';
+import { button, field, select, setFieldError, busy, drawerHref } from './ui.js';
 import { dueDateToIso, isoToDateInput, displayName } from './format.js';
 import { sb } from './supabase.js';
+import { lessonLabel } from './materials-model.js';
+import { todayKey } from './dates.js';
 
 const KIND_LABEL = { assignment: 'Assignment', task: 'Task' };
 const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -50,7 +52,9 @@ function dangerCallout(title, text) {
       text ? h('p', { class: 'callout-text' }, text) : null));
 }
 
-export function itemForm(dctx, { task = null, kind, due, studentOptions = null, selectedStudent = null, onCancel, onSaved } = {}) {
+// lesson: the session homework is set in (create only); it fixes the student
+// and is saved as tasks.session_id
+export function itemForm(dctx, { task = null, kind, due, studentOptions = null, selectedStudent = null, lesson = null, onCancel, onSaved } = {}) {
   const editing = Boolean(task);
   let currentKind = (editing ? task.kind : kind) === 'task' ? 'task' : 'assignment';
   const formId = uid('item-form');
@@ -120,8 +124,13 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
 
   const errorSlot = h('div', { class: 'asg-form-errors' });
 
+  const lessonNote = lesson && !editing
+    ? h('p', { class: 'note asg-lesson-note' }, icon('book-open-text'),
+      h('span', {}, `Homework for ${lessonLabel(lesson, todayKey())}. Add a worksheet or slides after you create it.`))
+    : null;
+
   const form = h('form', { class: 'asg-form', id: formId, novalidate: true },
-    typeField, studentField, titleField, detailsField, dueField, errorSlot);
+    lessonNote, typeField, studentField, titleField, detailsField, dueField, errorSlot);
 
   const root = h('div', { class: 'asg-form-wrap', dataset: { title: heading.textContent } }, heading, form);
 
@@ -202,7 +211,9 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
       await busy(submit, editing ? 'Saving…' : 'Creating…', async () => {
         const result = editing
           ? await sb.from('tasks').update(values).eq('id', task.id).select('id')
-          : await sb.from('tasks').insert({ kind: currentKind, ...values, student_id: studentId }).select('id').single();
+          : await sb.from('tasks').insert({
+            kind: currentKind, ...values, student_id: studentId, ...(lesson ? { session_id: lesson.id } : {}),
+          }).select('id').single();
         // An edit that matched no row: the item was deleted or moved elsewhere
         if (editing && !result.error && !result.data?.length) {
           if (dctx.alive?.() === false) return;
@@ -225,6 +236,11 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
         dctx.toast({ text: editing ? 'Changes saved.' : (currentKind === 'task' ? 'Task created.' : 'Assignment created.') });
         if (editing) onSaved?.();
         else {
+          if (lesson && result.data?.id !== undefined) {
+            // Homework from a lesson opens right away, so a worksheet can be added
+            dctx.go(drawerHref(typeof location === 'undefined' ? '' : location.hash, result.data.id), { replace: true });
+            return;
+          }
           // Show the new row (it may sit in a closed "No due date" group)
           if (result.data?.id !== undefined) dctx.reveal?.(result.data.id);
           dctx.close();

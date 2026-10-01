@@ -69,7 +69,7 @@ describe('sameView', () => {
   const r = (hash) => parseHash(hash, TABLE);
 
   test('ignores drawer params only', () => {
-    expect(DRAWER_PARAMS).toEqual(['open', 'focus', 'kind', 'due', 'at']);
+    expect(DRAWER_PARAMS).toEqual(['open', 'focus', 'kind', 'due', 'at', 'session']);
     expect(sameView(r('#/assignments/todo'), r('#/assignments/todo?open=5'))).toBe(true);
     expect(sameView(r('#/assignments/todo?open=5&focus=submit'), r('#/assignments/todo?open=6'))).toBe(true);
     expect(sameView(r('#/calendar?open=new&kind=task&due=2026-10-14'), r('#/calendar'))).toBe(true);

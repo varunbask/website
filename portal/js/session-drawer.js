@@ -11,7 +11,7 @@
 
 import { h } from './dom.js';
 import { icon } from './icons.js';
-import { pill, emptyState, errorCallout, button, avatar } from './ui.js';
+import { pill, emptyState, errorCallout, button, avatar, itemRow, rowList, drawerHref } from './ui.js';
 import { menu } from './overlays.js';
 import { todayKey } from './dates.js';
 import { displayName, firstName } from './format.js';
@@ -25,6 +25,8 @@ import {
   GONE, studentChoices, seriesLeftText, whenText, icsFileName, sessionsToast,
 } from './session-form-model.js';
 import { sessionForm, sessionNotesForm, callout } from './session-form.js';
+import { materialsSection } from './materials-ui.js';
+import { materialsFor, homeworkDueKey } from './materials-model.js';
 
 const MISSING = 'This session isn’t available. It may have been cancelled or removed.';
 const sameId = (a, b) => String(a) === String(b);
@@ -171,6 +173,32 @@ async function locate(dctx) {
   return { session, sessions, studentId: summary.student_id, student, ws };
 }
 
+// The session's materials and the homework set in it. Either failing leaves
+// that part out (null) instead of failing the whole drawer.
+async function loadExtras(dctx, found) {
+  const { store } = dctx;
+  const [materials, data] = await Promise.all([
+    store.getMaterials(found.studentId).catch((error) => { console.error(error); return null; }),
+    store.getStudentData(found.studentId).catch((error) => { console.error(error); return null; }),
+  ]);
+  const items = data
+    ? store.itemsFor(data, { now: new Date(), audience: dctx.audience, viewerId: dctx.me?.id })
+      .filter((item) => item.task.session_id !== null && item.task.session_id !== undefined
+        && String(item.task.session_id) === String(found.session.id))
+    : null;
+  return {
+    materials: materials ? materialsFor(materials, { sessionId: found.session.id }) : null,
+    homework: items,
+  };
+}
+
+// '#/calendar?...&open=new&kind=assignment&due=...&session=12': the create
+// form for homework set in this lesson
+function newHomeworkHref(hash, { due, sessionId }) {
+  const base = drawerHref(hash, 'new');
+  return `${base}&kind=assignment&due=${encodeURIComponent(due)}&session=${encodeURIComponent(sessionId)}`;
+}
+
 // Hands a calendar app an .ics file without leaving the page. The temporary
 // link goes inside `host` (the drawer body): an open modal dialog makes the
 // rest of the page inert.
@@ -199,6 +227,7 @@ export function renderSessionDetail(dctx) {
     let names;
     try {
       [found, names] = await Promise.all([locate(dctx), staffNames()]);
+      if (found) Object.assign(found, await loadExtras(dctx, found));
     } catch (error) {
       if (!current()) return;
       console.error(error);
@@ -508,6 +537,51 @@ function buildDetail(dctx, found, { now, names, actions }) {
     nodes.push(section('Plan', h('p', { class: 'read is-pre ses-plan' }, session.notes)));
   } else if (editable && !cancelled && !started) {
     nodes.push(section('Plan', h('p', { class: 'ses-muted' }, 'No plan yet. Add one with Edit session.')));
+  }
+
+  // Slides and materials: staff who may change the session add and remove
+  // them; families see the section once there is something in it
+  if (found.materials) {
+    const mats = materialsSection(dctx, {
+      studentId: found.studentId,
+      sessionId: session.id,
+      items: found.materials,
+      canEdit: editable,
+      heading: 'Slides and materials',
+      emptyText: 'No slides or files yet. Add the lesson’s slides, handouts or a link.',
+      keyPrefix: 'ses-mat',
+    });
+    if (mats) nodes.push(mats);
+  } else {
+    nodes.push(section('Slides and materials', h('p', { class: 'ses-muted' }, 'The materials could not load. Try again in a moment.')));
+  }
+
+  // Homework set in this lesson: ordinary assignments, so the student submits
+  // and the tutor grades them as usual
+  if (found.homework) {
+    const hw = found.homework;
+    if (hw.length || (editable && !cancelled)) {
+      const hash = typeof location === 'undefined' ? '' : location.hash;
+      const body = [];
+      if (hw.length) {
+        body.push(h('div', { class: 'ses-homework' },
+          rowList(hw.map((item) => itemRow(item, { audience: dctx.audience, now, href: drawerHref(hash, item.task.id) })),
+            { label: 'Homework from this lesson' })));
+      } else {
+        body.push(h('p', { class: 'ses-muted' }, 'No homework set in this lesson yet.'));
+      }
+      if (editable && !cancelled) {
+        const due = homeworkDueKey(session, sessions);
+        body.push(h('div', { class: 'ses-actions' }, button({
+          label: 'Assign homework',
+          icon: 'plus',
+          size: 'sm',
+          focusKey: 'ses-homework',
+          onClick: () => dctx.go(newHomeworkHref(hash, { due, sessionId: session.id })),
+        })));
+      }
+      nodes.push(section('Homework', ...body));
+    }
   }
 
   // After it starts: attendance and the recap. Families see what the tutor

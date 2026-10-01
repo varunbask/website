@@ -573,7 +573,8 @@ export function startApp(config) {
       },
 
       open: (taskId, extra) => router.openDrawer(taskId, extra),
-      openNew: ({ kind, due } = {}) => router.openDrawer('new', { kind, due }),
+      // session: homework set in that lesson (tasks.session_id)
+      openNew: ({ kind, due, session } = {}) => router.openDrawer('new', { kind, due, session }),
       // Sessions use the same drawer: open=s<id>, or open=new-session with a
       // prefilled day (due) and start time (at, 'HH:MM')
       openSession: (id) => router.openDrawer(`s${id}`),

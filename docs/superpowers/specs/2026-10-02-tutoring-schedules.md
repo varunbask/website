@@ -181,6 +181,33 @@ Research notes (other tutoring platforms):
   - Adding a tutor also offers an optional subject field.
   - Labels say "Subject Daniel Ortiz teaches Leo Park".
 
+## Lesson materials and homework (supabase/migrations/20261002120100_lesson_materials.sql)
+
+- **Slides and materials on a session:**
+  - **Who adds them:** the session's tutor, or an admin, adds files (PDF, PowerPoint, Word, PNG or JPEG, up to 25 MB each) or https links (Google Slides, Canva, a video). They remove them with a confirm.
+  - **Who sees them:** everyone who can see the student opens them. Families see the section only when it has something in it.
+  - **How files open:** office files download under their title; PDFs and images open in a new tab from a 10-minute signed link, signed again after 8 minutes.
+- **Homework from a lesson:**
+  - **Assigning:** "Assign homework" in the session drawer opens the normal assignment form with `session=<id>`. The form shows "Homework for the Algebra lesson on Tue, Oct 6" and saves `tasks.session_id`.
+  - **Default due date:** the day before the same tutor's next lesson with the student, or six days later when there is none.
+  - **After creating:** the new assignment opens straight away, so a worksheet can be attached.
+  - **Where it shows:** the session drawer lists the lesson's homework with its status. The assignment drawer links back with "Set in the Algebra lesson on Tue, Oct 6".
+  - **Submitting and grading:** homework is an ordinary assignment, so it is submitted and graded as usual.
+- **Worksheets and files on an assignment:** the same section in the assignment drawer. Staff who teach the student add and remove them.
+- **Data:**
+  - **`tasks.session_id`:** references `sessions` and becomes null if the session is deleted. A trigger requires the session to belong to the same student.
+  - **`materials`:** the columns are `student_id`, `session_id` or `task_id` (exactly one), `title`, and either `storage_path`, `file_type` and `size_bytes` or `url` (https, no whitespace), plus `created_by` and `created_at`. A trigger checks the student matches and that a file sits in that student's folder.
+  - **RLS:**
+    - Read: anyone who can see the student.
+    - Insert and delete: `can_edit_session` for session materials, `can_teach` for task materials.
+  - **Storage:** a private `materials` bucket. Names are `<student uuid>/<uuid>.<ext>`. Staff who teach the student upload and remove; viewers of the student read.
+- **Code:**
+  - `materials-model.js` (pure, tested)
+  - `materials-ui.js` (the section)
+  - `store.getMaterials(studentId)`
+  - the drawer param `session`
+- **Follow-up:** files of materials removed by a cascade (a deleted session, assignment or student) stay in the bucket. Extend the daily sweep to clear materials files that no row uses, as it does for homework.
+
 ## Demo
 
 A local demo with an in-memory stand-in for Supabase (sample data, the same access rules) is served on port 4178 by the `schedules-demo` launch config. Its seed:
