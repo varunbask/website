@@ -7,3 +7,11 @@ uploads/*
 *.log
 server_debug*.log
 *.traineddata
+.DS_Store
+.claude/
+.agents/
+skills-lock.json
+.vercel
+supabase/.temp/
+.env
+node_modules/
