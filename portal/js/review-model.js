@@ -97,7 +97,7 @@ export function filterCounts(subs) {
 
 // Submitted and grading work nobody can review yet, oldest first
 export function stillGrading(subs) {
-  return (subs ?? [])
+  return latestAttempts(subs)
     .filter((s) => (s.status === 'pending' || s.status === 'grading') && !gradeOf(s)?.released_at)
     .sort(oldestFirst);
 }
@@ -214,7 +214,10 @@ export const EMPTY_DRAFT_ERROR = 'Enter a score or feedback before you save.';
 export function validateGrade({ score, feedback } = {}, { release = false } = {}) {
   const raw = String(score ?? '').trim();
   const text = String(feedback ?? '').trim();
-  const value = raw === '' ? null : Number(raw);
+  // Plain decimals only, to two places (the column is numeric(5,2)): "1e1" and
+  // "0x10" are not scores, and 85.555 would be stored as 85.56
+  const plain = /^\d{1,3}(\.\d{1,2})?$/.test(raw);
+  const value = raw === '' ? null : (plain ? Number(raw) : NaN);
   const bad = value !== null && (!Number.isFinite(value) || value < 0 || value > 100);
   const errors = {};
   if (bad || (release && value === null)) errors.score = SCORE_ERROR;
