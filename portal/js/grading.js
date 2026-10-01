@@ -2,8 +2,8 @@ import { sb } from './supabase.js';
 
 // Asks the server to grade a submission. Resolves with null when grading started, or a message.
 export async function startGrading(submissionId, { keepalive = false } = {}) {
-  const { data: { session } } = await sb.auth.getSession();
   try {
+    const { data: { session } } = await sb.auth.getSession();
     const response = await fetch('/api/grade', {
       method: 'POST',
       keepalive,

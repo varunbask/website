@@ -22,8 +22,13 @@ import { validateUpload, prepareUpload, storagePath, ACCEPT } from './upload.js'
 import { startGrading } from './grading.js';
 import { sb } from './supabase.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
+import { toast } from './overlays.js';
 
 const SUCCESS = 'Work submitted. Your tutor will review it soon.';
+// The work is saved even when grading could not start (rate limit, network);
+// the daily sweep grades it, so the student must not spend another attempt.
+const GRADING_LATER = 'Your work is saved, but grading could not start yet. It will be graded within a day, so you don’t need to submit again.';
+const AT_LIMIT = `You’ve used all ${MAX_SUBMISSIONS} attempts for this assignment. Message your tutor if you need to send another file.`;
 const FAILED = 'Your work could not be submitted. Try again, or email it to your tutor.';
 
 // "340 KB", "2.4 MB"
@@ -44,7 +49,15 @@ function fileIcon(type) {
 // The message a failed submission shows (spec 5.6: errors unchanged)
 function failureText(error) {
   const message = error?.message ?? '';
+  if (atLimit(error)) return AT_LIMIT;
   return message.startsWith('This photo') ? message : FAILED;
+}
+
+// The database refused a submission over the cap: the trigger in
+// 20261001120000_submission_cap.sql, or the insert policy's can_submit check
+// when this page's attempt count was out of date.
+function atLimit(error) {
+  return error?.code === 'P0001' && /submission limit/.test(error?.message ?? '');
 }
 
 export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
@@ -228,7 +241,10 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
             .insert({ task_id: task.id, storage_path: path, file_type: type, note: note.value.trim() || null })
             .select('id').single();
           if (inserted.error) throw inserted.error;
-          startGrading(inserted.data.id, { keepalive: true });   // not awaited: the daily sweep catches misses
+          // Not awaited: the work is in. If grading could not start, say so once it answers.
+          startGrading(inserted.data.id, { keepalive: true })
+            .then((problem) => { if (problem) toast({ text: GRADING_LATER }); })
+            .catch(() => toast({ text: GRADING_LATER }));
           if (onSubmitted) onSubmitted({ submissionId: inserted.data.id });
           else {
             dctx.store?.invalidate(studentId);
@@ -237,6 +253,8 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
         } catch (err) {
           console.error('Submission failed', err);
           if (dctx.alive?.() !== false) setError(failureText(err));
+          // A stale attempt count: reload so the drawer shows the limit instead of the form
+          if (atLimit(err)) dctx.store?.invalidate(studentId);
         }
       });
     } finally {
