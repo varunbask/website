@@ -174,7 +174,11 @@ create policy "materials: read files of viewable students" on storage.objects
   for select to authenticated
   using (bucket_id = 'materials' and private.can_view_student_folder(name));
 
-create policy "materials: staff remove files" on storage.objects
+-- Only files no material row uses: a file in use goes when its row does (the
+-- row's own rules decide who may remove it), so nobody leaves a dead link
+create policy "materials: staff remove unused files" on storage.objects
   for delete to authenticated
-  using (bucket_id = 'materials' and private.can_teach_student_folder(name));
+  using (bucket_id = 'materials'
+         and private.can_teach_student_folder(name)
+         and not exists (select 1 from public.materials m where m.storage_path = objects.name));
 -- No update policy: a file is never overwritten (uploads use upsert: false).

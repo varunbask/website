@@ -15,7 +15,7 @@ Research notes (other tutoring platforms):
 - **Teachworks, TutorBird, Varsity Tutors:** a post-session recap with attendance.
 - **Deferred:** email reminders, subscribable calendar feeds, and parent change requests.
 
-## Data (supabase/migrations/20261002120000_sessions.sql)
+## Data (supabase/migrations/20261001200000_sessions.sql)
 
 - **`tutor_students.subject`:** text, up to 60 characters. Admins can update it.
 - **`sessions`:** one row per occurrence. Columns:
@@ -181,7 +181,7 @@ Research notes (other tutoring platforms):
   - Adding a tutor also offers an optional subject field.
   - Labels say "Subject Daniel Ortiz teaches Leo Park".
 
-## Lesson materials and homework (supabase/migrations/20261002120100_lesson_materials.sql)
+## Lesson materials and homework (supabase/migrations/20261001200100_lesson_materials.sql)
 
 - **Slides and materials on a session:**
   - **Who adds them:** the session's tutor, or an admin, adds files (PDF, PowerPoint, Word, PNG or JPEG, up to 25 MB each) or https links (Google Slides, Canva, a video). They remove them with a confirm.

@@ -52,7 +52,7 @@ export function materialsSection(dctx, {
       class: 'mat-open',
       target: '_blank',
       rel: 'noopener noreferrer',
-      href: isLink(m) ? m.url : '#',
+      href: isLink(m) ? m.url : undefined,
       dataset: { focusKey: `${keyPrefix}-open-${m.id}` },
     }, h('span', { class: 'mat-title' }, m.title), h('span', { class: 'mat-meta' }, materialMeta(m)));
 
@@ -66,9 +66,15 @@ export function materialsSection(dctx, {
         signedAt = Date.now();
         return url;
       };
+      const stale = () => !signedAt || Date.now() - signedAt >= RESIGN_AFTER_MS;
       refresh().catch(() => { /* signed on click instead */ });
+      // Middle-click and "Open in new tab" use the href as it is, so a stale
+      // link is signed again when the pointer or focus reaches it
+      const warm = () => { if (stale()) refresh().catch(() => {}); };
+      open.addEventListener('pointerenter', warm);
+      open.addEventListener('focus', warm);
       open.addEventListener('click', async (event) => {
-        if (signedAt && Date.now() - signedAt < RESIGN_AFTER_MS) return;
+        if (!stale()) return;
         event.preventDefault();
         try {
           window.open(await refresh(), '_blank', 'noopener');
@@ -127,7 +133,10 @@ export function materialsSection(dctx, {
         }
         const mime = materialType(file);
         const path = materialPath(studentId, mime);
-        const up = await sb.storage.from(MATERIALS_BUCKET).upload(path, file, { contentType: mime, upsert: false });
+        // storage-js sends a File with its own type and ignores contentType, and
+        // some systems give Office files none: re-wrap it with the type we chose
+        const body = file.type === mime ? file : new Blob([file], { type: mime });
+        const up = await sb.storage.from(MATERIALS_BUCKET).upload(path, body, { contentType: mime, upsert: false });
         if (up.error) {
           problems.push(`${file.name}: the upload failed.`);
           continue;
@@ -145,15 +154,14 @@ export function materialsSection(dctx, {
         added += 1;
       }
     });
+    // Saved files must show next time even if the drawer closed meanwhile
+    if (added) dctx.store.invalidate(studentId);
     if (!dctx.alive()) return;
     if (problems.length) {
       // The redraw replaces this section, so the problems go in a toast
       dctx.toast({ text: problems.length === 1 ? `Not added. ${problems[0]}` : `${problems.length} files were not added. ${problems[0]}` });
     }
-    if (added) {
-      dctx.toast({ text: added === 1 ? 'File added' : `${added} files added` });
-      dctx.store.invalidate(studentId);
-    }
+    if (added) dctx.toast({ text: added === 1 ? 'File added' : `${added} files added` });
   }
 
   fileInput.addEventListener('change', () => {
@@ -213,13 +221,13 @@ export function materialsSection(dctx, {
           .select('id');
         failed = Boolean(error || !data?.length);
       });
+      if (!failed) dctx.store.invalidate(studentId);
       if (!dctx.alive()) return;
       if (failed) {
         setFieldError(urlField, 'The link could not be added. Try again.');
         return;
       }
       dctx.toast({ text: 'Link added' });
-      dctx.store.invalidate(studentId);
     });
     form.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {

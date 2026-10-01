@@ -203,8 +203,9 @@ export function lessonLabel(session, today = null) {
 
 // The default due day for homework set in a session: the day before the same
 // tutor's next session with the student, or six days after this one when
-// there is none. Never earlier than the day after this session.
-export function homeworkDueKey(session, sessions) {
+// there is none. Never earlier than the day after this session, nor before
+// tomorrow (homework set from an old lesson).
+export function homeworkDueKey(session, sessions, today = null) {
   const day = dayKey(session.starts_at);
   const next = sortSessions(sessions).find((s) => !isCancelled(s)
     && String(s.tutor_id) === String(session.tutor_id)
@@ -212,5 +213,6 @@ export function homeworkDueKey(session, sessions) {
     && Date.parse(s.starts_at) > Date.parse(session.ends_at)
     && dayKey(s.starts_at) > day);
   const key = next ? addDays(dayKey(next.starts_at), -1) : addDays(day, 6);
-  return key > day ? key : addDays(day, 1);
+  const floor = [addDays(day, 1), today ? addDays(today, 1) : null].filter(Boolean).sort().pop();
+  return key >= floor ? key : floor;
 }

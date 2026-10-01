@@ -132,5 +132,7 @@ describe('homework', () => {
     expect(homeworkDueKey(tue, [tue, wed])).toBe('2026-10-14');
     // No next lesson: six days later
     expect(homeworkDueKey(thu, [thu])).toBe('2026-10-21');
+    // Homework set from an old lesson is never due in the past
+    expect(homeworkDueKey(tue, [tue, thu], '2026-10-20')).toBe('2026-10-21');
   });
 });

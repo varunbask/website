@@ -571,7 +571,7 @@ function buildDetail(dctx, found, { now, names, actions }) {
         body.push(h('p', { class: 'ses-muted' }, 'No homework set in this lesson yet.'));
       }
       if (editable && !cancelled) {
-        const due = homeworkDueKey(session, sessions);
+        const due = homeworkDueKey(session, sessions, todayKey(now));
         body.push(h('div', { class: 'ses-actions' }, button({
           label: 'Assign homework',
           icon: 'plus',

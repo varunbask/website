@@ -2,8 +2,8 @@ import { describe, test, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { buildWorld, hasService } from './world.js';
 
-// Needs supabase/migrations/20261002120000_sessions.sql and
-// 20261002120100_lesson_materials.sql applied to the project the .env points
+// Needs supabase/migrations/20261001200000_sessions.sql and
+// 20261001200100_lesson_materials.sql applied to the project the .env points
 // at. Tests run in file order; later ones build on earlier ones.
 
 const HOUR = 3_600_000;

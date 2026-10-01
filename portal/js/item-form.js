@@ -9,7 +9,8 @@
 //                   is selected, and on the all-students calendar and Today
 //                   (where ?student= may linger); null otherwise
 //   selectedStudent a student id the select starts on (still changeable)
-//   onCancel        Cancel in edit mode (create closes the drawer)
+//   onCancel        Cancel in edit mode (create closes the drawer, or goes
+//                   back to the lesson for homework set in one)
 //   onSaved         after a successful edit (create closes the drawer)
 //
 // The form puts its title in an h2.drawer-title and its buttons in the drawer
@@ -145,7 +146,12 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
   const cancel = button({
     label: 'Cancel',
     variant: 'ghost',
-    onClick: () => (editing ? onCancel?.() : dctx.close()),
+    // Homework from a lesson goes back to that lesson; other creates close
+    onClick: () => {
+      if (editing) onCancel?.();
+      else if (lesson) dctx.go(drawerHref(typeof location === 'undefined' ? '' : location.hash, `s${lesson.id}`), { replace: true });
+      else dctx.close();
+    },
   });
   dctx.setFooter([cancel, submit]);
 
@@ -183,7 +189,10 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
     errorSlot.replaceChildren();
 
     const title = titleInput.value.trim();
-    const studentId = editing ? task.student_id : (studentSelect ? studentSelect.value : dctx.scope?.student?.id);
+    // A lesson fixes the student (Today and the all-students calendar have no scope)
+    const studentId = editing
+      ? task.student_id
+      : (lesson ? lesson.student_id : (studentSelect ? studentSelect.value : dctx.scope?.student?.id));
     let firstInvalid = null;
     if (studentSelect) {
       setFieldError(studentField, studentId ? '' : 'Choose a student.');
