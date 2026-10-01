@@ -54,6 +54,15 @@ export function createRepo(db) {
       return new Uint8Array(await data.arrayBuffer());
     },
 
+    async listOrphanFiles(before, limit) {
+      return check(await db.rpc('orphan_homework_files', { p_before: before.toISOString(), p_limit: limit }), 'listOrphanFiles');
+    },
+
+    async removeFiles(names) {
+      const { error } = await db.storage.from('homework').remove(names);
+      if (error) throw new Error(`removeFiles: ${error.message}`);
+    },
+
     // Never overwrites a grade a person has already touched or released
     async saveAiGrade(id, { score, feedback }) {
       check(await db.from('grades').update({ score, feedback })

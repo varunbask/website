@@ -5,6 +5,8 @@ export const MAX_ATTEMPTS = 3;
 export const STALE_GRADING_MS = 10 * 60 * 1000;   // a 'grading' row older than this was abandoned
 export const PENDING_GRACE_MS = 5 * 60 * 1000;    // leave fresh submissions to the student's own /api/grade call
 export const LLM_TIMEOUT_MS = 90_000;
+export const ORPHAN_GRACE_MS = 24 * 60 * 60 * 1000; // an upload has this long to get its submission row
+const ORPHANS_PER_SWEEP = 100;
 const MAX_FEEDBACK_CHARS = 4000;
 
 const INSTRUCTIONS = `You are grading one homework submission for a tutoring company.
@@ -204,4 +206,16 @@ export async function sweep(repo, {
     summary[await gradeClaimed(repo, claimedSub, { env, fetchImpl, now })]++;
   }
   return summary;
+}
+
+/**
+ * Removes homework files that no submission uses: uploads whose insert failed,
+ * and files of deleted accounts. Returns the number of files removed.
+ */
+export async function removeOrphanFiles(repo, { now = () => new Date() } = {}) {
+  const before = new Date(now().getTime() - ORPHAN_GRACE_MS);
+  const names = await repo.listOrphanFiles(before, ORPHANS_PER_SWEEP);
+  if (names.length === 0) return 0;
+  await repo.removeFiles(names);
+  return names.length;
 }

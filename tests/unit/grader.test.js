@@ -1,6 +1,6 @@
 import { describe, test, expect, vi } from 'vitest';
 import {
-  RESULTS_FORMAT, parseResults, buildMessageParts, requestGrade, gradeClaimed, sweep, MAX_ATTEMPTS,
+  RESULTS_FORMAT, parseResults, buildMessageParts, requestGrade, gradeClaimed, sweep, removeOrphanFiles, MAX_ATTEMPTS,
 } from '../../api/_lib/grader.js';
 import { PermanentGradingError } from '../../api/_lib/errors.js';
 import { completion, TINY_PNG } from './fixtures.js';
@@ -241,5 +241,23 @@ describe('sweep', () => {
     expect(await sweep(repo, { env: ENV, fetchImpl: okFetch(), now: clock, budgetMs: 150_000 }))
       .toMatchObject({ skipped: 2, ai_graded: 0 });
     expect(repo.claim).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('removeOrphanFiles', () => {
+  const NOW = new Date('2026-10-01T12:00:00Z');
+  const now = () => NOW;
+
+  test('removes files older than a day that no submission uses', async () => {
+    const repo = { listOrphanFiles: vi.fn(async () => ['u/a.pdf', 'u/b.png']), removeFiles: vi.fn(async () => {}) };
+    expect(await removeOrphanFiles(repo, { now })).toBe(2);
+    expect(repo.listOrphanFiles).toHaveBeenCalledWith(new Date('2026-09-30T12:00:00Z'), 100);
+    expect(repo.removeFiles).toHaveBeenCalledWith(['u/a.pdf', 'u/b.png']);
+  });
+
+  test('does not call remove when there is nothing to remove', async () => {
+    const repo = { listOrphanFiles: vi.fn(async () => []), removeFiles: vi.fn(async () => {}) };
+    expect(await removeOrphanFiles(repo, { now })).toBe(0);
+    expect(repo.removeFiles).not.toHaveBeenCalled();
   });
 });

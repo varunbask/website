@@ -135,7 +135,7 @@ describe('handleGrade', () => {
 
 describe('handleSweep', () => {
   const get = (auth) => new Request('https://site.test/api/cron/sweep', { headers: auth ? { Authorization: auth } : {} });
-  const repo = { listDue: vi.fn(async () => []) };
+  const repo = { listDue: vi.fn(async () => []), listOrphanFiles: vi.fn(async () => []), removeFiles: vi.fn(async () => {}) };
 
   test('500 when CRON_SECRET is not set', async () => {
     expect((await handleSweep(get('Bearer undefined'), { repo, env: { LLM_ENDPOINT: 'x', LLM_KEY: 'y' } })).status).toBe(500);
@@ -149,6 +149,6 @@ describe('handleSweep', () => {
   test('200 with the sweep summary for the right secret', async () => {
     const res = await handleSweep(get('Bearer cron-secret'), { repo, env: ENV, now });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ reset: 0, ai_graded: 0, pending: 0, failed: 0, skipped: 0 });
+    expect(await res.json()).toEqual({ reset: 0, ai_graded: 0, pending: 0, failed: 0, skipped: 0, removed_files: 0 });
   });
 });

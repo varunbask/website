@@ -1,5 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
-import { gradeClaimed, sweep, STALE_GRADING_MS } from './grader.js';
+import { gradeClaimed, sweep, removeOrphanFiles, STALE_GRADING_MS } from './grader.js';
 
 const json = (status, body) => Response.json(body, { status });
 
@@ -70,5 +70,7 @@ export async function handleSweep(request, { repo, env = process.env, now = () =
     return json(401, { error: 'Unauthorized' });
   }
   if (!env.LLM_ENDPOINT || !env.LLM_KEY) return json(500, { error: 'Grading is not configured.' });
-  return json(200, await sweep(repo, { env, now, fetchImpl }));
+  const summary = await sweep(repo, { env, now, fetchImpl });
+  summary.removed_files = await removeOrphanFiles(repo, { now });
+  return json(200, summary);
 }
