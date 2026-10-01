@@ -320,11 +320,19 @@ describe('subsByTask', () => {
 
 describe('validateGrade', () => {
   test('draft: score optional but in range, feedback optional', () => {
-    expect(validateGrade({ score: '', feedback: '' }, { release: false })).toEqual({ ok: true, values: { score: null, feedback: null }, errors: {} });
+    expect(validateGrade({ score: '', feedback: 'x' }, { release: false })).toEqual({ ok: true, values: { score: null, feedback: 'x' }, errors: {} });
+    expect(validateGrade({ score: '70', feedback: '' }, { release: false })).toEqual({ ok: true, values: { score: 70, feedback: null }, errors: {} });
     expect(validateGrade({ score: ' 86.5 ', feedback: ' Nice ' }, { release: false }).values).toEqual({ score: 86.5, feedback: 'Nice' });
     expect(validateGrade({ score: '101', feedback: '' }, { release: false }).errors).toEqual({ score: 'Enter a score from 0 to 100.' });
     expect(validateGrade({ score: 'abc', feedback: '' }, { release: false }).ok).toBe(false);
     expect(validateGrade({ score: '-1', feedback: '' }, { release: false }).ok).toBe(false);
+  });
+
+  test('draft: a blank score and blank feedback do not save', () => {
+    expect(validateGrade({ score: '', feedback: '' }, { release: false })).toEqual({
+      ok: false, values: { score: null, feedback: null }, errors: { score: 'Enter a score or feedback before you save.' },
+    });
+    expect(validateGrade({ score: ' ', feedback: '  ' }, { release: false }).ok).toBe(false);
   });
 
   test('release: score 0 to 100 and feedback required', () => {

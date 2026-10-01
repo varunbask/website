@@ -194,10 +194,12 @@ export function subsByTask(subs) {
 
 export const SCORE_ERROR = 'Enter a score from 0 to 100.';
 export const FEEDBACK_ERROR = 'Write feedback before releasing.';
+export const EMPTY_DRAFT_ERROR = 'Enter a score or feedback before you save.';
 
 // Raw form strings -> { ok, values: { score, feedback }, errors: { score?, feedback? } }.
-// A draft may leave either blank; releasing (or saving a released grade) needs
-// a score from 0 to 100 and feedback.
+// A draft may leave one field blank, but not both. A saved draft marks the grade
+// as reviewed, and the grader does not write over a reviewed grade.
+// Releasing (or saving a released grade) needs a score from 0 to 100 and feedback.
 export function validateGrade({ score, feedback } = {}, { release = false } = {}) {
   const raw = String(score ?? '').trim();
   const text = String(feedback ?? '').trim();
@@ -206,6 +208,7 @@ export function validateGrade({ score, feedback } = {}, { release = false } = {}
   const errors = {};
   if (bad || (release && value === null)) errors.score = SCORE_ERROR;
   if (release && !text) errors.feedback = FEEDBACK_ERROR;
+  if (!release && raw === '' && !text) errors.score = EMPTY_DRAFT_ERROR;
   return {
     ok: Object.keys(errors).length === 0,
     values: { score: bad ? null : value, feedback: text || null },
