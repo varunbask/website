@@ -62,7 +62,7 @@ test('no portal file contains an en dash', () => {
 // The CSP in vercel.json must allow exactly what the portal loads (spec 9)
 test('the portal CSP covers fonts, supabase-js, the Supabase API and blob previews', () => {
   const vercel = JSON.parse(readFileSync(fileURLToPath(new URL('../../vercel.json', import.meta.url)), 'utf8'));
-  const rule = vercel.headers.find((h) => h.source === '/portal/:path*');
+  const rule = vercel.headers.find((h) => h.source === '/portal(.*)');
   expect(rule).toBeTruthy();
   const csp = rule.headers.find((h) => h.key === 'Content-Security-Policy')?.value;
   expect(csp).toBeTruthy();

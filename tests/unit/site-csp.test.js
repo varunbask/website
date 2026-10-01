@@ -10,7 +10,7 @@ const hashOf = (code) => `'sha256-${createHash('sha256').update(code).digest('ba
 // changes its hash, so the CSP must change with it.
 test('the site CSP has the hash of each inline script and event handler on index.html', () => {
   const vercel = JSON.parse(read('vercel.json'));
-  const rule = vercel.headers.find((h) => h.source === '/((?!portal/).*)');
+  const rule = vercel.headers.find((h) => h.source === '/((?!portal).*)');
   const csp = rule.headers.find((h) => h.key === 'Content-Security-Policy').value;
   const scriptSrc = csp.split(';').map((part) => part.trim()).find((part) => part.startsWith('script-src '));
 
@@ -22,4 +22,22 @@ test('the site CSP has the hash of each inline script and event handler on index
     expect(scriptSrc).toContain(hashOf(code));
   }
   expect(scriptSrc).not.toContain("'unsafe-inline'");
+});
+
+// Every path gets exactly one CSP: the portal's for /portal, /portal/ and
+// below, the site's for everything else. /portal/ is the sign-in page.
+test('the site and portal CSP rules cover every path exactly once', () => {
+  const vercel = JSON.parse(read('vercel.json'));
+  const rules = vercel.headers
+    .filter((h) => h.headers.some((x) => x.key === 'Content-Security-Policy'))
+    .map((h) => ({ source: h.source, re: new RegExp(`^${h.source}$`) }));
+  const portalRule = '/portal(.*)';
+  const cases = {
+    '/': false, '/index.html': false, '/styles.css': false, '/assets/logo.png': false,
+    '/portal': true, '/portal/': true, '/portal/index.html': true, '/portal/js/app.js': true,
+  };
+  for (const [path, isPortal] of Object.entries(cases)) {
+    const hits = rules.filter((r) => r.re.test(path)).map((r) => r.source);
+    expect(hits, path).toEqual([isPortal ? portalRule : '/((?!portal).*)']);
+  }
 });
