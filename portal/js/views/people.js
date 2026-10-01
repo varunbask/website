@@ -21,7 +21,7 @@ import {
   segmented, setSegmented, groupHeader, badgeText, visuallyHidden,
 } from '../ui.js';
 import { displayName } from '../format.js';
-import { filterPeople } from '../app-model.js';
+import { filterPeople, roleChangeBody } from '../app-model.js';
 import { relativeTime } from '../dates.js';
 
 // ---------------------------------------------------------------------------
@@ -251,7 +251,12 @@ export function mount(ctx) {
   async function act(request, successText, focus = null) {
     let error = null;
     try {
-      ({ error } = await request);
+      const result = await request;
+      error = result.error;
+      // A write that asked for its rows back and got none did not happen (RLS)
+      if (!error && Array.isArray(result.data) && result.data.length === 0) {
+        error = { message: 'nothing changed. Refresh the page and try again.' };
+      }
     } catch (thrown) {
       error = thrown;
     }
@@ -496,7 +501,7 @@ export function mount(ctx) {
       const risky = next === 'admin' || person.role === 'admin';
       const ok = await ctx.confirm({
         title: `Change ${name} to ${roleWord(next)}?`,
-        body: 'Their access changes right away.',
+        body: roleChangeBody(person, data),
         confirmLabel: 'Change role',
         tone: risky ? 'danger' : 'primary',
       });
@@ -507,7 +512,7 @@ export function mount(ctx) {
       }
       // One write at a time: the redraw replaces this select
       sel.disabled = true;
-      await act(sb.from('profiles').update({ role: next }).eq('id', person.id),
+      await act(sb.from('profiles').update({ role: next }).eq('id', person.id).select('id'),
         `${name} is now ${ROLE_ARTICLE[next] ?? roleWord(next)}.`, { key: `role-${person.id}` });
     });
     return h('div', { class: 'ppl-role' },

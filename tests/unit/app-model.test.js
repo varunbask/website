@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import {
   normalizeRoute, documentTitle, defaultCrumbs, needsReview, reviewCounts, switcherHref,
-  filterPeople, clockCrossed, isScoped, isNamed, viewTitle, viewLabel,
+  filterPeople, clockCrossed, isScoped, isNamed, viewTitle, viewLabel, roleChangeBody,
 } from '../../portal/js/app-model.js';
 import { parseHash } from '../../portal/js/router.js';
 
@@ -185,5 +185,30 @@ describe('clockCrossed', () => {
   test('graded work reaching the archive line counts', () => {
     const sub = { grade: { released_at: '2026-10-01T12:00:00Z' } };
     expect(clockCrossed([], [sub], at('2026-10-22T11:30:00Z'), at('2026-10-22T12:30:00Z'))).toBe(true);
+  });
+});
+
+describe('roleChangeBody', () => {
+  const tutorLinks = [{ tutor_id: 't1', student_id: 's1' }, { tutor_id: 't1', student_id: 's2' }];
+  const parentLinks = [{ parent_id: 'p1', student_id: 's1' }];
+
+  test('says nothing extra when the person has no links', () => {
+    expect(roleChangeBody({ id: 'x', role: 'pending' }, { tutorLinks, parentLinks }))
+      .toBe('Their access changes right away.');
+  });
+
+  test('counts a tutor\'s students', () => {
+    expect(roleChangeBody({ id: 't1', role: 'tutor' }, { tutorLinks, parentLinks }))
+      .toMatch(/their 2 students will be unlinked/);
+  });
+
+  test('counts a parent\'s one child', () => {
+    expect(roleChangeBody({ id: 'p1', role: 'parent' }, { tutorLinks, parentLinks }))
+      .toMatch(/their 1 child will be unlinked/);
+  });
+
+  test('counts both kinds of link for a student', () => {
+    expect(roleChangeBody({ id: 's1', role: 'student' }, { tutorLinks, parentLinks }))
+      .toMatch(/their 2 tutor and parent links will be removed/);
   });
 });

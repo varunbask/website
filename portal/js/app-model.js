@@ -144,3 +144,16 @@ export function clockCrossed(tasks, submissions, from, to) {
   }
   return false;
 }
+
+// The confirm text for a role change. A role change removes the person's
+// tutor and parent links (migration 20261001120200), so say how many go.
+export function roleChangeBody(person, { tutorLinks = [], parentLinks = [] } = {}) {
+  const n = tutorLinks.filter((l) => l.tutor_id === person.id || l.student_id === person.id).length
+    + parentLinks.filter((l) => l.parent_id === person.id || l.student_id === person.id).length;
+  if (!n) return 'Their access changes right away.';
+  const what = person.role === 'tutor' ? (n === 1 ? 'student' : 'students')
+    : person.role === 'parent' ? (n === 1 ? 'child' : 'children')
+      : (n === 1 ? 'tutor or parent link' : 'tutor and parent links');
+  const verb = person.role === 'tutor' || person.role === 'parent' ? 'unlinked' : 'removed';
+  return `Their access changes right away, and their ${n} ${what} will be ${verb}. You can link them again afterwards.`;
+}
