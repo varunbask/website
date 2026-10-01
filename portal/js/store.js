@@ -13,6 +13,8 @@ import { loadUpdates } from './updates-feed.js';
 
 const students = new Map();   // studentId -> Promise<StudentData>
 const updates = new Map();    // studentId -> Promise<Update[]>
+const sessions = new Map();   // studentId -> Promise<Session[]>
+const tutors = new Map();     // studentId -> Promise<{ tutor_id, full_name, subject }[]>
 const children = new Map();   // parentId -> Promise<Profile[]>
 let workspace = null;         // Promise<Workspace> | null
 let pending = null;           // Promise<number> | null
@@ -81,6 +83,35 @@ export function getUpdates(studentId) {
 }
 
 // ---------------------------------------------------------------------------
+// Sessions (tutoring schedule) and tutors
+
+export const SESSION_FIELDS = 'id, student_id, tutor_id, series_id, subject, starts_at, ends_at, location, meeting_url, notes, status, attendance, recap, moved_from, created_at, updated_at';
+
+async function loadSessions(studentId) {
+  const { data, error } = await sb.from('sessions').select(SESSION_FIELDS)
+    .eq('student_id', studentId)
+    .order('starts_at', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Every session of one student, all of their tutors included, oldest first
+export function getSessions(studentId) {
+  return remember(sessions, String(studentId), () => loadSessions(studentId));
+}
+
+async function loadTutors(studentId) {
+  const { data, error } = await sb.rpc('student_tutors', { p_student: studentId });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// The student's tutors with their subjects: [{ tutor_id, full_name, subject }]
+export function getTutors(studentId) {
+  return remember(tutors, String(studentId), () => loadTutors(studentId));
+}
+
+// ---------------------------------------------------------------------------
 // Staff workspace: every student the viewer can see, with their tasks and work
 
 // Supabase caps every response at the project's max-rows (1000 by default),
@@ -100,24 +131,28 @@ async function selectAll(makeQuery) {
 }
 
 async function loadWorkspace() {
-  const [people, tasks, subs] = await Promise.all([
+  const [people, tasks, subs, sess, links] = await Promise.all([
     selectAll(() => sb.from('profiles').select('id, full_name, email').eq('role', 'student').order('id')),
     selectAll(() => sb.from('tasks').select('id, student_id, kind, title, due_at, completed_at, created_at').order('id')),
     selectAll(() => sb.from('submissions')
       .select('id, task_id, student_id, file_type, status, error, attempts, status_changed_at, created_at, grade:grades(score, reviewed_at, released_at)')
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })),
+    selectAll(() => sb.from('sessions').select(SESSION_FIELDS).order('id')),
+    selectAll(() => sb.from('tutor_students').select('tutor_id, student_id, subject').order('student_id')),
   ]);
-  for (const result of [people, tasks, subs]) if (result.error) throw result.error;
+  for (const result of [people, tasks, subs, sess, links]) if (result.error) throw result.error;
   return {
     loadedAt: Date.now(),
     students: [...(people.data ?? [])].sort(byName),
     tasks: tasks.data ?? [],
     submissions: (subs.data ?? []).map(normalizeSub),
+    sessions: sess.data ?? [],
+    links: links.data ?? [],     // tutor_students rows the viewer can read (own for a tutor, all for an admin)
   };
 }
 
-// { loadedAt, students, tasks, submissions } (staff only)
+// { loadedAt, students, tasks, submissions, sessions, links } (staff only)
 export function getWorkspace() {
   if (!workspace) {
     const promise = loadWorkspace();
@@ -190,6 +225,8 @@ export function invalidate(studentId) {
   if (studentId !== null && studentId !== undefined) {
     students.delete(String(studentId));
     updates.delete(String(studentId));
+    sessions.delete(String(studentId));
+    tutors.delete(String(studentId));
   }
   workspace = null;
   emit([studentId === null || studentId === undefined ? '*' : String(studentId)]);
@@ -206,6 +243,8 @@ export function invalidatePending() {
 export function invalidateAll() {
   students.clear();
   updates.clear();
+  sessions.clear();
+  tutors.clear();
   children.clear();
   workspace = null;
   pending = null;

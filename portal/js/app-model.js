@@ -66,7 +66,7 @@ export function normalizeRoute(route, { table, hasScope = false, audience = 'fam
   // Drawer params: create is staff only; focus, kind and due need open
   const p = route.params ?? {};
   const strayDrawer = DRAWER_PARAMS.some((k) => k !== 'open' && !blank(p[k])) && blank(p.open);
-  if ((p.open === 'new' && audience !== 'staff') || strayDrawer) {
+  if ((String(p.open ?? '').startsWith('new') && audience !== 'staff') || strayDrawer) {
     return buildHash(withoutDrawer(route));
   }
   return null;
