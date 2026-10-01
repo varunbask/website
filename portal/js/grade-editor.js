@@ -211,20 +211,25 @@ export function gradeEditor(sub, grade, {
     return result;
   }
 
-  // One write at a time; the row must come back or the write did not happen
+  // One write at a time; the row must come back or the write did not happen.
+  // Each write also requires the release state this page was drawn with, so a
+  // stale page cannot write a draft over a grade someone else released.
   let working = false;
   async function write(btn, label, changes) {
     showFormError('');
-    const { data, error } = await busy(btn, label, () => sb.from('grades')
-      .update(changes)
-      .eq('submission_id', sub.id)
-      .select('submission_id'));
+    const { data, error } = await busy(btn, label, () => {
+      const query = sb.from('grades')
+        .update(changes)
+        .eq('submission_id', sub.id);
+      const guarded = released ? query.not('released_at', 'is', null) : query.is('released_at', null);
+      return guarded.select('submission_id');
+    });
     if (error) {
       showFormError(`${error.message || 'Something went wrong.'} Try again.`);
       return false;
     }
     if (!data?.length) {
-      showFormError('This grade could not be changed. Refresh the page and try again.');
+      showFormError('This grade changed since the page loaded. Refresh the page and try again.');
       return false;
     }
     return true;
