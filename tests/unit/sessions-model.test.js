@@ -264,3 +264,15 @@ describe('toIcs', () => {
     for (const line of text.split('\r\n')) expect(line.length).toBeLessThanOrEqual(75);
   });
 });
+
+describe('canEditSession', () => {
+  test('admin, or the tutor who owns it', async () => {
+    const { canEditSession } = await import('../../portal/js/sessions-model.js');
+    const s = { tutor_id: 't1' };
+    expect(canEditSession(s, { id: 'a', role: 'admin' })).toBe(true);
+    expect(canEditSession(s, { id: 't1', role: 'tutor' })).toBe(true);
+    expect(canEditSession(s, { id: 't2', role: 'tutor' })).toBe(false);
+    expect(canEditSession(s, { id: 's1', role: 'student' })).toBe(false);
+    expect(canEditSession(s, { id: 'p1', role: 'parent' })).toBe(false);
+  });
+});

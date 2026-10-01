@@ -427,3 +427,11 @@ export function toIcs(sessions, { names = new Map(), now = new Date(), domain = 
   lines.push('END:VCALENDAR');
   return `${lines.join('\r\n')}\r\n`;
 }
+
+// ---------------------------------------------------------------------------
+// Who may change a session (the UI mirror of the RLS policies): an admin, or
+// the session's own tutor. me: { id, role }
+export function canEditSession(session, me) {
+  if (!session || !me) return false;
+  return me.role === 'admin' || (me.role === 'tutor' && String(session.tutor_id) === String(me.id));
+}
