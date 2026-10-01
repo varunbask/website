@@ -1,5 +1,5 @@
 import { describe, test, expect, vi } from 'vitest';
-import { handleGrade, handleSweep, claimableStates } from '../../api/_lib/http.js';
+import { handleGrade, handleSweep, claimableStates, STUDENT_GRADES_PER_HOUR } from '../../api/_lib/http.js';
 import { completion } from './fixtures.js';
 
 const ENV = { LLM_ENDPOINT: 'https://llm.test/v1', LLM_KEY: 'k', CRON_SECRET: 'cron-secret' };
@@ -12,11 +12,12 @@ const sub = (over = {}) => ({
   status: 'pending', attempts: 0, status_changed_at: NOW.toISOString(), task: { title: 'T', details: '' }, ...over,
 });
 
-function setup({ caller = { id: STUDENT }, role = 'student', submission = sub(), assigned = false, claimResult } = {}) {
+function setup({ caller = { id: STUDENT }, role = 'student', submission = sub(), assigned = false, claimResult, startedThisHour = 0 } = {}) {
   const repo = {
     getSubmission: vi.fn(async () => submission),
     getRole: vi.fn(async () => role),
     isAssigned: vi.fn(async () => assigned),
+    countStartedSince: vi.fn(async () => startedThisHour),
     claim: vi.fn(async (s) => (claimResult === undefined ? { ...s, status: 'grading', attempts: s.attempts + 1 } : claimResult)),
     download: vi.fn(async () => new TextEncoder().encode('x = 4')),
     saveAiGrade: vi.fn(async () => {}),
@@ -110,6 +111,19 @@ describe('handleGrade', () => {
     const stale = sub({ status: 'grading', status_changed_at: new Date(NOW.getTime() - 11 * 60_000).toISOString() });
     expect((await call({ role: 'admin', caller: { id: 'a' }, submission: fresh })).res.status).toBe(409);
     expect((await call({ role: 'admin', caller: { id: 'a' }, submission: stale })).res.status).toBe(202);
+  });
+
+  test('429 when a student started too many gradings this hour', async () => {
+    const { res, repo } = await call({ startedThisHour: STUDENT_GRADES_PER_HOUR });
+    expect(res.status).toBe(429);
+    expect(repo.countStartedSince).toHaveBeenCalledWith(STUDENT, new Date(NOW.getTime() - 3_600_000));
+    expect(repo.claim).not.toHaveBeenCalled();
+  });
+
+  test('the hourly limit does not apply to staff', async () => {
+    const { res, repo } = await call({ role: 'admin', caller: { id: 'a' }, startedThisHour: 99 });
+    expect(res.status).toBe(202);
+    expect(repo.countStartedSince).not.toHaveBeenCalled();
   });
 
   test('409 when another caller claimed it first', async () => {

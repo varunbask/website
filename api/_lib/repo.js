@@ -26,6 +26,15 @@ export function createRepo(db) {
       return count > 0;
     },
 
+    // Submissions of a student that started grading at or after a time
+    async countStartedSince(studentId, since) {
+      const { count, error } = await db.from('submissions')
+        .select('id', { count: 'exact', head: true })
+        .eq('student_id', studentId).gt('attempts', 0).gte('status_changed_at', since.toISOString());
+      if (error) throw new Error(`countStartedSince: ${error.message}`);
+      return count;
+    },
+
     // Compare-and-set: only one caller wins a given (status, attempts) state
     async claim(sub, now) {
       return check(await db.from('submissions')

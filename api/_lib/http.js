@@ -3,6 +3,11 @@ import { gradeClaimed, sweep, STALE_GRADING_MS } from './grader.js';
 
 const json = (status, body) => Response.json(body, { status });
 
+// A student may start grading at most this many submissions each hour. Each
+// start can cost up to 3 model calls. Staff retries do not count.
+export const STUDENT_GRADES_PER_HOUR = 10;
+const HOUR_MS = 3_600_000;
+
 // Which states the caller may start grading from, or null if they may not grade it at all
 export function claimableStates(role, { callerId, sub, assigned }) {
   if (role === 'student') return sub.student_id === callerId ? ['pending'] : null;
@@ -40,6 +45,13 @@ export async function handleGrade(request, {
   if (!states) return json(404, { error: 'Submission not found.' });
   if (!canClaim(states, sub, now())) {
     return json(409, { error: 'This submission is not waiting to be graded.', status: sub.status });
+  }
+  if (role === 'student') {
+    const since = new Date(now().getTime() - HOUR_MS);
+    const started = await repo.countStartedSince(caller.id, since);
+    if (started >= STUDENT_GRADES_PER_HOUR) {
+      return json(429, { error: 'Too many submissions this hour. Your work will be graded later.' });
+    }
   }
 
   const claimed = await repo.claim(sub, now());
