@@ -5,7 +5,7 @@
     "api/cron/sweep.js": { "maxDuration": 300 }
   },
   "crons": [
-    { "path": "/api/cron/sweep", "schedule": "0 13 * * *" }
+    { "path": "/api/cron/sweep", "schedule": "0 * * * *" }
   ],
   "headers": [
     {

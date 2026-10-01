@@ -169,7 +169,7 @@ export async function gradeClaimed(repo, sub, { env = process.env, fetchImpl = f
 }
 
 /**
- * The daily backstop: restarts abandoned 'grading' rows and grades pending rows
+ * The hourly backstop: restarts abandoned 'grading' rows and grades pending rows
  * the student's own call missed, one at a time, until the time budget runs out.
  */
 export async function sweep(repo, {
