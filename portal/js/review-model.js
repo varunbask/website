@@ -4,7 +4,7 @@
 
 import { one, byDue } from './format.js';
 import { staffStatus } from './labels.js';
-import { MAX_SUBMISSIONS } from './buckets.js';
+import { MAX_SUBMISSIONS, sortSubs } from './buckets.js';
 import { todayKey, dayKey, addDays, businessTime, parseKey, viewerIsInBusinessZone } from './dates.js';
 
 const MIN = 60_000;
@@ -41,6 +41,17 @@ export function needsReview(sub) {
   return (sub?.status === 'ai_graded' || sub?.status === 'failed') && !gradeOf(sub)?.released_at;
 }
 
+// The newest attempt for each task. A newer attempt replaces the older ones,
+// so only the newest attempt goes in the queue and its counts.
+export function latestAttempts(subs) {
+  const latest = new Map();
+  for (const sub of sortSubs(subs)) {
+    const key = String(sub.task_id);
+    if (!latest.has(key)) latest.set(key, sub);
+  }
+  return [...latest.values()];
+}
+
 // Which queue group a submission is in, by staffStatus; null when it is not queued
 const GROUP_OF_STATUS = { 'Could not grade': 'failed', 'AI draft': 'draft', 'Edited, not released': 'edited' };
 export function reviewGroupOf(sub) {
@@ -58,7 +69,7 @@ function oldestFirst(a, b) {
 export function queueGroups(subs, filter = 'all') {
   const f = normalizeFilter(filter);
   const byKey = new Map(GROUPS.map((g) => [g.key, []]));
-  for (const sub of subs ?? []) {
+  for (const sub of latestAttempts(subs)) {
     const key = reviewGroupOf(sub);
     if (key && (f === 'all' || f === key)) byKey.get(key).push(sub);
   }
@@ -75,7 +86,7 @@ export function queueOrder(subs, filter = 'all') {
 // { all, draft, failed, edited } for the segmented filter
 export function filterCounts(subs) {
   const counts = { all: 0, draft: 0, failed: 0, edited: 0 };
-  for (const sub of subs ?? []) {
+  for (const sub of latestAttempts(subs)) {
     const key = reviewGroupOf(sub);
     if (!key) continue;
     counts[key] += 1;

@@ -414,13 +414,22 @@ describe('reviewEntries', () => {
     expect(reviewEntries(subs).map((e) => e.sub.id)).toEqual([5, 3, 2, 1, 4]);
   });
 
-  test('attempt numbers and newer attempts', () => {
+  test('attempt numbers count the older attempts', () => {
     const subs = [
-      sub(12, 't1', ago(1 * DAY), 'pending', null),
       sub(11, 't1', ago(2 * DAY), 'ai_graded', draft),
       sub(10, 't1', ago(3 * DAY), 'ai_graded', released(ago(2.5 * DAY))),
     ];
-    expect(reviewEntries(subs)).toEqual([{ sub: subs[1], attempt: 2, total: 5, newer: true }]);
+    expect(reviewEntries(subs)).toEqual([{ sub: subs[0], attempt: 2, total: 5, newer: false }]);
+  });
+
+  test('a newer attempt takes an older attempt out of the queue', () => {
+    const subs = [
+      sub(12, 't1', ago(1 * DAY), 'pending', null),
+      sub(11, 't1', ago(2 * DAY), 'ai_graded', draft),
+    ];
+    expect(reviewEntries(subs)).toEqual([]);
+    const released12 = [sub(12, 't1', ago(1 * DAY), 'ai_graded', released(ago(HOUR))), subs[1]];
+    expect(reviewEntries(released12)).toEqual([]);
   });
 
   test('same order and attempt numbers as the Review queue (review-model.js)', () => {

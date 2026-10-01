@@ -118,7 +118,7 @@ describe('titles and crumbs', () => {
 });
 
 describe('review counts', () => {
-  const sub = (id, studentId, status, grade = null) => ({ id, student_id: studentId, status, grade });
+  const sub = (id, studentId, status, grade = null, taskId = id) => ({ id, task_id: taskId, student_id: studentId, status, grade });
 
   test('needsReview: AI-graded or failed, and not released', () => {
     expect(needsReview(sub(1, 'a', 'ai_graded'))).toBe(true);
@@ -135,6 +135,14 @@ describe('review counts', () => {
       sub(4, 'b', 'ai_graded', { released_at: '2026-10-01T00:00:00Z' }), sub(5, 'c', 'pending'),
     ]);
     expect(Object.fromEntries(counts)).toEqual({ a: 2, b: 1 });
+  });
+
+  test('counts only the newest attempt for each task', () => {
+    const counts = reviewCounts([
+      { ...sub(1, 'a', 'ai_graded', null, 't1'), created_at: '2026-10-01T00:00:00Z' },
+      { ...sub(2, 'a', 'ai_graded', { released_at: '2026-10-03T00:00:00Z' }, 't1'), created_at: '2026-10-02T00:00:00Z' },
+    ]);
+    expect(Object.fromEntries(counts)).toEqual({});
   });
 });
 

@@ -16,7 +16,7 @@ const ago = (ms) => new Date(NOW.getTime() - ms).toISOString();
 const ahead = (ms) => new Date(NOW.getTime() + ms).toISOString();
 
 const sub = (id, extra = {}) => ({
-  id, task_id: 1, student_id: 's1', status: 'ai_graded', error: null,
+  id, task_id: id, student_id: 's1', status: 'ai_graded', error: null,
   created_at: ago(DAY), status_changed_at: ago(DAY), grade: null, ...extra,
 });
 const grade = ({ reviewed = false, released = false, score = 84 } = {}) => ({
@@ -143,6 +143,17 @@ describe('queueGroups', () => {
     ];
     expect(queueOrder(subs).map((s) => s.id)).toEqual([2, 1, 4, 3]);
     expect(queueOrder(subs, 'draft').map((s) => s.id)).toEqual([1, 4]);
+  });
+
+  test('only the newest attempt for each task is in the queue', () => {
+    const subs = [
+      sub(1, { task_id: 7, created_at: ago(2 * DAY) }),
+      sub(2, { task_id: 7, created_at: ago(DAY), grade: grade({ reviewed: true, released: true }) }),
+      sub(3, { task_id: 8, created_at: ago(2 * DAY), status: 'failed' }),
+      sub(4, { task_id: 8, created_at: ago(DAY) }),
+    ];
+    expect(queueOrder(subs).map((s) => s.id)).toEqual([4]);
+    expect(filterCounts(subs)).toEqual({ all: 1, draft: 1, failed: 0, edited: 0 });
   });
 
   test('filterCounts counts each group and their total', () => {
