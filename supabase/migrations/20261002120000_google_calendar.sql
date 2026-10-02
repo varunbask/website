@@ -110,8 +110,10 @@ returns trigger
 language plpgsql security definer set search_path = ''
 as $$
 begin
+  -- A cascade from a deleted account leaves no tombstone (its connection is gone too)
   if old.google_event_id is not null and old.google_calendar_id is not null
-     and not private.is_service_request() then
+     and not private.is_service_request()
+     and exists (select 1 from public.profiles p where p.id = old.tutor_id) then
     insert into public.google_deletions (tutor_id, calendar_id, event_id)
     values (old.tutor_id, old.google_calendar_id, old.google_event_id);
   end if;
