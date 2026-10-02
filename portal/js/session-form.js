@@ -28,7 +28,9 @@ import {
 } from './ui.js';
 import { sb } from './supabase.js';
 import { displayName } from './format.js';
-import { viewerIsInBusinessZone } from './dates.js';
+import { viewerIsInBusinessZone, dayKey } from './dates.js';
+import { getGoogleStatus, personalEvents } from './google.js';
+import { personalClashes, mergePersonalClashes, dayRange } from './google-model.js';
 import { ATTENDANCE, addMinutesToTime, followingInSeries, sessionTitle } from './sessions-model.js';
 import {
   QUICK_DURATIONS, DEFAULT_START, DEFAULT_MINUTES, DEFAULT_WEEKS, MIN_REPEAT_WEEKS, MAX_RECAP_LENGTH, GONE,
@@ -333,6 +335,33 @@ export function sessionForm(dctx, {
   if (editing) studentLists.set(String(session.student_id), siblings);
   let clashKey = null;
 
+  // A tutor scheduling their own session with Google sync on is also told what
+  // their Google Calendar has at that time. One fetch per day; if it fails, or
+  // sync is off, nothing extra is said.
+  const personalDays = new Map();   // day key -> that day's personal events
+  const personalLoading = new Set();
+  let personalOn = false;
+  if (me?.role === 'tutor') {
+    getGoogleStatus().then((status) => {
+      if (!dctx.alive() || !status.connected || !status.sync_enabled) return;
+      personalOn = true;
+      refreshClash();
+    });
+  }
+
+  function ensurePersonalDay(key) {
+    if (personalDays.has(key) || personalLoading.has(key)) return;
+    personalLoading.add(key);
+    const { from, to } = dayRange(key);
+    Promise.resolve(personalEvents(from, to))
+      .catch(() => [])
+      .then((events) => {
+        personalDays.set(key, events);
+        personalLoading.delete(key);
+        if (dctx.alive()) refreshClash();
+      });
+  }
+
   function ensureStudentSessions(id) {
     if (!id || studentLists.has(id) || loading.has(id)) return;
     loading.add(id);
@@ -366,6 +395,12 @@ export function sessionForm(dctx, {
           tutorNames: names,
           studentNames,
         });
+        // The chosen day only, and only for the tutor's own sessions
+        if (personalOn && sameId(tid, me.id)) {
+          const key = dayKey(planned[0].starts_at);
+          ensurePersonalDay(key);
+          report = mergePersonalClashes(report, personalClashes(planned[0], personalDays.get(key) ?? []));
+        }
       }
     }
     const key = report?.title ? [report.title, ...report.lines].join('|') : '';

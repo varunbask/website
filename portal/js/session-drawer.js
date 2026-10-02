@@ -27,6 +27,8 @@ import {
 import { sessionForm, sessionNotesForm, callout } from './session-form.js';
 import { materialsSection } from './materials-ui.js';
 import { materialsFor, homeworkDueKey } from './materials-model.js';
+import { getGoogleStatus } from './google.js';
+import { safeGoogleLink, syncNote } from './google-model.js';
 
 const MISSING = 'This session isn’t available. It may have been cancelled or removed.';
 const sameId = (a, b) => String(a) === String(b);
@@ -177,9 +179,15 @@ async function locate(dctx) {
 // that part out (null) instead of failing the whole drawer.
 async function loadExtras(dctx, found) {
   const { store } = dctx;
-  const [materials, data] = await Promise.all([
+  const { session } = found;
+  // Only a tutor looking at their own session still waiting for Google needs the
+  // sync status (it never rejects; an unreadable one just means no note)
+  const waiting = dctx.me?.role === 'tutor' && sameId(session.tutor_id, dctx.me.id)
+    && (session.sync_state === 'pending' || session.sync_state === 'error');
+  const [materials, data, google] = await Promise.all([
     store.getMaterials(found.studentId).catch((error) => { console.error(error); return null; }),
     store.getStudentData(found.studentId).catch((error) => { console.error(error); return null; }),
+    waiting ? getGoogleStatus() : null,
   ]);
   const items = data
     ? store.itemsFor(data, { now: new Date(), audience: dctx.audience, viewerId: dctx.me?.id })
@@ -189,6 +197,7 @@ async function loadExtras(dctx, found) {
   return {
     materials: materials ? materialsFor(materials, { sessionId: found.session.id }) : null,
     homework: items,
+    google,
   };
 }
 
@@ -611,13 +620,26 @@ function buildDetail(dctx, found, { now, names, actions }) {
     nodes.push(section('Session notes', h('div', { class: 'well ses-notes' }, body)));
   }
 
-  // Add to calendar
+  // Add to calendar, and the session's event in the tutor's Google Calendar
   const calendarButtons = [button({
     label: 'Add to calendar',
     icon: 'calendar-blank',
     onClick: () => actions.calendar(false),
     focusKey: 'ses-ics',
   })];
+  const googleLink = staff ? safeGoogleLink(session.google_link) : null;
+  if (googleLink) {
+    const open = button({
+      label: 'Open in Google Calendar',
+      iconEnd: 'arrow-square-out',
+      href: googleLink,
+      ariaLabel: 'Open in Google Calendar, opens in a new tab',
+      focusKey: 'ses-google',
+    });
+    open.setAttribute('target', '_blank');
+    open.setAttribute('rel', 'noopener noreferrer');
+    calendarButtons.push(open);
+  }
   if (inSeries) {
     calendarButtons.push(button({
       label: 'Add the rest of the series',
@@ -626,9 +648,12 @@ function buildDetail(dctx, found, { now, names, actions }) {
       focusKey: 'ses-ics-series',
     }));
   }
+  // Waiting to go to Google: the tutor's own session, with their sync on
+  const pending = staff ? syncNote(session, dctx.me, found.google) : null;
   nodes.push(h('section', { class: 'drawer-section ses-calendar' },
     h('h3', { class: 'visually-hidden' }, 'Calendar'),
-    h('div', { class: 'ses-actions' }, calendarButtons)));
+    h('div', { class: 'ses-actions' }, calendarButtons),
+    pending ? h('p', { class: 'note ses-sync-note' }, icon('info'), h('span', {}, pending)) : null));
 
   return { status: [statePill(status)], actions: actionNodes, nodes };
 }

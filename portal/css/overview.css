@@ -1052,3 +1052,12 @@
   .ovw-chart-date,
   .ovw-chart-value { fill: CanvasText; }
 }
+
+
+/* Your tutors: the student's Google Calendar invite control in the footer */
+.ovw-tutors-foot {
+  margin-top: auto;
+  padding: var(--s-3);
+  border-top: 1px solid var(--line);
+}
+.card.is-list > .ovw-tutors-foot { padding: var(--s-3); }

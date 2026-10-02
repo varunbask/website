@@ -825,3 +825,166 @@ td.is-today .cal-num {
 
 /* A sessions load that failed sits between the toolbar and the calendar */
 .cal-notice:not(:empty) { margin-bottom: var(--s-4); }
+
+
+/* Google Calendar ------------------------------------------------------------
+   The tutor's switch, the student's invite control and the tutor's own Google
+   events. Markup (views/calendar.js, google.js):
+     div.cal-google > button.cal-switch[role=switch][aria-checked]
+                        > span.cal-switch-track > span.cal-switch-thumb + span.cal-switch-label
+                    + span.cal-google-status | button.cal-google-reconnect + div.menu
+     div.google-invite > span.google-invite-text (svg + span) + .btn   (students)
+     week grid: div.cal-block.cal-personal[role=button][tabindex=0] (the block's own box comes
+       from .cal-block), and button.cal-chip.cal-chip-personal in the Due row
+     dialog.popover.cal-pop > div.popover-inner.cal-pop-inner > p.cal-pop-kind + h2.cal-pop-title
+       + p.cal-pop-when + a.btn.cal-pop-link
+     li.cal-legend-item.is-personal in the legend */
+
+.cal-google {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 var(--s-1);
+  min-width: 0;
+}
+
+/* The switch: a 44px target around a 34 by 20 track. On, the track is the
+   accent; off, the control grey, so the state never rests on colour alone (the
+   thumb sits at the other end). */
+.cal-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 44px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: 500 13px/18px var(--font-ui);
+  white-space: nowrap;
+}
+.cal-switch-track {
+  position: relative;
+  flex: none;
+  width: 34px;
+  height: 20px;
+  border-radius: var(--r-pill);
+  background-color: var(--control);
+  transition: background-color var(--dur-1) var(--ease-out);
+}
+.cal-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  background-color: var(--surface);
+  box-shadow: 0 1px 2px var(--edge);
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.cal-switch[aria-checked="true"] .cal-switch-track { background-color: var(--accent); }
+.cal-switch[aria-checked="true"] .cal-switch-thumb { transform: translateX(14px); }
+@media (hover: hover) {
+  .cal-switch:hover .cal-switch-track { background-color: var(--text-3); }
+  .cal-switch[aria-checked="true"]:hover .cal-switch-track { background-color: var(--accent-hover); }
+}
+.cal-google[aria-busy="true"] .cal-switch { cursor: progress; }
+
+.cal-google-status {
+  font: var(--t-meta);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+/* "Reconnect Google Calendar": a danger-coloured link in place of the status */
+.cal-google-reconnect {
+  min-height: 44px;
+  padding: 0 var(--s-2);
+  border-radius: var(--r-xs);
+  color: var(--danger-text);
+  font: 500 13px/18px var(--font-ui);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+@media (hover: hover) {
+  .cal-google-reconnect:hover { background-color: var(--danger-bg); }
+}
+.cal-google .menu { margin-left: calc(var(--s-1) * -1); }
+
+@media (max-width: 767.98px) {
+  .cal-google { flex: 1 1 100%; }
+}
+
+/* The student's invite control: a button, or the address and "Stop invites" */
+.google-invite {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-2);
+  min-width: 0;
+  font: var(--t-meta);
+  color: var(--text-2);
+}
+.google-invite-text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.google-invite-text > .icon { color: var(--text-3); }
+.google-invite .btn-sm { height: 32px; padding: 0 12px; }
+.google-invite .btn-sm:has(> .icon:first-child) { padding-left: 10px; }
+@media (pointer: coarse), (max-width: 1023.98px) {
+  .google-invite .btn-sm { height: 44px; }
+}
+
+/* A personal event in the week grid: the block's box, bar and focus ring come
+   from .cal-block; this makes it grey, hatched and read-only. */
+.cal-personal {
+  --subj-bg: var(--surface-2);
+  --subj-text: var(--text-3);
+  --subj-solid: var(--line-strong);
+  background-image: repeating-linear-gradient(135deg, var(--surface-2) 0 5px, var(--line) 5px 6px);
+  color: var(--text-3);
+  border-left-style: dashed;
+}
+.cal-personal .cal-block-title { font-weight: 500; }
+
+/* An all-day one in the Due row */
+.cal-chip-personal {
+  width: 100%;
+  border-color: var(--line);
+  background-image: repeating-linear-gradient(135deg, var(--surface-2) 0 5px, var(--line) 5px 6px);
+  color: var(--text-3);
+  text-align: left;
+}
+@media (hover: hover) {
+  .cal-chip.cal-chip-personal:hover { border-color: var(--line-strong); }
+}
+
+.cal-legend-item.is-personal .cal-swatch {
+  background-color: var(--surface-2);
+  background-image: repeating-linear-gradient(135deg, var(--surface-2) 0 2px, var(--line-strong) 2px 3px);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+/* The popover a personal event opens. Phones get the sheet app.css makes. */
+@media (min-width: 768px) {
+  .cal-pop { width: 280px; }
+}
+.cal-pop-inner { gap: var(--s-1); padding: var(--s-3) var(--s-4) var(--s-4); }
+.cal-pop-kind {
+  font: var(--t-caption);
+  color: var(--text-3);
+}
+.cal-pop-title {
+  font: var(--t-h3);
+  overflow-wrap: anywhere;
+}
+.cal-pop-when {
+  font: var(--t-meta);
+  color: var(--text-2);
+}
+.cal-pop-link { align-self: flex-start; margin-top: var(--s-2); }

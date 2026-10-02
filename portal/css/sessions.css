@@ -9,7 +9,8 @@
        span.ses-person > span.avatar + name, span.ses-place + a.btn.ses-join)
      div.ses-action-error                staff action errors (cancel, delete)
      section.drawer-section > h3 + ...   Plan, Session notes (div.well.ses-notes)
-     section.ses-calendar > div.ses-actions > .btn ...   Add to calendar
+     section.ses-calendar > div.ses-actions > .btn ...   Add to calendar, Open in Google Calendar
+       + p.note.ses-sync-note                       "Not synced to Google yet" (the session's own tutor)
 
    Drawer forms (create, edit, session notes)
      div.ses-form-wrap > h2.drawer-title + p.ses-form-sub + form.ses-form > div.field ...
@@ -360,3 +361,6 @@ input[type="time"].input { font-variant-numeric: tabular-nums; }
   overflow-wrap: anywhere;
 }
 .ses-homework + .ses-actions { margin-top: var(--s-3); }
+
+/* The Google Calendar sync note under the calendar buttons */
+.ses-sync-note { margin-top: var(--s-3); }

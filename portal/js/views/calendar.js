@@ -9,6 +9,11 @@
 // All pure decisions (matrix, chips, keyboard, labels, agenda, week layout
 // inputs, filters) live in calendar-model.js and sessions-model.js. Everything
 // renders inside ctx.host.
+//
+// Google Calendar (google.js): a tutor with sync on sees a switch in the toolbar
+// and, in the Week grid, their own Google events beside the sessions, read-only
+// and drawn from nothing the portal stores. A student gets the invite button.
+// If the status or the events cannot be had, the calendar is exactly as before.
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
@@ -18,7 +23,7 @@ import {
 } from '../ui.js';
 import { deriveItems } from '../buckets.js';
 import {
-  todayKey, monthTitle, dayHeading, addDays, longDate, viewerIsInBusinessZone,
+  todayKey, dayKey, monthTitle, dayHeading, addDays, longDate, viewerIsInBusinessZone,
 } from '../dates.js';
 import { displayName } from '../format.js';
 import { markSeen } from '../seen.js';
@@ -27,6 +32,12 @@ import {
   clockText, timeRange, sessionTitle, sessionState, sessionAria, sessionsByDay, isCancelled,
   toneClass, subjectLegend, hourRange, layoutDay, weekTitle,
 } from '../sessions-model.js';
+import {
+  announceGoogleReturn, tutorGoogleControl, studentInviteControl, syncNow, personalEvents, cachedPersonalEvents,
+} from '../google.js';
+import {
+  personalBlocks, allDayOn, weekRange, personalLabel, personalWhen, googleDayUrl,
+} from '../google-model.js';
 import {
   AGENDA_DAYS, PANEL_DAYS,
   monthOf, monthMatrix, shiftMonth, weekdayHeaders, cellText,
@@ -41,6 +52,11 @@ const STORE_KEY = 'vb-cal-view';
 const BREAKPOINTS = ['(min-width: 768px)', '(min-width: 1024px)', '(min-width: 1280px)'];
 const ENTER_LIMIT = 8;
 const NOW_TICK_MS = 60_000;
+
+// Opening the calendar with sync on syncs once per page load, not on every
+// refresh or visit
+let syncedThisLoad = false;
+const NO_PERSONAL = Object.freeze({ timed: [], byDay: new Map(), allDay: [] });
 
 // A session's place: a link makes it online. The icon set has no camera or
 // pin, so the link icon stands for "online" and the group for "in person".
@@ -110,6 +126,8 @@ export function mount(ctx) {
     studentNames: new Map(),
     links: [],
     hours: null,          // the week grid's { start, end } hours, for the now line
+    google: null,         // a tutor's Google status once read
+    personal: new Map(),  // week start key -> the tutor's Google events for that week, ready to draw
     capacity: capacityForGrid(0, viewportWidth()),
     wide: matches('(min-width: 768px)'),
   };
@@ -118,6 +136,9 @@ export function mount(ctx) {
   if (allScope) lede = 'Every student’s sessions and due dates in one place.';
   else if (!staff) lede = 'Your sessions and due dates.';
   ctx.setHeader({ title: 'Calendar', lede });
+
+  // Back from Google's consent screen: say how it went, then tidy the address
+  announceGoogleReturn(ctx);
 
   // The name after "with": the tutor on one student's calendar, the student
   // (and for an admin the tutor) on the all-students one
@@ -179,11 +200,20 @@ export function mount(ctx) {
     })
     : null;
 
+  // Google Calendar: a tutor's sync switch, a student's invite button, nothing
+  // for parents and admins
+  let googleEl = null;
+  if (ctx.me.role === 'tutor') {
+    googleEl = tutorGoogleControl({ toast: ctx.toast, store: ctx.store, signal: ctx.signal, onStatus: onGoogleStatus });
+  } else if (ctx.me.role === 'student') {
+    googleEl = studentInviteControl({ toast: ctx.toast });
+  }
+
   const legendEl = h('ul', { class: 'cal-legend', 'aria-label': 'Subjects', hidden: true });
 
   const toolbar = h('div', { class: 'cal-toolbar' },
     h('div', { class: 'cal-toolbar-main' }, title, navGroup),
-    h('div', { class: 'cal-toolbar-controls' }, scopeSeg, filterSlot, viewSeg, newBtn),
+    h('div', { class: 'cal-toolbar-controls' }, scopeSeg, filterSlot, viewSeg, googleEl, newBtn),
     legendEl);
 
   const body = h('div', { class: 'cal-body' });
@@ -344,6 +374,139 @@ export function mount(ctx) {
     }
   }
 
+  // ---- Google Calendar ----------------------------------------------------
+
+  // Personal events are the tutor's own, and only while sync is on and usable
+  const personalOn = () => ctx.me.role === 'tutor'
+    && Boolean(state.google?.connected && state.google.sync_enabled && state.google.last_error !== 'reconnect');
+
+  // Hears the switch's status each time it is read or changed
+  function onGoogleStatus(status) {
+    const before = personalOn();
+    state.google = status;
+    if (!ctx.alive()) return;
+    if (personalOn()) syncOnce();
+    if (before !== personalOn()) {
+      state.personal.clear();
+      if (state.status === 'ready') rerender();
+    }
+  }
+
+  // Once per page load: push and pull now, then refresh what the pull changed.
+  // A failure is quiet; the status the switch shows is read again.
+  function syncOnce() {
+    if (syncedThisLoad) return;
+    syncedThisLoad = true;
+    syncNow().then(
+      () => ctx.store.invalidate(null),
+      (error) => {
+        console.error(error);
+        googleEl?.refresh?.();
+      },
+    );
+  }
+
+  const prepared = (events) => {
+    const { timed, allDay } = personalBlocks(events);
+    return { timed, byDay: sessionsByDay(timed), allDay };
+  };
+
+  // Makes sure this week's events are on the way (or already here). Called
+  // before every render of the Week grid; a failure leaves the week without them.
+  const personalPending = new Set();
+  function ensurePersonal() {
+    if (state.view !== 'week' || !state.wide || !personalOn()) return;
+    const week = state.week;
+    if (state.personal.has(week) || personalPending.has(week)) return;
+    const { from, to } = weekRange(week);
+    const cached = cachedPersonalEvents(from, to);
+    if (cached) {
+      state.personal.set(week, prepared(cached));
+      return;
+    }
+    personalPending.add(week);
+    personalEvents(from, to)
+      .then((events) => state.personal.set(week, prepared(events)), (error) => {
+        console.error(error);
+        state.personal.set(week, NO_PERSONAL);
+      })
+      .finally(() => {
+        personalPending.delete(week);
+        if (ctx.alive() && state.status === 'ready' && state.view === 'week' && state.week === week) rerender();
+      });
+  }
+
+  // The events to draw in the week on show, or null
+  const personalWeek = () => (state.view === 'week' && state.wide && state.status === 'ready' && personalOn()
+    ? state.personal.get(state.week) ?? null
+    : null);
+
+  // Draws again and puts keyboard focus back where it was
+  function rerender() {
+    const focused = body.contains(document.activeElement) ? document.activeElement.dataset?.focusKey : null;
+    render();
+    if (focused) body.querySelector(`[data-focus-key="${cssEscape(focused)}"]`)?.focus();
+  }
+
+  // One small dialog for every personal event: title, time and a link to the
+  // day in Google Calendar. Modal, so Escape and a click outside close it.
+  let popover = null;
+  let popoverOpener = null;
+  function personalPopover() {
+    if (popover) return popover;
+    const dialog = h('dialog', { class: 'popover cal-pop' });
+    document.body.append(dialog);
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });
+    dialog.addEventListener('close', () => {
+      const opener = popoverOpener;
+      popoverOpener = null;
+      if (opener?.isConnected) opener.focus();
+    });
+    ctx.signal?.addEventListener('abort', () => {
+      dialog.close();
+      dialog.remove();
+      popover = null;
+    }, { once: true });
+    popover = dialog;
+    return dialog;
+  }
+
+  function openPersonal(item, trigger) {
+    const dialog = personalPopover();
+    const titleId = uid('cal-pop');
+    const link = button({
+      label: 'Open in Google Calendar',
+      iconEnd: 'arrow-square-out',
+      size: 'sm',
+      href: googleDayUrl(item.first ?? dayKey(item.starts_at)),
+      ariaLabel: 'Open in Google Calendar, opens in a new tab',
+      className: 'cal-pop-link',
+    });
+    link.setAttribute('target', '_blank');
+    link.setAttribute('rel', 'noopener noreferrer');
+    link.addEventListener('click', () => setTimeout(() => dialog.close(), 0));
+    dialog.replaceChildren(h('div', { class: 'popover-inner cal-pop-inner' },
+      h('p', { class: 'cal-pop-kind' }, 'Personal (Google Calendar)'),
+      h('h2', { class: 'cal-pop-title', id: titleId }, item.title),
+      h('p', { class: 'cal-pop-when num' }, personalWhen(item, { today })),
+      link));
+    dialog.setAttribute('aria-labelledby', titleId);
+    popoverOpener = trigger;
+    if (dialog.open) dialog.close();
+    dialog.showModal();
+    // From 768px it sits beside what opened it; phones get the sheet the CSS makes
+    if (matches('(min-width: 768px)')) {
+      const r = trigger.getBoundingClientRect();
+      const w = dialog.offsetWidth;
+      const hgt = dialog.offsetHeight;
+      let left = r.right + 8;
+      if (left + w > window.innerWidth - 8) left = r.left - w - 8;
+      const top = Math.min(Math.max(8, r.top), window.innerHeight - hgt - 8);
+      dialog.style.setProperty('left', `${Math.round(Math.max(8, left))}px`);
+      dialog.style.setProperty('top', `${Math.round(Math.max(8, top))}px`);
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Rendering
 
@@ -377,6 +540,7 @@ export function mount(ctx) {
       relabel(nextBtn, `Next month, ${monthTitle(shiftMonth(state.month, 1))}`);
     }
     host.classList.toggle('cal-is-list', state.view === 'list');
+    ensurePersonal();
     renderLegend();
 
     body.setAttribute('aria-busy', state.status === 'loading' ? 'true' : 'false');
@@ -400,10 +564,21 @@ export function mount(ctx) {
       const range = viewRange(state.view, state, today);
       entries = subjectLegend(sessionsInRange(state.shown, range.start, range.end));
     }
-    legendEl.hidden = entries.length < 2;
-    legendEl.replaceChildren(...entries.map((e) => h('li', { class: `cal-legend-item ${e.tone}` },
+    const subjects = entries.length < 2 ? [] : entries;
+    // The Personal item shows when the week on screen has Google events in it
+    const personal = personalWeek();
+    const hasPersonal = Boolean(personal && (personal.timed.length || personal.allDay.length));
+    legendEl.hidden = !subjects.length && !hasPersonal;
+    legendEl.setAttribute('aria-label', hasPersonal ? 'Key' : 'Subjects');
+    const items = subjects.map((e) => h('li', { class: `cal-legend-item ${e.tone}` },
       h('span', { class: 'cal-swatch', 'aria-hidden': 'true' }),
-      h('span', {}, e.subject))));
+      h('span', {}, e.subject)));
+    if (hasPersonal) {
+      items.push(h('li', { class: 'cal-legend-item is-personal' },
+        h('span', { class: 'cal-swatch', 'aria-hidden': 'true' }),
+        h('span', {}, 'Personal (Google)')));
+    }
+    legendEl.replaceChildren(...items);
   }
 
   // ---- Shared rows ----------------------------------------------------------
@@ -454,13 +629,18 @@ export function mount(ctx) {
   function weekGrid() {
     const days = weekDays(state.week, today);
     const weekSessions = sessionsInRange(state.shown, state.week, addDays(state.week, 6));
-    const range = hourRange(weekSessions);
+    // The tutor's Google events: the ones that start in this week widen the hours too
+    const personal = personalWeek();
+    const inWeek = new Set(days.map((d) => d.key));
+    const personalTimed = personal ? personal.timed.filter((e) => inWeek.has(dayKey(e.starts_at))) : [];
+    const range = hourRange([...weekSessions, ...personalTimed]);
     state.hours = range;
     const hours = hourMarks(range);
     const span = (range.end - range.start) * 60;
     const loading = state.status === 'loading';
     const dueOf = (key) => (loading ? [] : state.byDay.get(key) ?? []);
-    const hasDue = days.some((d) => dueOf(d.key).length);
+    const allDayOf = (key) => (personal ? allDayOn(personal.allDay, key) : []);
+    const hasDue = days.some((d) => dueOf(d.key).length || allDayOf(d.key).length);
     const cellClass = (day, base) => [base, day.isToday ? 'is-today' : null, day.isWeekend ? 'is-weekend' : null].filter(Boolean).join(' ');
 
     // Times are Pacific; a viewer in another zone is told once, in the corner
@@ -490,10 +670,15 @@ export function mount(ctx) {
         h('div', { class: 'cal-week-duelabel' }, 'Due'),
         days.map((day) => {
           const list = dueOf(day.key);
-          const cell = h('div', { class: cellClass(day, 'cal-week-due cal-chips') }, list.map((item) => dueChip(item, { link: true })));
-          if (list.length) {
+          const allDay = allDayOf(day.key);
+          const cell = h('div', { class: cellClass(day, 'cal-week-due cal-chips') },
+            list.map((item) => dueChip(item, { link: true })),
+            allDay.map(personalChip));
+          if (list.length || allDay.length) {
             cell.setAttribute('role', 'group');
-            cell.setAttribute('aria-label', `Due on ${dayWords(day)}`);
+            // "Due on ...", or the all-day events that share the row
+            const what = list.length ? (allDay.length ? 'Due and all-day personal events' : 'Due') : 'All-day personal events';
+            cell.setAttribute('aria-label', `${what} on ${dayWords(day)}`);
           }
           return cell;
         }))
@@ -508,11 +693,14 @@ export function mount(ctx) {
 
     const tracks = days.map((day) => {
       const track = h('div', { class: cellClass(day, 'cal-week-track'), dataset: { date: day.key } });
-      const blocks = layoutDay(state.sessionDays.get(day.key) ?? [], { startHour: range.start, endHour: range.end });
-      for (const layout of blocks) track.append(sessionBlock(layout, span));
+      const daySessions = state.sessionDays.get(day.key) ?? [];
+      const dayPersonal = personal?.byDay.get(day.key) ?? [];
+      const blocks = layoutDay([...daySessions, ...dayPersonal], { startHour: range.start, endHour: range.end });
+      for (const layout of blocks) track.append(layout.session.personal ? personalBlock(layout, span) : sessionBlock(layout, span));
       if (blocks.length) {
         track.setAttribute('role', 'group');
-        track.setAttribute('aria-label', `Sessions on ${dayWords(day)}`);
+        const what = !dayPersonal.length ? 'Sessions' : daySessions.length ? 'Sessions and personal events' : 'Personal events';
+        track.setAttribute('aria-label', `${what} on ${dayWords(day)}`);
       }
       if (day.isToday) {
         const fraction = nowFraction(clock(), range);
@@ -575,6 +763,48 @@ export function mount(ctx) {
     el.style.setProperty('--height', String(layout.height));
     el.style.setProperty('--col', String(layout.col));
     el.style.setProperty('--cols', String(layout.cols));
+    return el;
+  }
+
+  // One of the tutor's own Google events: a grey hatched block laid out in the
+  // same columns as the sessions. It is a div (not a link) that opens the popover.
+  function personalBlock(layout, span) {
+    const item = layout.session;
+    const minutes = Math.round(layout.height * span);
+    const size = minutes < 43 ? 'is-tiny' : minutes < 60 ? 'is-short' : null;
+    const el = h('div', {
+      class: ['cal-block', 'cal-personal', size].filter(Boolean).join(' '),
+      role: 'button',
+      tabindex: '0',
+      'aria-haspopup': 'dialog',
+      'aria-label': personalLabel(item),
+      dataset: { focusKey: `personal-${item.id}`, personalId: item.id },
+    },
+    h('span', { class: 'cal-block-head' }, h('span', { class: 'cal-block-time num' }, clockText(item.starts_at))),
+    h('span', { class: 'cal-block-title' }, item.title));
+    el.style.setProperty('--top', String(layout.top));
+    el.style.setProperty('--height', String(layout.height));
+    el.style.setProperty('--col', String(layout.col));
+    el.style.setProperty('--cols', String(layout.cols));
+    el.addEventListener('click', () => openPersonal(item, el));
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      openPersonal(item, el);
+    });
+    return el;
+  }
+
+  // An all-day Google event in the Due row, as a grey chip that opens the same popover
+  function personalChip(item) {
+    const el = h('button', {
+      type: 'button',
+      class: 'cal-chip cal-chip-personal',
+      'aria-haspopup': 'dialog',
+      'aria-label': personalLabel(item),
+      dataset: { focusKey: `personal-${item.id}`, personalId: item.id },
+    }, h('span', { class: 'cal-chip-title' }, item.title));
+    el.addEventListener('click', () => openPersonal(item, el));
     return el;
   }
 

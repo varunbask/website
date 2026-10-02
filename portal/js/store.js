@@ -87,7 +87,7 @@ export function getUpdates(studentId) {
 // ---------------------------------------------------------------------------
 // Sessions (tutoring schedule) and tutors
 
-export const SESSION_FIELDS = 'id, student_id, tutor_id, series_id, subject, starts_at, ends_at, location, meeting_url, notes, status, attendance, recap, moved_from, changed_at, created_at, updated_at';
+export const SESSION_FIELDS = 'id, student_id, tutor_id, series_id, subject, starts_at, ends_at, location, meeting_url, notes, status, attendance, recap, moved_from, changed_at, created_at, updated_at, google_event_id, google_link, sync_state';
 
 async function loadSessions(studentId) {
   // Pages past the 1000-row cap (a weekly series for years adds up)

@@ -26,6 +26,7 @@ import { displayName, firstName } from '../format.js';
 import { getSeen, isNewSince } from '../seen.js';
 import { staffNames, updateItem, updateList } from '../updates-feed.js';
 import { taskCheck } from '../task-check.js';
+import { announceGoogleReturn, studentInviteControl } from '../google.js';
 import { queueRow } from '../review-row.js';
 import { progressPanel } from '../progress-panel.js';
 import {
@@ -343,7 +344,8 @@ function nextSessionCard(ctx, { sessions, names, studentId }) {
 }
 
 // The student's tutors with their subjects, the subject in its own colour
-function tutorsCard(ctx, { span, title, tutors, names, studentId }) {
+// invite: a student's "Get Google Calendar invites" control in the card's footer
+function tutorsCard(ctx, { span, title, tutors, names, studentId, invite = false }) {
   const titleId = uid('ovw-tutors');
   const card = h('section', { class: `card is-list ${span} ovw-tutors`, 'aria-labelledby': titleId },
     cardHead(title, { id: titleId }));
@@ -359,6 +361,7 @@ function tutorsCard(ctx, { span, title, tutors, names, studentId }) {
         h('span', { class: 'ovw-tutor-name' }, t.name),
         t.subject ? h('span', { class: `ovw-subj ${t.tone}` }, t.subject) : null))))
     : cardEmpty('No tutors linked yet.', 'users-three'));
+  if (invite) card.append(h('div', { class: 'card-foot ovw-tutors-foot' }, studentInviteControl({ toast: ctx.toast })));
   return card;
 }
 
@@ -536,6 +539,8 @@ async function mountStudent(ctx) {
   const first = firstName(student.full_name);
   const lede = pendingLede();
   ctx.setHeader({ title: greeting(ctx.now, first), display: true, lede });
+  // A student who connected Google from this page lands back here
+  announceGoogleReturn(ctx);
   const body = loadingGrid(['span-8', 'span-4', 'span-8', 'span-4', 'span-12']);
   ctx.host.append(body);
 
@@ -569,7 +574,7 @@ async function mountStudent(ctx) {
     dueNextSection(ctx, dueNext(items)),
     latestGradeCard(ctx, latest, latestNew),
     sessionsCard(ctx, { span: 'span-8', sessions, names, seen: getSeen('schedule', ctx.me.id, student.id), studentId: student.id }),
-    tutorsCard(ctx, { span: 'span-4', title: 'Your tutors', tutors, names, studentId: student.id }),
+    tutorsCard(ctx, { span: 'span-4', title: 'Your tutors', tutors, names, studentId: student.id, invite: ctx.me.role === 'student' }),
     weekCard(ctx, weekStrip(items, today), today),
     tasksCard(ctx, openTasks(items, 5)),
     updatesCard(ctx, {
