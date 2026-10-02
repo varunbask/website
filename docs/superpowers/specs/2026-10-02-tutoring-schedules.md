@@ -226,3 +226,7 @@ A local demo with an in-memory stand-in for Supabase (sample data, the same acce
 - Bulk assignment to several students.
 - Multi-page homework submissions.
 - A tutor contact card for families.
+
+## Google Calendar sync
+
+Tutors can sync their sessions both ways with Google Calendar, and students can receive Google invites. Design: docs/superpowers/specs/2026-10-02-google-calendar-sync-design.md. Owner setup: docs/google-calendar-setup.md.
