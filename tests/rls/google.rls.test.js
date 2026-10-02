@@ -42,9 +42,9 @@ describe.skipIf(!hasService)('google calendar sync row-level security', () => {
   test('signed-in users cannot read the connection, state or tombstone tables', async () => {
     for (const who of ['studentA', 'tutorA', 'admin']) {
       for (const table of ['google_connections', 'google_oauth_states', 'google_deletions']) {
-        const { data, error } = await P[who].client.from(table).select('*');
-        if (error) expect(error.code, `${who} ${table}`).toBe('42501');
-        else expect(data, `${who} ${table}`).toEqual([]);
+        // The migration revokes every privilege, so this is a permission error, not an empty result
+        const { error } = await P[who].client.from(table).select('*');
+        expect(error?.code, `${who} ${table}`).toBe('42501');
       }
     }
   });

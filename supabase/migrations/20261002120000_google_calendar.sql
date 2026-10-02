@@ -62,12 +62,15 @@ alter table public.google_deletions    enable row level security;
 -- The Google columns on sessions are written by the server only. Users keep
 -- their existing column grants, which do not include these.
 
--- True when this statement comes from the service role (the sync itself)
+-- True when this statement comes from the service role (the sync itself). The
+-- role PostgREST switched to is checked as well as the token's role claim, since
+-- a secret API key's token may not carry one.
 create function private.is_service_request()
 returns boolean
 language sql stable set search_path = ''
 as $$
   select coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') = 'service_role'
+      or coalesce(current_setting('role', true), '') = 'service_role'
 $$;
 revoke execute on function private.is_service_request() from public;
 grant execute on function private.is_service_request() to authenticated, service_role;
