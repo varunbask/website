@@ -1,5 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { gradeClaimed, sweep, removeOrphanFiles, STALE_GRADING_MS } from './grader.js';
+import { googleConfig } from './google/config.js';
+import { maintainAll } from './google/handlers.js';
 
 const json = (status, body) => Response.json(body, { status });
 
@@ -62,7 +64,9 @@ export async function handleGrade(request, {
   return json(202, { id, status: 'grading' });
 }
 
-export async function handleSweep(request, { repo, env = process.env, now = () => new Date(), fetchImpl = fetch }) {
+export async function handleSweep(request, {
+  repo, googleRepo, env = process.env, now = () => new Date(), fetchImpl = fetch,
+}) {
   if (!env.CRON_SECRET) return json(500, { error: 'CRON_SECRET is not set.' });
   const given = Buffer.from(request.headers.get('authorization') ?? '');
   const expected = Buffer.from(`Bearer ${env.CRON_SECRET}`);
@@ -72,5 +76,16 @@ export async function handleSweep(request, { repo, env = process.env, now = () =
   if (!env.LLM_ENDPOINT || !env.LLM_KEY) return json(500, { error: 'Grading is not configured.' });
   const summary = await sweep(repo, { env, now, fetchImpl });
   summary.removed_files = await removeOrphanFiles(repo, { now });
+
+  // Daily Google Calendar upkeep, only once Google is set up. It must not cost the grading summary.
+  const config = googleRepo ? googleConfig(env) : null;
+  if (config) {
+    try {
+      summary.google = await maintainAll({ repo: googleRepo, config, fetchImpl, now });
+    } catch (error) {
+      console.error('[sweep] google:', error?.name ?? 'Error');
+      summary.google = { error: 'Google Calendar maintenance failed.' };
+    }
+  }
   return json(200, summary);
 }
