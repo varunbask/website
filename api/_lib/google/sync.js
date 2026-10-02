@@ -98,12 +98,18 @@ function outcome(error) {
   return error instanceof GoogleRateError ? 'stop' : 'fail';
 }
 
+// An update that applies only while the row still has the updated_at it was read with;
+// false when it changed meanwhile
+async function writeIfUnchanged(repo, row, fields) {
+  return Boolean(await repo.updateSession(row.id, fields, { ifUpdatedAt: row.updated_at }));
+}
+
 // Marks a pushed row synced only if the portal has not changed it since it was
 // read (compare-and-set on updated_at). If it changed meanwhile, the row stays
 // pending for the next push, which sends the newer edit; `kept` is what Google
 // now holds for it (event id, calendar, link) and is saved regardless.
 async function settle(repo, row, synced, kept) {
-  const done = await repo.updateSession(row.id, synced, { ifUpdatedAt: row.updated_at });
+  const done = await writeIfUnchanged(repo, row, synced);
   if (!done && kept) await repo.updateSession(row.id, kept);
 }
 
@@ -111,7 +117,8 @@ async function patchIfThere(google, calendarId, eventId, body) {
   try {
     return await google.patchEvent(calendarId, eventId, body);
   } catch (error) {
-    if (error instanceof GoogleNotFound) return null; // deleted in Google: the caller inserts again
+    // Deleted in Google (404 or 410): the caller inserts again
+    if (error instanceof GoogleNotFound || error instanceof GoogleGone) return null;
     throw error;
   }
 }
@@ -159,7 +166,13 @@ async function pushRow(row, conn, google, { repo, config, stamp, result }) {
 export async function pushPending(conn, google, { repo, config, now = new Date() }) {
   const result = { pushed: 0, deleted: 0, failed: 0, stopped: false };
   const stamp = now.toISOString();
-  conn.calendar_id = await ensureCalendar(conn, google, repo); // an insert needs a calendar
+  try {
+    conn.calendar_id = await ensureCalendar(conn, google, repo); // an insert needs a calendar
+  } catch (error) {
+    if (!(error instanceof GoogleRateError)) throw error;
+    result.stopped = true; // rate limited before anything was sent: try again next run
+    return result;
+  }
 
   for (const t of await repo.tombstones(conn.user_id)) {
     try {
@@ -260,12 +273,32 @@ async function cancelSeries(ctx, recurringId) {
   else ctx.result.skipped += 1;
 }
 
+// One event that cannot be applied (a database error, say) is counted as skipped and
+// logged by name and id only; the rest of the pull goes on. Auth and rate-limit
+// errors still end the pull.
+async function isolated(ctx, e, work) {
+  try {
+    await work();
+  } catch (error) {
+    if (error instanceof GoogleAuthError || error instanceof GoogleRateError) throw error;
+    const sessionId = e.extendedProperties?.private?.vpSessionId;
+    console.error('Google pull event failed:', error?.name ?? 'Error', 'event', e.id, ...(sessionId ? ['session', sessionId] : []));
+    ctx.result.skipped += 1;
+  }
+}
+
 async function applyEvent(ctx, e, recurringId) {
   const { conn, repo, stamp, result } = ctx;
   const skip = () => { result.skipped += 1; };
 
   const fields = eventToSessionFields(e);
   if (!fields) return skip(); // all-day or timeless
+  if (fields.status !== 'cancelled') {
+    // The sessions table refuses a length outside (0, 8 hours]; one such event, for a new session
+    // or an existing one, must not make every pull fail on it
+    const length = Date.parse(fields.ends_at) - Date.parse(fields.starts_at);
+    if (!(length > 0 && length <= MAX_SESSION_MS)) return skip();
+  }
 
   const row = await findRow(repo, conn, e);
 
@@ -277,7 +310,7 @@ async function applyEvent(ctx, e, recurringId) {
 
     if (fields.status === 'cancelled') {
       if (row.status === 'cancelled') return skip();
-      await repo.updateSession(row.id, { status: 'cancelled', sync_state: 'synced', google_synced_at: stamp });
+      if (!(await writeIfUnchanged(repo, row, { status: 'cancelled', sync_state: 'synced', google_synced_at: stamp }))) return skip();
       result.cancelled += 1;
       return;
     }
@@ -291,7 +324,7 @@ async function applyEvent(ctx, e, recurringId) {
     };
     const changes = Object.fromEntries(Object.entries(next).filter(([key, value]) => !sameValue(key, row[key], value)));
     if (!Object.keys(changes).length) return skip();
-    await repo.updateSession(row.id, { ...changes, google_synced_at: stamp });
+    if (!(await writeIfUnchanged(repo, row, { ...changes, google_synced_at: stamp }))) return skip(); // changed since it was read: the next pull or push reconciles
     result.updated += 1;
     return;
   }
@@ -304,8 +337,6 @@ async function applyEvent(ctx, e, recurringId) {
   // An event the portal wrote belongs to its session; if that session is gone
   // (deleted, or another tutor's) the event is never turned into a new one
   if (e.extendedProperties?.private?.vpSessionId) return skip();
-  const length = Date.parse(fields.ends_at) - Date.parse(fields.starts_at);
-  if (!(length > 0 && length <= MAX_SESSION_MS)) return skip();
 
   ctx.students ??= await repo.linkedStudents(conn.user_id);
   const student = matchStudent(e, ctx.students);
@@ -328,19 +359,20 @@ async function applyEvent(ctx, e, recurringId) {
 // when another pull holds the lock; otherwise counts, where `skipped` is the
 // number of events left alone.
 export async function pullChanges(conn, google, { repo, now = new Date() }) {
+  const result = { updated: 0, inserted: 0, cancelled: 0, skipped: 0 };
+  if (!conn.calendar_id) return result; // no calendar yet, nothing to pull
   if (!(await repo.claimPull(conn.user_id, now))) return { busy: true };
 
-  const result = { updated: 0, inserted: 0, cancelled: 0, skipped: 0 };
   const ctx = { conn, repo, now, stamp: now.toISOString(), result, students: null };
   try {
     const { items, nextSyncToken } = await listChanges(google, conn);
     for (const e of items) {
       if (e.recurrence) {
         const instances = e.status === 'cancelled' ? null : await listAllInstances(google, conn.calendar_id, e.id, now);
-        if (instances === null) await cancelSeries(ctx, e.id);
-        else for (const instance of instances) await applyEvent(ctx, instance, e.id);
+        if (instances === null) await isolated(ctx, e, () => cancelSeries(ctx, e.id));
+        else for (const instance of instances) await isolated(ctx, instance, () => applyEvent(ctx, instance, e.id));
       } else {
-        await applyEvent(ctx, e, e.recurringEventId ?? null);
+        await isolated(ctx, e, () => applyEvent(ctx, e, e.recurringEventId ?? null));
       }
     }
     await repo.updateConnection(conn.user_id, {

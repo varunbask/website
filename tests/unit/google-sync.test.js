@@ -284,6 +284,7 @@ function editDuring(s, method, edit) {
     return out;
   };
 }
+const READ = { ifUpdatedAt: '2026-10-02T11:00:00+00:00' }; // the updated_at of the fixture rows, as a pull or push read it
 const EDITED = { subject: 'Edited', updated_at: '2026-10-02T11:59:00+00:00' };
 
 afterEach(() => { vi.restoreAllMocks(); });
@@ -491,6 +492,57 @@ describe('pushPending', () => {
     expect(s.state.sessions[0].google_event_id).toBe('ev-1');
   });
 
+  test('a patch answered with 410 inserts instead, like a 404', async () => {
+    const s = setup({ sessions: [session({ google_event_id: 'gone', google_calendar_id: CAL })] });
+    s.g.fail('patchEvent', new GoogleGone());
+    const result = await push(s);
+
+    expect(result).toEqual({ pushed: 1, deleted: 0, failed: 0, stopped: false });
+    expect(s.g.called('insertEvent')).toHaveLength(1);
+    expect(s.state.sessions[0]).toMatchObject({ google_event_id: 'ev-1', sync_state: 'synced' });
+  });
+
+  test('a tagged event whose patch answers 410 is replaced by an insert', async () => {
+    const s = setup({ sessions: [session()] });
+    s.g.seed(CAL, event({ id: 'tagged', extendedProperties: { private: { vpSessionId: '1' } } }));
+    s.g.fail('patchEvent', new GoogleGone());
+    await push(s);
+
+    expect(s.g.called('insertEvent')).toHaveLength(1);
+    expect(s.state.sessions[0].google_event_id).toBe('ev-1');
+  });
+
+  test('a rate limit while creating the calendar stops the run instead of throwing', async () => {
+    const s = setup({ sessions: [session()], tombstones: [{ id: 7, tutor_id: TUTOR, calendar_id: 'old-cal', event_id: 'evX' }], conn: { calendar_id: null } });
+    s.g.fail('insertCalendar', new GoogleRateError());
+    const result = await push(s);
+
+    expect(result).toEqual({ pushed: 0, deleted: 0, failed: 0, stopped: true });
+    expect(s.g.called('insertEvent')).toHaveLength(0);
+    expect(s.g.called('deleteEvent')).toHaveLength(0);
+    expect(s.state.sessions[0].sync_state).toBe('pending');
+    expect(s.state.tombstones).toHaveLength(1);
+  });
+
+  test('any other error creating the calendar still propagates', async () => {
+    for (const error of [new GoogleApiError(500), new GoogleAuthError()]) {
+      const s = setup({ sessions: [session()], conn: { calendar_id: null } });
+      s.g.fail('insertCalendar', error);
+      await expect(push(s)).rejects.toBe(error);
+    }
+  });
+
+  test('the echo of a push of a session with no subject changes nothing (the generic label is not stored)', async () => {
+    const s = setup({ sessions: [session({ subject: null })] });
+    await push(s);
+    expect(s.g.called('insertEvent')[0].args[1].summary).toBe('Tutoring session (Maya Lee)');
+    const before = structuredClone(s.state.sessions[0]);
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+    expect(s.state.sessions[0]).toEqual(before);
+  });
+
   test('a rate error while looking for a tagged event stops the run', async () => {
     const s = setup({ sessions: [session()] });
     s.g.fail('listEvents', new GoogleRateError());
@@ -597,7 +649,7 @@ describe('pullChanges', () => {
     s.g.seed(CAL, event({ extendedProperties: { private: { vpSessionId: '1' } } }));
     await pull(s);
 
-    expect(s.called('updateSession').map((c) => c.args)).toEqual([[1, { subject: 'Algebra', google_synced_at: STAMP }]]);
+    expect(s.called('updateSession').map((c) => c.args)).toEqual([[1, { subject: 'Algebra', google_synced_at: STAMP }, READ]]);
   });
 
   test('writes nothing when the row already matches the event, whatever the timestamp format', async () => {
@@ -718,7 +770,7 @@ describe('pullChanges', () => {
     const result = await pull(s);
 
     expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 1, skipped: 0 });
-    expect(s.called('updateSession').map((c) => c.args)).toEqual([[1, { status: 'cancelled', sync_state: 'synced', google_synced_at: STAMP }]]);
+    expect(s.called('updateSession').map((c) => c.args)).toEqual([[1, { status: 'cancelled', sync_state: 'synced', google_synced_at: STAMP }, READ]]);
   });
 
   test('a cancelled event for an unknown session, or an already cancelled one, changes nothing', async () => {
@@ -864,7 +916,7 @@ describe('pullChanges', () => {
     s.g.seed(CAL, event({ updated: '2026-10-02T11:30:00.000Z' }));
     await pull(s);
 
-    expect(s.called('updateSession').map((c) => c.args)).toEqual([[1, { subject: 'Algebra', sync_state: 'synced', google_synced_at: STAMP }]]);
+    expect(s.called('updateSession').map((c) => c.args)).toEqual([[1, { subject: 'Algebra', sync_state: 'synced', google_synced_at: STAMP }, READ]]);
   });
 
   test('a row found by event id (no session id on the event) is updated', async () => {
@@ -951,6 +1003,154 @@ describe('pullChanges', () => {
 
     expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 0 });
     expect(s.g.called('listEvents')).toHaveLength(1);
+  });
+
+  test('an event stretched past 8 hours, or to no length, leaves its row as it was, and the pull still completes with its new token', async () => {
+    const s = setup({
+      sessions: [
+        syncedSession({ id: 1, google_event_id: 'long' }),
+        syncedSession({ id: 2, google_event_id: 'empty' }),
+        syncedSession({ id: 3, google_event_id: 'eight', subject: 'Geometry' }),
+      ],
+      conn: { sync_token: 'tok-1' },
+    });
+    const before = structuredClone(s.state.sessions);
+    s.g.seed(CAL, event({ id: 'long', end: { dateTime: '2026-10-07T02:00:00Z' } })); // 9 hours
+    s.g.seed(CAL, event({ id: 'empty', end: { dateTime: '2026-10-06T17:00:00Z' } })); // no length
+    s.g.seed(CAL, event({ id: 'eight', end: { dateTime: '2026-10-07T01:00:00Z' } })); // exactly 8 hours is allowed
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 1, inserted: 0, cancelled: 0, skipped: 2 });
+    expect(s.state.sessions.slice(0, 2)).toEqual(before.slice(0, 2));
+    expect(s.state.sessions[2]).toMatchObject({ subject: 'Algebra', ends_at: '2026-10-07T01:00:00.000Z' });
+    expect(s.state.connections[0]).toMatchObject({ sync_token: 'sync-next', last_synced_at: STAMP });
+  });
+
+  test('the same holds for an instance of a recurring master', async () => {
+    const s = setup({ sessions: [syncedSession({ google_event_id: 'm1_a', google_recurring_id: 'm1' })] });
+    const before = structuredClone(s.state.sessions);
+    s.g.seed(CAL, event({ id: 'm1', recurrence: ['RRULE:FREQ=WEEKLY'] }));
+    s.g.seedInstances('m1', [event({ id: 'm1_a', recurringEventId: 'm1', end: { dateTime: '2026-10-07T02:00:00Z' } })]);
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+    expect(s.state.sessions).toEqual(before);
+    expect(s.state.connections[0].sync_token).toBe('sync-next');
+  });
+
+  test('a database error on one event counts it skipped and the pull goes on; only the error name and the event id are logged', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const s = setup({
+      sessions: [
+        syncedSession({ id: 1, google_event_id: 'ev1', subject: 'A' }),
+        syncedSession({ id: 2, google_event_id: 'ev2', subject: 'B' }),
+      ],
+    });
+    s.g.seed(CAL, event({ id: 'ev1' }));
+    s.g.seed(CAL, event({ id: 'ev2' }));
+    const update = s.repo.updateSession;
+    s.repo.updateSession = async (id, ...rest) => {
+      if (id === 1) throw new Error('updateSession: Maya Lee row is locked');
+      return update(id, ...rest);
+    };
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 1, inserted: 0, cancelled: 0, skipped: 1 });
+    expect(s.state.sessions.map((r) => r.subject)).toEqual(['A', 'Algebra']);
+    expect(s.state.connections[0]).toMatchObject({ sync_token: 'sync-next', last_synced_at: STAMP, pull_started_at: null });
+    const logged = log.mock.calls.flat().join(' ');
+    expect(logged).toContain('Error');
+    expect(logged).toContain('ev1');
+    expect(logged).not.toMatch(/Maya|locked|updateSession/);
+  });
+
+  test('a failed insert or series cancel is isolated the same way', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const s = setup();
+    s.g.seed(CAL, event({ id: 'new1', ...mayaInvited }));
+    s.g.seed(CAL, event({ id: 'new2', ...mayaInvited }));
+    s.g.seed(CAL, { id: 'gone-series', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' });
+    s.repo.cancelRecurring = async () => { throw new Error('cancelRecurring: down'); };
+    const insert = s.repo.insertSession;
+    s.repo.insertSession = async (row) => {
+      if (row.google_event_id === 'new1') throw new Error('insertSession: down');
+      return insert(row);
+    };
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 1, cancelled: 0, skipped: 2 });
+    expect(s.state.sessions.map((r) => r.google_event_id)).toEqual(['new2']);
+    expect(s.state.connections[0].last_synced_at).toBe(STAMP);
+  });
+
+  test('a GoogleAuthError or GoogleRateError raised while applying an event still ends the pull', async () => {
+    for (const error of [new GoogleAuthError(), new GoogleRateError()]) {
+      const s = setup({ sessions: [syncedSession({ subject: 'Geometry' })] });
+      s.g.seed(CAL, event());
+      s.repo.updateSession = async () => { throw error; };
+      await expect(pull(s)).rejects.toBe(error);
+      expect(s.state.connections[0].pull_started_at).toBeNull();
+      expect(s.state.connections[0].last_synced_at).toBeNull();
+    }
+  });
+
+  test('a pull write is a compare-and-set on the updated_at that was read', async () => {
+    const s = setup({ sessions: [syncedSession({ subject: 'Geometry' })] });
+    s.g.seed(CAL, event());
+    await pull(s);
+    expect(s.called('updateSession').map((c) => c.args[2])).toEqual([READ]);
+  });
+
+  test('a row changed in the portal between the read and the write is left alone, and that event is skipped', async () => {
+    const s = setup({ sessions: [syncedSession({ subject: 'Geometry' })] });
+    s.g.seed(CAL, event());
+    const stale = { ...s.state.sessions[0] };
+    Object.assign(s.state.sessions[0], { subject: 'Edited', updated_at: '2026-10-02T11:59:00+00:00' });
+    s.repo.sessionByEvent = async () => stale;
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+    expect(s.state.sessions[0]).toMatchObject({ subject: 'Edited', updated_at: '2026-10-02T11:59:00+00:00' });
+  });
+
+  test('a cancellation that misses the compare-and-set is skipped too', async () => {
+    const s = setup({ sessions: [syncedSession()] });
+    s.g.seed(CAL, { id: 'ev1', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' });
+    const stale = { ...s.state.sessions[0] };
+    Object.assign(s.state.sessions[0], { subject: 'Edited', updated_at: '2026-10-02T11:59:00+00:00' });
+    s.repo.sessionByEvent = async () => stale;
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+    expect(s.state.sessions[0].status).toBe('scheduled');
+  });
+
+  test('a row whose push failed (error) keeps its unpushed edit like a pending one', async () => {
+    const errored = syncedSession({ sync_state: 'error', subject: 'Calculus', updated_at: '2026-10-02T11:45:00+00:00' });
+    const s = setup({ sessions: [errored] });
+    const before = structuredClone(errored);
+    s.g.seed(CAL, event({ updated: '2026-10-02T11:00:00.000Z' }));
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+    expect(s.state.sessions[0]).toEqual(before);
+  });
+
+  test('an error row older than the event gives way to Google and becomes synced', async () => {
+    const s = setup({ sessions: [syncedSession({ sync_state: 'error', subject: 'Calculus', updated_at: '2026-10-02T11:00:00+00:00' })] });
+    s.g.seed(CAL, event({ updated: '2026-10-02T11:30:00.000Z' }));
+    await pull(s);
+    expect(s.state.sessions[0]).toMatchObject({ subject: 'Algebra', sync_state: 'synced' });
+  });
+
+  test('does nothing, not even taking the lock, when the connection has no calendar yet', async () => {
+    const s = setup({ conn: { calendar_id: null } });
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 0 });
+    expect(s.g.calls).toHaveLength(0);
+    expect(s.called('claimPull')).toHaveLength(0);
+    expect(s.called('updateConnection')).toHaveLength(0);
   });
 
   test('a failure while pulling releases the lock and rethrows', async () => {

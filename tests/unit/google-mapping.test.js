@@ -104,6 +104,14 @@ describe('eventToSessionFields', () => {
     expect(eventToSessionFields(event({ summary: 'Review (weekly) (Maya Lin)' })).subject).toBe('Review (weekly)');
   });
 
+  test('the generic label the portal writes for a session with no subject maps back to a null subject', () => {
+    expect(eventToSessionFields(event({ summary: 'Tutoring session (Maya Lin)' })).subject).toBeNull();
+    expect(eventToSessionFields(event({ summary: 'Tutoring session' })).subject).toBeNull();
+    expect(eventToSessionFields(event({ summary: '  Tutoring session  ' })).subject).toBeNull();
+    expect(eventToSessionFields(event({ summary: 'Tutoring session notes (Maya Lin)' })).subject).toBe('Tutoring session notes');
+    expect(eventToSessionFields(event({ summary: 'tutoring session' })).subject).toBe('tutoring session');
+  });
+
   test('an empty summary gives a null subject', () => {
     expect(eventToSessionFields(event({ summary: undefined })).subject).toBeNull();
     expect(eventToSessionFields(event({ summary: '  ' })).subject).toBeNull();
@@ -383,6 +391,11 @@ describe('resolveConflict', () => {
 
   test('synced gives google', () => {
     expect(resolveConflict({ sync_state: 'synced', updated_at: '2026-10-05T13:00:00.000Z' }, event)).toBe('google');
+  });
+
+  test('an error row (its push failed) is treated like a pending one', () => {
+    expect(resolveConflict({ sync_state: 'error', updated_at: '2026-10-05T12:00:01.000Z' }, event)).toBe('portal');
+    expect(resolveConflict({ sync_state: 'error', updated_at: '2026-10-05T11:59:59.000Z' }, event)).toBe('google');
   });
 
   test('a pending row against an event with no updated time gives portal', () => {

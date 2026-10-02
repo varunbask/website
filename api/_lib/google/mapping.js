@@ -3,6 +3,7 @@ import { TIME_ZONE } from './config.js';
 export const PORTAL_LINE = 'Open in the portal:';
 export const JOIN_LINE = 'Join online:';
 const SUFFIX = / \(([^()]+)\)$/;
+const GENERIC_SUBJECT = 'Tutoring session'; // what sessionToEvent writes for a session with no subject
 const JOIN_URL = new RegExp(`${JOIN_LINE}[ \\t]*(https://[^\\s<]+)`);
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' };
@@ -28,7 +29,7 @@ function plainText(html) {
 // A session with both a place and a meeting link keeps the place in the
 // location and puts the link on a "Join online:" line in the description.
 export function sessionToEvent(s, { studentName, studentEmail, portalUrl }) {
-  const subject = (s.subject ?? '').trim() || 'Tutoring session';
+  const subject = (s.subject ?? '').trim() || GENERIC_SUBJECT;
   const description = [
     s.notes?.trim() || null,
     s.meeting_url && s.location ? `${JOIN_LINE} ${s.meeting_url}` : null,
@@ -54,7 +55,9 @@ export function eventToSessionFields(e) {
   const end = e.end?.dateTime;
   if (!start || !end) return null;
   const summary = String(e.summary ?? '').trim();
-  const subject = summary.replace(SUFFIX, '').trim() || null;
+  const stripped = summary.replace(SUFFIX, '').trim();
+  // That label is not a subject: reading it back would turn "no subject" into a stored one
+  const subject = stripped === GENERIC_SUBJECT ? null : (stripped || null);
   const desc = plainText(e.description);
   // Notes are what comes before the first line the portal added
   const cuts = [JOIN_LINE, PORTAL_LINE].map((marker) => desc.indexOf(marker)).filter((i) => i >= 0);
@@ -86,10 +89,10 @@ export function matchStudent(e, students) {
 }
 
 // Who wins when both changed: Google, unless the portal row is waiting to be
-// pushed and was changed after the event
+// pushed (pending, or error after a failed push) and was changed after the event
 export function resolveConflict(row, e) {
   const eventChanged = e.updated ? Date.parse(e.updated) : 0;
-  if (row.sync_state === 'pending' && Date.parse(row.updated_at) > eventChanged) return 'portal';
+  if ((row.sync_state === 'pending' || row.sync_state === 'error') && Date.parse(row.updated_at) > eventChanged) return 'portal';
   return 'google';
 }
 
