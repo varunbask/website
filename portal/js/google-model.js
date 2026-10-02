@@ -151,6 +151,15 @@ export function personalWhen(item, { today = null, viewerInZone } = {}) {
   return `${shortDayText(dayKey(item.starts_at), today)}, ${timeRange(item, { viewerInZone })}`;
 }
 
+// The link to a session's event in Google Calendar, for the session's own tutor
+// only (the event lives in their calendar, so nobody else could open it); null
+// when there is none or it is not a Google Calendar link
+export function ownGoogleLink(session, me) {
+  if (!session || !me || session.tutor_id === null || session.tutor_id === undefined) return null;
+  if (String(session.tutor_id) !== String(me.id)) return null;
+  return safeGoogleLink(session.google_link);
+}
+
 // ---------------------------------------------------------------------------
 // Coming back from Google
 
@@ -208,6 +217,12 @@ export function safeGoogleLink(link) {
   return onCalendar ? url.href : null;
 }
 
+// Where a round trip to Google should land: this page, with its query (a staff
+// member's ?student= scope) and hash. The server takes it as return_to.
+export function defaultReturnTo(loc = globalThis.location) {
+  return `${loc.pathname}${loc.search}${loc.hash}`;
+}
+
 // "https://calendar.google.com/calendar/r/day/2026/10/6" from '2026-10-06'
 export function googleDayUrl(key) {
   const { y, m, d } = parseKey(key);
@@ -215,13 +230,17 @@ export function googleDayUrl(key) {
 }
 
 export const SYNC_NOTE = 'Not synced to Google yet. It will sync shortly.';
+export const RECONNECT_NOTE = 'Reconnect Google Calendar to sync this session.';
 
 // What the session drawer tells a tutor about their own session: it is waiting
-// to go to Google (or the last try failed) and their sync is on. Otherwise null.
+// to go to Google (or the last try failed) and their sync is on. When the sync
+// needs a reconnect the note says that instead, because waiting will not help.
+// Otherwise null.
 export function syncNote(session, me, status) {
   if (!session || !me || me.role !== 'tutor' || String(session.tutor_id) !== String(me.id)) return null;
   if (!status?.connected || !status.sync_enabled) return null;
-  return session.sync_state === 'pending' || session.sync_state === 'error' ? SYNC_NOTE : null;
+  if (session.sync_state !== 'pending' && session.sync_state !== 'error') return null;
+  return status.last_error === 'reconnect' ? RECONNECT_NOTE : SYNC_NOTE;
 }
 
 // ---------------------------------------------------------------------------

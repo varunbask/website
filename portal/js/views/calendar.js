@@ -398,7 +398,7 @@ export function mount(ctx) {
     if (syncedThisLoad) return;
     syncedThisLoad = true;
     syncNow().then(
-      () => ctx.store.invalidate(null),
+      () => ctx.store.invalidateAll(), // a pull can change any student's sessions
       (error) => {
         console.error(error);
         googleEl?.refresh?.();

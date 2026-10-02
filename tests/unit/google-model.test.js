@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   syncStatusText, personalBlocks, allDayOn, readGoogleReturn, googleDayUrl, personalClashes,
   personalLabel, personalWhen, personalClashLine, mergePersonalClashes, weekRange, dayRange, inviteText,
-  safeGoogleLink, syncNote, SYNC_NOTE, normalizeStatus, safeErrorText, OFF_STATUS,
+  safeGoogleLink, ownGoogleLink, defaultReturnTo, syncNote, SYNC_NOTE, RECONNECT_NOTE, normalizeStatus, safeErrorText, OFF_STATUS,
 } from '../../portal/js/google-model.js';
 import { layoutDay, sessionsByDay } from '../../portal/js/sessions-model.js';
 import { dayKey, zonedIso } from '../../portal/js/dates.js';
@@ -501,6 +501,21 @@ describe('syncNote', () => {
     expect(SYNC_NOTE).toBe('Not synced to Google yet. It will sync shortly.');
   });
 
+  test('asks to reconnect when the sync needs it', () => {
+    const reconnect = { connected: true, sync_enabled: true, last_error: 'reconnect' };
+    expect(RECONNECT_NOTE).toBe('Reconnect Google Calendar to sync this session.');
+    expect(syncNote({ tutor_id: 't1', sync_state: 'pending' }, me, reconnect)).toBe(RECONNECT_NOTE);
+    expect(syncNote({ tutor_id: 't1', sync_state: 'error' }, me, reconnect)).toBe(RECONNECT_NOTE);
+  });
+
+  test('a paused sync (google_error) still says it will sync shortly', () => {
+    expect(syncNote({ tutor_id: 't1', sync_state: 'error' }, me, { ...on, last_error: 'google_error' })).toBe(SYNC_NOTE);
+  });
+
+  test('a synced session needs no note even when reconnect is needed', () => {
+    expect(syncNote({ tutor_id: 't1', sync_state: 'synced' }, me, { ...on, last_error: 'reconnect' })).toBeNull();
+  });
+
   test('says nothing for a synced session, or one with no state', () => {
     expect(syncNote({ tutor_id: 't1', sync_state: 'synced' }, me, on)).toBeNull();
     expect(syncNote({ tutor_id: 't1', sync_state: null }, me, on)).toBeNull();
@@ -586,5 +601,66 @@ describe('safeErrorText', () => {
 
   test('the longest allowed sentence', () => {
     expect(safeErrorText('a'.repeat(200))).toHaveLength(200);
+  });
+});
+
+describe('ownGoogleLink', () => {
+  const link = 'https://www.google.com/calendar/event?eid=abc123';
+
+  test('the session\u2019s own tutor gets the link', () => {
+    expect(ownGoogleLink({ tutor_id: 't1', google_link: link }, { id: 't1', role: 'tutor' })).toBe(link);
+  });
+
+  test('ids compare as text, and an admin who is the tutor counts', () => {
+    expect(ownGoogleLink({ tutor_id: 7, google_link: link }, { id: '7', role: 'tutor' })).toBe(link);
+    expect(ownGoogleLink({ tutor_id: 'a1', google_link: link }, { id: 'a1', role: 'admin' })).toBe(link);
+  });
+
+  test('another tutor, an admin who is not the tutor, and everyone else get nothing', () => {
+    const session = { tutor_id: 't1', google_link: link };
+    expect(ownGoogleLink(session, { id: 't2', role: 'tutor' })).toBeNull();
+    expect(ownGoogleLink(session, { id: 'a1', role: 'admin' })).toBeNull();
+    expect(ownGoogleLink(session, { id: 's1', role: 'student' })).toBeNull();
+    expect(ownGoogleLink(session, null)).toBeNull();
+    expect(ownGoogleLink(null, { id: 't1', role: 'tutor' })).toBeNull();
+  });
+
+  test('no link, or a link that is not Google Calendar, gives nothing', () => {
+    const me = { id: 't1', role: 'tutor' };
+    expect(ownGoogleLink({ tutor_id: 't1', google_link: null }, me)).toBeNull();
+    expect(ownGoogleLink({ tutor_id: 't1' }, me)).toBeNull();
+    expect(ownGoogleLink({ tutor_id: 't1', google_link: 'https://evil.example/x' }, me)).toBeNull();
+    expect(ownGoogleLink({ tutor_id: 't1', google_link: 'javascript:alert(1)' }, me)).toBeNull();
+  });
+});
+
+describe('defaultReturnTo', () => {
+  test('keeps the path, the search and the hash', () => {
+    expect(defaultReturnTo({
+      pathname: '/portal/staff.html', search: '?student=u-maya', hash: '#/calendar?view=week',
+    })).toBe('/portal/staff.html?student=u-maya#/calendar?view=week');
+  });
+
+  test('with no search or no hash', () => {
+    expect(defaultReturnTo({ pathname: '/portal/student.html', search: '', hash: '#/overview' })).toBe('/portal/student.html#/overview');
+    expect(defaultReturnTo({ pathname: '/portal/student.html', search: '', hash: '' })).toBe('/portal/student.html');
+    expect(defaultReturnTo({ pathname: '/portal/parent.html', search: '?child=c1', hash: '' })).toBe('/portal/parent.html?child=c1');
+  });
+
+  test('is what the server accepts: under /portal/ and without a double slash', () => {
+    const out = defaultReturnTo({ pathname: '/portal/staff.html', search: '?student=u-maya', hash: '#/calendar?scope=all' });
+    expect(out.startsWith('/portal/')).toBe(true);
+    expect(out).not.toContain('//');
+  });
+
+  test('reads the page it runs on when given nothing', () => {
+    const saved = globalThis.location;
+    globalThis.location = { pathname: '/portal/staff.html', search: '?student=u-leo', hash: '#/today' };
+    try {
+      expect(defaultReturnTo()).toBe('/portal/staff.html?student=u-leo#/today');
+    } finally {
+      if (saved === undefined) delete globalThis.location;
+      else globalThis.location = saved;
+    }
   });
 });

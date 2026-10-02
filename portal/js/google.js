@@ -12,7 +12,7 @@ import { icon } from './icons.js';
 import { button, busy } from './ui.js';
 import { menu } from './overlays.js';
 import {
-  syncStatusText, inviteText, readGoogleReturn, normalizeStatus, safeErrorText, OFF_STATUS as OFF,
+  syncStatusText, inviteText, readGoogleReturn, normalizeStatus, safeErrorText, defaultReturnTo, OFF_STATUS as OFF,
 } from './google-model.js';
 
 const NOT_SET_UP = 'Google Calendar is not set up yet.';
@@ -100,9 +100,10 @@ export function invalidateGoogle() {
 // ---------------------------------------------------------------------------
 // Actions
 
-// Sends the browser to Google's consent screen and back to returnTo. Resolves
+// Sends the browser to Google's consent screen and back to returnTo (this page,
+// query and hash included, so a staff member's ?student= scope survives). Resolves
 // once the browser is on its way; rejects with a message to show.
-export async function connectGoogle(purpose, returnTo = location.pathname + location.hash) {
+export async function connectGoogle(purpose, returnTo = defaultReturnTo()) {
   const data = await call('/api/google/start', { body: { purpose, return_to: returnTo } });
   if (typeof data?.url !== 'string' || !data.url) throw new Error('Google Calendar did not answer. Try again.');
   location.assign(data.url);
@@ -246,9 +247,11 @@ export function studentInviteControl({ toast } = {}) {
 
 // The tutor's switch for the calendar toolbar: "Google Calendar" on or off with
 // the sync status beside it and a small menu (Sync now, Disconnect). Off, it
-// connects first. onStatus(status) hears the status each time it is painted, so
-// the calendar can show or hide personal events. Left hidden when the status
-// cannot be read. Call .refresh() on the element to read the status again.
+// connects first. A change refreshes the whole store (invalidateAll, because
+// invalidate(null) leaves a student's cached sessions in place). onStatus(status)
+// hears the status each time it is painted, so the calendar can show or hide
+// personal events. Left hidden when the status cannot be read. Call .refresh()
+// on the element to read the status again.
 export function tutorGoogleControl({ toast, store, signal, onStatus } = {}) {
   const root = h('div', { class: 'cal-google', hidden: true });
   const statusId = uid('cal-google-status');
@@ -338,7 +341,7 @@ export function tutorGoogleControl({ toast, store, signal, onStatus } = {}) {
       const turnOn = !isOn(status);
       const next = await setGoogleSync(turnOn);
       paint(next);
-      store?.invalidate(null);
+      store?.invalidateAll();
       say(toast, turnOn ? 'Google Calendar sync is on' : 'Google Calendar sync is off');
     });
   }
@@ -350,7 +353,7 @@ export function tutorGoogleControl({ toast, store, signal, onStatus } = {}) {
   function sync() {
     return run(async () => {
       paint(await syncNow());
-      store?.invalidate(null);
+      store?.invalidateAll();
       say(toast, 'Google Calendar synced');
     }, { failure: () => root.refresh() });
   }
@@ -358,7 +361,7 @@ export function tutorGoogleControl({ toast, store, signal, onStatus } = {}) {
   function disconnect() {
     return run(async () => {
       paint(await disconnectGoogle());
-      store?.invalidate(null);
+      store?.invalidateAll();
       say(toast, 'Google Calendar disconnected');
     });
   }

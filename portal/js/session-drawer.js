@@ -28,7 +28,7 @@ import { sessionForm, sessionNotesForm, callout } from './session-form.js';
 import { materialsSection } from './materials-ui.js';
 import { materialsFor, homeworkDueKey } from './materials-model.js';
 import { getGoogleStatus } from './google.js';
-import { safeGoogleLink, syncNote } from './google-model.js';
+import { ownGoogleLink, syncNote } from './google-model.js';
 
 const MISSING = 'This session isn’t available. It may have been cancelled or removed.';
 const sameId = (a, b) => String(a) === String(b);
@@ -627,7 +627,8 @@ function buildDetail(dctx, found, { now, names, actions }) {
     onClick: () => actions.calendar(false),
     focusKey: 'ses-ics',
   })];
-  const googleLink = staff ? safeGoogleLink(session.google_link) : null;
+  // The event is in the session's own tutor's calendar, so only they get the link
+  const googleLink = staff ? ownGoogleLink(session, dctx.me) : null;
   if (googleLink) {
     const open = button({
       label: 'Open in Google Calendar',
