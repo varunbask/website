@@ -48,9 +48,10 @@ function fakeGoogle({ pageSize = 250, syncToken = 'sync-next' } = {}) {
     if (i >= 0) throw failures.splice(i, 1)[0].error;
   }
 
-  function page(all, query) {
+  function page(all, query, maxResults = pageSize) {
+    const size = Math.min(pageSize, maxResults);
     const start = Number(query.pageToken ?? 0);
-    const end = start + pageSize;
+    const end = start + size;
     const items = all.slice(start, end);
     if (end < all.length) return { items, nextPageToken: String(end) };
     return syncToken ? { items, nextSyncToken: syncToken } : { items };
@@ -90,8 +91,13 @@ function fakeGoogle({ pageSize = 250, syncToken = 'sync-next' } = {}) {
     },
     async listEvents(cal, query = {}) {
       enter('listEvents', [cal, query]);
-      const all = [...events.entries()].filter(([k]) => k.startsWith(`${cal}\n`)).map(([, v]) => v);
-      return page(all, query);
+      let all = [...events.entries()].filter(([k]) => k.startsWith(`${cal}\n`)).map(([, v]) => v);
+      if (query.privateExtendedProperty) {
+        const [name, value] = query.privateExtendedProperty.split('=');
+        all = all.filter((e) => e.extendedProperties?.private?.[name] === value);
+      }
+      if (query.showDeleted === false) all = all.filter((e) => e.status !== 'cancelled');
+      return page(all, query, query.maxResults);
     },
     async listInstances(cal, id, query = {}) {
       enter('listInstances', [cal, id, query]);
@@ -137,7 +143,8 @@ function fakeRepo({ sessions = [], connections = [], tombstones = [], profiles =
         .filter((s) => s.tutor_id === tutorId && ['pending', 'error'].includes(s.sync_state)
           && Date.parse(s.starts_at) > NOW.getTime() - 30 * DAY)
         .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
-        .slice(0, limit);
+        .slice(0, limit)
+        .map((r) => ({ ...r })); // a read is a snapshot, as from a database
     },
     async tombstones(tutorId) { return state.tombstones.filter((t) => t.tutor_id === tutorId); },
     async removeTombstone(id) {
@@ -146,17 +153,28 @@ function fakeRepo({ sessions = [], connections = [], tombstones = [], profiles =
     },
     async sessionById(id) {
       record('sessionById', [id]);
-      return state.sessions.find((s) => String(s.id) === String(id)) ?? null;
+      const row = state.sessions.find((s) => String(s.id) === String(id));
+      return row ? { ...row } : null;
     },
     async sessionByEvent(calendarId, eventId) {
       record('sessionByEvent', [calendarId, eventId]);
-      return state.sessions.find((s) => s.google_calendar_id === calendarId && s.google_event_id === eventId) ?? null;
+      const row = state.sessions.find((s) => s.google_calendar_id === calendarId && s.google_event_id === eventId);
+      return row ? { ...row } : null;
     },
-    async updateSession(id, fields) {
-      record('updateSession', [id, fields]);
+    // Like the real one: with ifUpdatedAt, a row that has changed since is left alone and null comes back
+    async updateSession(id, fields, opts) {
+      record('updateSession', opts ? [id, fields, opts] : [id, fields]);
       const row = state.sessions.find((s) => s.id === id);
+      if (!row || (opts?.ifUpdatedAt !== undefined && row.updated_at !== opts.ifUpdatedAt)) return null;
       Object.assign(row, fields);
       return row;
+    },
+    async cancelRecurring(tutorId, recurringId, now) {
+      record('cancelRecurring', [tutorId, recurringId, now]);
+      const hit = state.sessions.filter((r) => r.tutor_id === tutorId && r.google_recurring_id === recurringId
+        && Date.parse(r.ends_at) > now.getTime() && r.status !== 'cancelled');
+      for (const r of hit) Object.assign(r, { status: 'cancelled', sync_state: 'synced', google_synced_at: now.toISOString() });
+      return hit.length;
     },
     async insertSession(row) {
       record('insertSession', [row]);
@@ -257,6 +275,17 @@ function setup({ sessions = [], tombstones = [], conn: connOver = {}, students =
 const push = (s) => pushPending(s.conn, s.g, { repo: s.repo, config, now: NOW });
 const pull = (s) => pullChanges(s.conn, s.g, { repo: s.repo, now: NOW });
 
+// The portal user edits the first session while a Google call is in flight
+function editDuring(s, method, edit) {
+  const real = s.g[method];
+  s.g[method] = async (...args) => {
+    const out = await real(...args);
+    Object.assign(s.state.sessions[0], edit);
+    return out;
+  };
+}
+const EDITED = { subject: 'Edited', updated_at: '2026-10-02T11:59:00+00:00' };
+
 afterEach(() => { vi.restoreAllMocks(); });
 
 // ---------------------------------------------------------------- push
@@ -306,6 +335,7 @@ describe('pushPending', () => {
 
     expect(result.pushed).toBe(1);
     expect(s.g.called('insertEvent')).toHaveLength(0);
+    expect(s.g.called('listEvents')).toHaveLength(0); // it already has its event id: no lookup for a tagged one
     const [{ args: [cal, id, body] }] = s.g.called('patchEvent');
     expect([cal, id]).toEqual([CAL, 'ev1']);
     expect(body.summary).toBe('Geometry (Maya Lee)');
@@ -342,7 +372,8 @@ describe('pushPending', () => {
 
     expect(result).toEqual({ pushed: 0, deleted: 0, failed: 0, stopped: false });
     expect(s.g.calls).toHaveLength(0);
-    expect(s.calls.find((c) => c.name === 'updateSession').args).toEqual([1, { sync_state: 'synced', google_synced_at: STAMP }]);
+    expect(s.calls.find((c) => c.name === 'updateSession').args)
+      .toEqual([1, { sync_state: 'synced', google_synced_at: STAMP }, { ifUpdatedAt: '2026-10-02T11:00:00+00:00' }]);
   });
 
   test('a tombstone deletes its event and is removed', async () => {
@@ -434,6 +465,101 @@ describe('pushPending', () => {
     s.g.fail('deleteEvent', new GoogleAuthError());
     await expect(push(s)).rejects.toBeInstanceOf(GoogleAuthError);
     expect(s.state.tombstones).toHaveLength(1);
+  });
+
+  test('a session whose earlier insert reached Google without its id being saved binds that event, no twin', async () => {
+    const s = setup({ sessions: [session()] });
+    s.g.seed(CAL, event({ id: 'tagged', extendedProperties: { private: { vpSessionId: '1' } } }));
+    s.g.seed(CAL, event({ id: 'other', extendedProperties: { private: { vpSessionId: '2' } } }));
+    const result = await push(s);
+
+    expect(result).toEqual({ pushed: 1, deleted: 0, failed: 0, stopped: false });
+    expect(s.g.called('listEvents')[0].args).toEqual([CAL, { privateExtendedProperty: 'vpSessionId=1', maxResults: 1, showDeleted: false }]);
+    expect(s.g.called('insertEvent')).toHaveLength(0);
+    expect(s.g.called('patchEvent')[0].args.slice(0, 2)).toEqual([CAL, 'tagged']);
+    expect(s.g.called('patchEvent')[0].args[2].summary).toBe('Algebra (Maya Lee)');
+    expect(s.state.sessions[0]).toMatchObject({ google_event_id: 'tagged', google_calendar_id: CAL, sync_state: 'synced', google_synced_at: STAMP });
+  });
+
+  test('a tagged event that is gone before the patch is replaced by an insert', async () => {
+    const s = setup({ sessions: [session()] });
+    s.g.seed(CAL, event({ id: 'tagged', extendedProperties: { private: { vpSessionId: '1' } } }));
+    s.g.fail('patchEvent', new GoogleNotFound());
+    await push(s);
+
+    expect(s.g.called('insertEvent')).toHaveLength(1);
+    expect(s.state.sessions[0].google_event_id).toBe('ev-1');
+  });
+
+  test('a rate error while looking for a tagged event stops the run', async () => {
+    const s = setup({ sessions: [session()] });
+    s.g.fail('listEvents', new GoogleRateError());
+    const result = await push(s);
+
+    expect(result.stopped).toBe(true);
+    expect(s.state.sessions[0].sync_state).toBe('pending');
+  });
+
+  test('the synced mark is a compare-and-set on the updated_at that was read', async () => {
+    const s = setup({ sessions: [session()] });
+    await push(s);
+    expect(s.called('updateSession')[0].args[2]).toEqual({ ifUpdatedAt: '2026-10-02T11:00:00+00:00' });
+    expect(s.called('updateSession')).toHaveLength(1);
+  });
+
+  test('an edit made while an insert is in flight keeps the row pending, with the event id stored, and the next push sends the edit', async () => {
+    const s = setup({ sessions: [session()] });
+    editDuring(s, 'insertEvent', EDITED);
+    const result = await push(s);
+
+    expect(result).toEqual({ pushed: 1, deleted: 0, failed: 0, stopped: false });
+    const kept = { google_event_id: 'ev-1', google_calendar_id: CAL, google_link: 'https://calendar.google.test/ev-1' };
+    expect(s.state.sessions[0]).toMatchObject({ ...kept, sync_state: 'pending', subject: 'Edited' });
+    expect(s.state.sessions[0].google_synced_at).toBeUndefined();
+    expect(s.called('updateSession').map((c) => c.args)).toEqual([
+      [1, { ...kept, sync_state: 'synced', google_synced_at: STAMP }, { ifUpdatedAt: '2026-10-02T11:00:00+00:00' }],
+      [1, kept],
+    ]);
+
+    await push(s);
+    expect(s.g.called('insertEvent')).toHaveLength(1);
+    expect(s.g.called('patchEvent')[0].args.slice(0, 2)).toEqual([CAL, 'ev-1']);
+    expect(s.g.called('patchEvent')[0].args[2].summary).toBe('Edited (Maya Lee)');
+    expect(s.state.sessions[0].sync_state).toBe('synced');
+  });
+
+  test('an edit made while a patch is in flight keeps the row pending', async () => {
+    const s = setup({ sessions: [session({ google_event_id: 'ev1', google_calendar_id: CAL })] });
+    s.g.seed(CAL, event());
+    editDuring(s, 'patchEvent', EDITED);
+    await push(s);
+
+    expect(s.state.sessions[0]).toMatchObject({ google_event_id: 'ev1', sync_state: 'pending', subject: 'Edited' });
+  });
+
+  test('a session restored while its event is being deleted keeps no dead event id and stays pending, so the next push inserts it again', async () => {
+    const s = setup({ sessions: [session({ status: 'cancelled', google_event_id: 'ev1', google_calendar_id: CAL, google_link: 'https://calendar.google.test/event?eid=ev1' })] });
+    s.g.seed(CAL, event());
+    editDuring(s, 'deleteEvent', { status: 'scheduled', updated_at: '2026-10-02T11:59:00+00:00' });
+    const result = await push(s);
+
+    expect(result).toEqual({ pushed: 0, deleted: 1, failed: 0, stopped: false });
+    expect(s.state.sessions[0]).toMatchObject({ status: 'scheduled', sync_state: 'pending', google_event_id: null, google_link: null });
+
+    await push(s);
+    expect(s.g.called('insertEvent')).toHaveLength(1);
+    expect(s.state.sessions[0]).toMatchObject({ sync_state: 'synced', google_event_id: 'ev-1' });
+  });
+
+  test('a cancelled session without an event that was edited since it was read stays pending', async () => {
+    const s = setup({ sessions: [session({ status: 'cancelled' })] });
+    const stale = { ...s.state.sessions[0] };
+    Object.assign(s.state.sessions[0], { status: 'scheduled', updated_at: '2026-10-02T11:59:00+00:00' });
+    s.repo.pendingSessions = async () => [stale];
+    await push(s);
+
+    expect(s.state.sessions[0]).toMatchObject({ status: 'scheduled', sync_state: 'pending' });
+    expect(s.called('updateSession')).toHaveLength(1);
   });
 
   test('reads at most 50 pending sessions, oldest first, and ignores other tutors', async () => {
@@ -649,30 +775,69 @@ describe('pullChanges', () => {
     expect(s.g.called('listInstances').map((c) => c.args[2].pageToken)).toEqual([undefined, '1']);
   });
 
-  test('a cancelled master reaches each existing instance as a cancellation', async () => {
+  test('a recurring master cancelled in Google cancels the upcoming sessions of its series', async () => {
     const s = setup({
       sessions: [
         syncedSession({ id: 1, google_event_id: 'm2_a', google_recurring_id: 'm2' }),
         syncedSession({ id: 2, google_event_id: 'm2_b', google_recurring_id: 'm2' }),
+        syncedSession({ id: 3, google_event_id: 'm2_old', google_recurring_id: 'm2', starts_at: '2026-09-28T17:00:00+00:00', ends_at: '2026-09-28T18:00:00+00:00' }),
+        syncedSession({ id: 4, google_event_id: 'other_a', google_recurring_id: 'other' }),
+        syncedSession({ id: 5, tutor_id: OTHER_TUTOR, google_event_id: 'm2_c', google_recurring_id: 'm2' }),
       ],
     });
     s.g.seed(CAL, { id: 'm2', status: 'cancelled', recurrence: ['RRULE:FREQ=WEEKLY'], updated: '2026-10-02T11:30:00.000Z' });
-    s.g.seedInstances('m2', [
-      { id: 'm2_a', recurringEventId: 'm2', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' },
-      { id: 'm2_b', recurringEventId: 'm2', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' },
-    ]);
     const result = await pull(s);
 
-    expect(result.cancelled).toBe(2);
-    expect(s.state.sessions.map((r) => r.status)).toEqual(['cancelled', 'cancelled']);
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 2, skipped: 0 });
+    expect(s.called('cancelRecurring').map((c) => c.args)).toEqual([[TUTOR, 'm2', NOW]]);
+    expect(s.g.called('listInstances')).toHaveLength(0);
+    expect(s.state.sessions.map((r) => r.status)).toEqual(['cancelled', 'cancelled', 'scheduled', 'scheduled', 'scheduled']);
+    expect(s.state.sessions[0]).toMatchObject({ sync_state: 'synced', google_synced_at: STAMP });
   });
 
-  test('a master that is gone by the time its instances are listed is skipped, not fatal', async () => {
+  test('a series deleted in Google that arrives as a bare cancelled master cancels its sessions too', async () => {
+    const s = setup({ sessions: [syncedSession({ id: 1, google_event_id: 'm3_a', google_recurring_id: 'm3' })] });
+    s.g.seed(CAL, { id: 'm3', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' });
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 1, skipped: 0 });
+    expect(s.state.sessions[0].status).toBe('cancelled');
+  });
+
+  test('a cancelled event that is not the master of any series is skipped', async () => {
+    const s = setup({ sessions: [syncedSession({ google_recurring_id: 'm2' })] });
+    s.g.seed(CAL, { id: 'loner', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' });
+    s.g.seed(CAL, { id: 'm2_x', recurringEventId: 'm2', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' });
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 2 });
+    expect(s.called('cancelRecurring').map((c) => c.args[1])).toEqual(['loner']); // an instance never cancels its series
+    expect(s.state.sessions[0].status).toBe('scheduled');
+  });
+
+  test('a master whose instances are gone (404 or 410) means its series was deleted', async () => {
+    for (const error of [new GoogleNotFound(), new GoogleGone()]) {
+      const s = setup({
+        sessions: [
+          syncedSession({ id: 1, google_event_id: 'm1_a', google_recurring_id: 'm1' }),
+          syncedSession({ id: 2, google_event_id: 'x', google_recurring_id: 'x' }),
+        ],
+      });
+      s.g.seed(CAL, event({ id: 'm1', recurrence: ['RRULE:FREQ=WEEKLY'], ...mayaInvited }));
+      s.g.fail('listInstances', error);
+      const result = await pull(s);
+
+      expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 1, skipped: 0 });
+      expect(s.called('cancelRecurring').map((c) => c.args)).toEqual([[TUTOR, 'm1', NOW]]);
+      expect(s.state.sessions.map((r) => r.status)).toEqual(['cancelled', 'scheduled']);
+      expect(s.state.connections[0].last_synced_at).toBe(STAMP);
+    }
+  });
+
+  test('a deleted series with nothing upcoming in the portal counts as one skipped event', async () => {
     const s = setup();
-    s.g.seed(CAL, event({ id: 'm1', recurrence: ['RRULE:FREQ=WEEKLY'], ...mayaInvited }));
-    s.g.fail('listInstances', new GoogleNotFound());
-    await expect(pull(s)).resolves.toMatchObject({ inserted: 0 });
-    expect(s.state.connections[0].last_synced_at).toBe(STAMP);
+    s.g.seed(CAL, { id: 'm4', status: 'cancelled', recurrence: ['RRULE:FREQ=WEEKLY'], updated: '2026-10-02T11:30:00.000Z' });
+    expect(await pull(s)).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
   });
 
   test('an exception listed on its own keeps its recurring id', async () => {
@@ -769,12 +934,12 @@ describe('pullChanges', () => {
     expect(s.state.connections[0].sync_token).toBe('tok-1');
   });
 
-  test('skips when someone else holds the pull lock', async () => {
+  test('answers busy, and does nothing, when someone else holds the pull lock', async () => {
     const s = setup({ conn: { pull_started_at: new Date(NOW.getTime() - 10_000).toISOString() } });
     s.state.connections[0].pull_started_at = new Date(NOW.getTime() - 10_000).toISOString();
     const result = await pull(s);
 
-    expect(result).toEqual({ skipped: true });
+    expect(result).toEqual({ busy: true });
     expect(s.g.calls).toHaveLength(0);
     expect(s.called('updateConnection')).toHaveLength(0);
   });
@@ -1001,6 +1166,7 @@ describe('createGoogleRepo', () => {
     await expect(repo.pendingSessions(TUTOR, 5)).rejects.toThrow('pendingSessions: boom');
     await expect(repo.updateSession(1, {})).rejects.toThrow('updateSession: boom');
     await expect(repo.insertSession({})).rejects.toThrow('insertSession: boom');
+    await expect(repo.cancelRecurring(TUTOR, 'm1', NOW)).rejects.toThrow('cancelRecurring: boom');
     await expect(repo.markUpcomingPending({ tutorId: TUTOR, now: NOW })).rejects.toThrow('markUpcomingPending: boom');
     await expect(repo.linkedStudents(TUTOR)).rejects.toThrow('linkedStudents: boom');
   });
@@ -1115,6 +1281,31 @@ describe('createGoogleRepo', () => {
     has(db.log[0], 'update', { sync_state: 'synced' });
     has(db.log[0], 'eq', 'id', 5);
     has(db.log[1], 'insert', { subject: 'x' });
+  });
+
+  test('updateSession with ifUpdatedAt only touches a row that still has that updated_at, and gives null when none matched', async () => {
+    const db = fakeDb(() => ok(null));
+    const repo = createGoogleRepo(db);
+    expect(await repo.updateSession(5, { sync_state: 'synced' }, { ifUpdatedAt: '2026-10-02T11:00:00+00:00' })).toBeNull();
+    await repo.updateSession(5, { sync_state: 'synced' });
+
+    has(db.log[0], 'eq', 'id', 5);
+    has(db.log[0], 'eq', 'updated_at', '2026-10-02T11:00:00+00:00');
+    expect(db.log[0].ops.map((o) => o[0])).toEqual(['update', 'eq', 'eq', 'select', 'maybeSingle']);
+    expect(db.log[1].ops.some((o) => o[1] === 'updated_at')).toBe(false);
+  });
+
+  test('cancelRecurring cancels the tutor\'s unfinished, not yet cancelled sessions of a series and counts them', async () => {
+    const db = fakeDb(() => ok([{ id: 1 }, { id: 2 }]));
+    expect(await createGoogleRepo(db).cancelRecurring(TUTOR, 'm1', NOW)).toBe(2);
+    const [entry] = db.log;
+    expect(entry.table).toBe('sessions');
+    has(entry, 'update', { status: 'cancelled', sync_state: 'synced', google_synced_at: STAMP });
+    has(entry, 'eq', 'tutor_id', TUTOR);
+    has(entry, 'eq', 'google_recurring_id', 'm1');
+    has(entry, 'gt', 'ends_at', STAMP);
+    has(entry, 'neq', 'status', 'cancelled');
+    expect(await createGoogleRepo(fakeDb(() => ok([]))).cancelRecurring(TUTOR, 'm1', NOW)).toBe(0);
   });
 
   test('linkedStudents joins the links, the profiles and the students\' Google addresses', async () => {

@@ -88,8 +88,12 @@ export function createGoogleRepo(db) {
         .eq('google_calendar_id', calendarId).eq('google_event_id', eventId).maybeSingle(), 'sessionByEvent') ?? null;
     },
 
-    async updateSession(id, fields) {
-      return check(await sessions().update(fields).eq('id', id).select(SESSION_FIELDS).maybeSingle(), 'updateSession');
+    // With { ifUpdatedAt }, only a row still carrying that updated_at is changed
+    // (compare-and-set); null comes back when no row matched
+    async updateSession(id, fields, { ifUpdatedAt } = {}) {
+      let query = sessions().update(fields).eq('id', id);
+      if (ifUpdatedAt !== undefined) query = query.eq('updated_at', ifUpdatedAt);
+      return check(await query.select(SESSION_FIELDS).maybeSingle(), 'updateSession');
     },
 
     async insertSession(row) {
@@ -128,6 +132,17 @@ export function createGoogleRepo(db) {
       if (tutorId) query = query.eq('tutor_id', tutorId);
       if (studentId) query = query.eq('student_id', studentId);
       check(await query, 'markUpcomingPending');
+    },
+
+    // A series deleted in Google: cancels the tutor's sessions of that series that have not ended
+    // yet and returns how many it cancelled
+    async cancelRecurring(tutorId, recurringId, now) {
+      const rows = check(await sessions()
+        .update({ status: 'cancelled', sync_state: 'synced', google_synced_at: now.toISOString() })
+        .eq('tutor_id', tutorId).eq('google_recurring_id', recurringId)
+        .gt('ends_at', now.toISOString()).neq('status', 'cancelled')
+        .select('id'), 'cancelRecurring');
+      return rows.length;
     },
 
     // ---- pull lock: true when this caller took it (a row came back from the update)

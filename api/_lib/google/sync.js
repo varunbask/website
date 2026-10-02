@@ -98,16 +98,35 @@ function outcome(error) {
   return error instanceof GoogleRateError ? 'stop' : 'fail';
 }
 
+// Marks a pushed row synced only if the portal has not changed it since it was
+// read (compare-and-set on updated_at). If it changed meanwhile, the row stays
+// pending for the next push, which sends the newer edit; `kept` is what Google
+// now holds for it (event id, calendar, link) and is saved regardless.
+async function settle(repo, row, synced, kept) {
+  const done = await repo.updateSession(row.id, synced, { ifUpdatedAt: row.updated_at });
+  if (!done && kept) await repo.updateSession(row.id, kept);
+}
+
+async function patchIfThere(google, calendarId, eventId, body) {
+  try {
+    return await google.patchEvent(calendarId, eventId, body);
+  } catch (error) {
+    if (error instanceof GoogleNotFound) return null; // deleted in Google: the caller inserts again
+    throw error;
+  }
+}
+
 async function pushRow(row, conn, google, { repo, config, stamp, result }) {
   const calendarId = row.google_calendar_id ?? conn.calendar_id;
 
   if (row.status === 'cancelled') {
     if (row.google_event_id) {
       await google.deleteEvent(calendarId, row.google_event_id);
-      await repo.updateSession(row.id, { google_event_id: null, google_link: null, sync_state: 'synced', google_synced_at: stamp });
+      const cleared = { google_event_id: null, google_link: null };
+      await settle(repo, row, { ...cleared, sync_state: 'synced', google_synced_at: stamp }, cleared);
       result.deleted += 1;
     } else {
-      await repo.updateSession(row.id, { sync_state: 'synced', google_synced_at: stamp });
+      await settle(repo, row, { sync_state: 'synced', google_synced_at: stamp }, null);
     }
     return;
   }
@@ -118,23 +137,22 @@ async function pushRow(row, conn, google, { repo, config, stamp, result }) {
   let ev = null;
   let savedCalendar = calendarId;
   if (row.google_event_id) {
-    try {
-      ev = await google.patchEvent(calendarId, row.google_event_id, body);
-    } catch (error) {
-      if (!(error instanceof GoogleNotFound)) throw error; // an event someone deleted is inserted again
-    }
+    ev = await patchIfThere(google, calendarId, row.google_event_id, body);
+  } else {
+    // An earlier insert may have reached Google without its id being saved: bind that event instead of adding a twin
+    const found = await google.listEvents(conn.calendar_id, {
+      privateExtendedProperty: `vpSessionId=${row.id}`, maxResults: 1, showDeleted: false,
+    });
+    const tagged = found?.items?.[0];
+    if (tagged) ev = await patchIfThere(google, conn.calendar_id, tagged.id, body);
+    savedCalendar = conn.calendar_id;
   }
   if (!ev) {
     ev = await google.insertEvent(conn.calendar_id, body);
     savedCalendar = conn.calendar_id;
   }
-  await repo.updateSession(row.id, {
-    google_event_id: ev.id,
-    google_calendar_id: savedCalendar,
-    google_link: https(ev.htmlLink),
-    sync_state: 'synced',
-    google_synced_at: stamp,
-  });
+  const kept = { google_event_id: ev.id, google_calendar_id: savedCalendar, google_link: https(ev.htmlLink) };
+  await settle(repo, row, { ...kept, sync_state: 'synced', google_synced_at: stamp }, kept);
   result.pushed += 1;
 }
 
@@ -196,8 +214,8 @@ async function listChanges(google, conn) {
   }
 }
 
-// The instances of a recurring master around now. A master deleted since it was
-// listed has no instances to give (404 or 410), which is not a failure.
+// The instances of a recurring master around now, or null when the master is
+// gone (404 or 410): its series was deleted in Google.
 async function listAllInstances(google, calendarId, masterId, now) {
   const items = [];
   let pageToken;
@@ -214,7 +232,7 @@ async function listAllInstances(google, calendarId, masterId, now) {
       pageToken = page.nextPageToken;
     } while (pageToken);
   } catch (error) {
-    if (error instanceof GoogleNotFound || error instanceof GoogleGone) return [];
+    if (error instanceof GoogleNotFound || error instanceof GoogleGone) return null;
     throw error;
   }
   return items;
@@ -233,6 +251,13 @@ async function findRow(repo, conn, e) {
     if (row && row.tutor_id === conn.user_id) return row;
   }
   return repo.sessionByEvent(conn.calendar_id, e.id);
+}
+
+// A series deleted in Google: its upcoming sessions are cancelled in the portal
+async function cancelSeries(ctx, recurringId) {
+  const count = await ctx.repo.cancelRecurring(ctx.conn.user_id, recurringId, ctx.now);
+  if (count) ctx.result.cancelled += count;
+  else ctx.result.skipped += 1;
 }
 
 async function applyEvent(ctx, e, recurringId) {
@@ -271,7 +296,11 @@ async function applyEvent(ctx, e, recurringId) {
     return;
   }
 
-  if (fields.status === 'cancelled') return skip();
+  if (fields.status === 'cancelled') {
+    // A series deleted in Google can arrive as a bare cancelled master, whose id the portal rows carry
+    if (!e.recurringEventId) return cancelSeries(ctx, e.id);
+    return skip();
+  }
   // An event the portal wrote belongs to its session; if that session is gone
   // (deleted, or another tutor's) the event is never turned into a new one
   if (e.extendedProperties?.private?.vpSessionId) return skip();
@@ -295,21 +324,21 @@ async function applyEvent(ctx, e, recurringId) {
   result.inserted += 1;
 }
 
-// Applies Google's changes since the stored sync token. Returns { skipped: true }
+// Applies Google's changes since the stored sync token. Returns { busy: true }
 // when another pull holds the lock; otherwise counts, where `skipped` is the
 // number of events left alone.
 export async function pullChanges(conn, google, { repo, now = new Date() }) {
-  if (!(await repo.claimPull(conn.user_id, now))) return { skipped: true };
+  if (!(await repo.claimPull(conn.user_id, now))) return { busy: true };
 
   const result = { updated: 0, inserted: 0, cancelled: 0, skipped: 0 };
-  const ctx = { conn, repo, stamp: now.toISOString(), result, students: null };
+  const ctx = { conn, repo, now, stamp: now.toISOString(), result, students: null };
   try {
     const { items, nextSyncToken } = await listChanges(google, conn);
     for (const e of items) {
       if (e.recurrence) {
-        for (const instance of await listAllInstances(google, conn.calendar_id, e.id, now)) {
-          await applyEvent(ctx, instance, e.id);
-        }
+        const instances = e.status === 'cancelled' ? null : await listAllInstances(google, conn.calendar_id, e.id, now);
+        if (instances === null) await cancelSeries(ctx, e.id);
+        else for (const instance of instances) await applyEvent(ctx, instance, e.id);
       } else {
         await applyEvent(ctx, e, e.recurringEventId ?? null);
       }
