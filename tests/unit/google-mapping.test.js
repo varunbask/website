@@ -152,6 +152,62 @@ describe('eventToSessionFields', () => {
     expect(f.meeting_url).toBe('https://meet.test/abc');
   });
 
+  describe('descriptions saved as HTML by the Google web editor', () => {
+    test('notes and the meeting link come out clean', () => {
+      const f = eventToSessionFields(event({
+        location: 'Library, room 2',
+        description: 'Bring chapter 3<br><br>Join online: <a href="https://meet.example/x">https://meet.example/x</a>'
+          + `<br><br>${PORTAL_LINE} <a href="${PORTAL}">${PORTAL}</a>`,
+      }));
+      expect(f.notes).toBe('Bring chapter 3');
+      expect(f.meeting_url).toBe('https://meet.example/x');
+      expect(f.location).toBe('Library, room 2');
+    });
+
+    test('an anchor-wrapped Join link in paragraphs', () => {
+      const f = eventToSessionFields(event({
+        description: '<p>Bring chapter 3</p><p>Join online: <a href="https://meet.example/x" target="_blank">https://meet.example/x</a></p>'
+          + `<p>${PORTAL_LINE} <a href="${PORTAL}">${PORTAL}</a></p>`,
+      }));
+      expect(f.notes).toBe('Bring chapter 3');
+      expect(f.meeting_url).toBe('https://meet.example/x');
+    });
+
+    test('an anchor with no text becomes its href', () => {
+      const f = eventToSessionFields(event({ description: `${JOIN_LINE} <a href='https://meet.example/y'></a>` }));
+      expect(f.meeting_url).toBe('https://meet.example/y');
+      expect(f.notes).toBeNull();
+    });
+
+    test('line break and block tag variants become newlines and other tags are stripped', () => {
+      const f = eventToSessionFields(event({ description: 'A<br/>B<br />C</p>D</div><b>E</b> <i>F</i>' }));
+      expect(f.notes).toBe('A\nB\nC\nD\nE F');
+    });
+
+    test('three or more newlines collapse to two', () => {
+      expect(eventToSessionFields(event({ description: 'A<br><br><br><br>B' })).notes).toBe('A\n\nB');
+    });
+
+    test('entities decode, and nbsp becomes a space', () => {
+      const f = eventToSessionFields(event({
+        description: 'Tom &amp; Jerry &lt;3 &quot;quoted&quot; it&#39;s&nbsp;fine &gt; &amp;lt; stays',
+      }));
+      expect(f.notes).toBe('Tom & Jerry <3 "quoted" it\'s fine > &lt; stays');
+    });
+
+    test('entities in a link are decoded', () => {
+      const f = eventToSessionFields(event({
+        description: `${JOIN_LINE}&nbsp;<a href="https://meet.example/x?a=1&amp;b=2">https://meet.example/x?a=1&amp;b=2</a>`,
+      }));
+      expect(f.meeting_url).toBe('https://meet.example/x?a=1&b=2');
+    });
+
+    test('a plain-text description is unchanged', () => {
+      const text = 'Bring chapter 3.\nIs x < y and y > z?\n\nSecond paragraph: 5 > 3 & 2 < 4';
+      expect(eventToSessionFields(event({ description: text })).notes).toBe(text);
+    });
+  });
+
   test('a Join online line that is not an https URL is ignored', () => {
     const f = eventToSessionFields(event({ description: `${JOIN_LINE} http://insecure.test/x` }));
     expect(f.meeting_url).toBeNull();
@@ -255,6 +311,26 @@ describe('round trip', () => {
   test('both, with no notes, keeps both and no notes', () => {
     const f = back(session({ location: 'Library', meeting_url: 'https://meet.test/abc' }));
     expect(f).toMatchObject({ notes: null, location: 'Library', meeting_url: 'https://meet.test/abc' });
+  });
+});
+
+describe('round trip through an HTML description', () => {
+  test('keeps notes, location and meeting_url when Google saves line breaks as <br>', () => {
+    const s = session({ notes: 'Bring chapter 3\nand a calculator', location: 'Library, room 2', meeting_url: 'https://meet.test/abc' });
+    const e = sessionToEvent(s, OPTS);
+    const f = eventToSessionFields({ ...e, description: e.description.replace(/\n/g, '<br>') });
+    expect(f).toMatchObject({
+      notes: 'Bring chapter 3\nand a calculator', location: 'Library, room 2', meeting_url: 'https://meet.test/abc',
+    });
+  });
+
+  test('also when the URLs were turned into links', () => {
+    const s = session({ notes: 'Note', location: 'Library', meeting_url: 'https://meet.test/abc' });
+    const e = sessionToEvent(s, OPTS);
+    const html = e.description.replace(/\n/g, '<br>').replace(/https:\/\/\S+?(?=<br>|$)/g, (u) => `<a href="${u}">${u}</a>`);
+    expect(html).toContain('<a href="https://meet.test/abc">');
+    const f = eventToSessionFields({ ...e, description: html });
+    expect(f).toMatchObject({ notes: 'Note', location: 'Library', meeting_url: 'https://meet.test/abc' });
   });
 });
 

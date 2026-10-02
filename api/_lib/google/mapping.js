@@ -5,6 +5,25 @@ export const JOIN_LINE = 'Join online:';
 const SUFFIX = / \(([^()]+)\)$/;
 const JOIN_URL = new RegExp(`${JOIN_LINE}[ \\t]*(https://[^\\s<]+)`);
 
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' };
+
+// Google's web editor saves descriptions as HTML. Reduce one to plain text:
+// line breaks and block ends become newlines, a link becomes its text (or its
+// href when the text is empty), other tags go, and common entities decode.
+// Text that has no markup comes out unchanged (apart from the final trim).
+function plainText(html) {
+  return String(html ?? '')
+    .replace(/<br\s*\/?>|<\/(?:p|div)\s*>/gi, '\n')
+    .replace(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi, (_, attrs, inner) => {
+      const text = inner.replace(/<\/?[a-z][^>]*>/gi, '').trim();
+      return text || (attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')/i)?.slice(1).find(Boolean) ?? '');
+    })
+    .replace(/<\/?[a-z][^>]*>/gi, '')
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name) => ENTITIES[name])
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // The Google event for a portal session (insert body; also used as a patch).
 // A session with both a place and a meeting link keeps the place in the
 // location and puts the link on a "Join online:" line in the description.
@@ -36,7 +55,7 @@ export function eventToSessionFields(e) {
   if (!start || !end) return null;
   const summary = String(e.summary ?? '').trim();
   const subject = summary.replace(SUFFIX, '').trim() || null;
-  const desc = String(e.description ?? '');
+  const desc = plainText(e.description);
   // Notes are what comes before the first line the portal added
   const cuts = [JOIN_LINE, PORTAL_LINE].map((marker) => desc.indexOf(marker)).filter((i) => i >= 0);
   const notes = (cuts.length ? desc.slice(0, Math.min(...cuts)) : desc).trim() || null;
