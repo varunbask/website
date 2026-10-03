@@ -211,6 +211,9 @@ async function connectTutor({ state, tokens, email }, deps) {
     updated_at: now().toISOString(),
     ...(before && (before.purpose !== 'tutor' || before.google_email !== email) ? NEW_ACCOUNT : {}),
   });
+  // The calendar is made before the redirect, as settings does, so a page that loads straight
+  // after finds it. A Google failure is recorded on the connection; the person is still connected.
+  await withGoogle(conn, ctxOf(deps), (google) => ensureCalendar(conn, google, repo));
   return {
     followUp: async () => {
       // Marking is a database step, so it comes first: the sessions go out later even if Google fails now

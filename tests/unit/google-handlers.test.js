@@ -157,6 +157,7 @@ function fakeRepo({ profiles = PROFILES, connections = [], states = [], tutorsFo
     pendingSessions: vi.fn(async () => []),
     tombstones: vi.fn(async () => []),
     claimPull: vi.fn(async () => true),
+    claimPush: vi.fn(async () => true),
   };
 }
 
@@ -405,20 +406,44 @@ describe('handleCallback', () => {
       expect(repo.upsertConnection.mock.calls[0][0].google_email).toBe('tutor@gmail.com');
     });
 
-    test('the connection exists before the redirect is returned, and the follow-up work runs in waitUntil', async () => {
+    test('the connection and its calendar exist before the redirect is returned, and the rest runs in waitUntil', async () => {
       let release;
       const hold = new Promise((resolve) => { release = resolve; });
       const ctx = setup({ repo: fakeRepo({ states: [stateRow()] }), fetch: fakeFetch({ hold }) });
-      const res = await handleCallback(callbackRequest({ code: 'c', state: 'nonce-1' }), ctx.deps);
+      const pending = handleCallback(callbackRequest({ code: 'c', state: 'nonce-1' }), ctx.deps);
 
-      expect(res.headers.get('location')).toContain('google=connected');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(ctx.deps.waitUntil).not.toHaveBeenCalled(); // still waiting on Google for the calendar
       expect(ctx.repo.upsertConnection).toHaveBeenCalledTimes(1);
-      expect(ctx.deps.waitUntil).toHaveBeenCalledTimes(1);
-      expect(ctx.repo.conns.get(TUTOR).calendar_id).toBeFalsy(); // Google is still being asked
 
       release();
+      const res = await pending;
+      expect(res.headers.get('location')).toContain('google=connected');
+      expect(ctx.repo.conns.get(TUTOR).calendar_id).toBe('cal-new');
+      expect(ctx.repo.conns.get(TUTOR).channel_id).toBeFalsy(); // the channel is made after the redirect
+      expect(ctx.deps.waitUntil).toHaveBeenCalledTimes(1);
+
       await ctx.settle();
       expect(ctx.repo.conns.get(TUTOR)).toMatchObject({ calendar_id: 'cal-new', channel_id: expect.any(String) });
+      expect(ctx.fetch.api().filter((c) => c.method === 'POST' && c.url.pathname === '/calendar/v3/calendars')).toHaveLength(1);
+    });
+
+    test('a Google failure while making the calendar is recorded, and the redirect still says connected', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const ctx = setup({ repo: fakeRepo({ states: [stateRow()] }), fetch: fakeFetch({ calendarStatus: 500 }) });
+      const res = await handleCallback(callbackRequest({ code: 'c', state: 'nonce-1' }), ctx.deps);
+      expect(res.headers.get('location')).toContain('google=connected');
+      expect(ctx.repo.conns.get(TUTOR).last_error).toBe('google_error');
+      expect(ctx.repo.conns.get(TUTOR).calendar_id).toBeFalsy();
+      expect(ctx.deps.waitUntil).toHaveBeenCalledTimes(1);
+    });
+
+    test('a connection that already has its calendar does not make another', async () => {
+      const ctx = setup({ repo: fakeRepo({ states: [stateRow()], connections: [tutorConn({ calendar_id: 'cal-1' })] }) });
+      await handleCallback(callbackRequest({ code: 'c', state: 'nonce-1' }), ctx.deps);
+      await ctx.settle();
+      expect(ctx.fetch.api().some((c) => c.method === 'POST' && c.url.pathname === '/calendar/v3/calendars')).toBe(false);
+      expect(ctx.repo.conns.get(TUTOR).calendar_id).toBe('cal-1');
     });
 
     test('the follow-up marks upcoming sessions, makes the calendar and channel, pushes and pulls', async () => {
@@ -433,7 +458,7 @@ describe('handleCallback', () => {
       expect(conn.channel_token).toBeTruthy();
       const watch = ctx.fetch.api().find((c) => c.url.pathname.endsWith('/events/watch'));
       expect(watch.body).toMatchObject({ type: 'web_hook', address: CONFIG.notifyUrl });
-      expect(ctx.repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number));
+      expect(ctx.repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number), NOW);
       expect(conn.last_synced_at).toBe(NOW.toISOString());
       expect(ctx.fetch.token('refresh_token')[0].body.refresh_token).toBe('refresh-1');
     });
@@ -550,7 +575,7 @@ describe('handleCallback', () => {
       expect(ctx.fetch.revokes()).toEqual(['access-1']);
       expect(ctx.repo.markUpcomingPending).toHaveBeenCalledWith({ studentId: STUDENT, now: NOW });
       expect(ctx.repo.tutorsWithSyncFor).toHaveBeenCalledWith(STUDENT);
-      expect(ctx.repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number));
+      expect(ctx.repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number), NOW);
       expect(ctx.fetch.token('refresh_token')[0].body.refresh_token).toBe('refresh-tutor');
     });
 
@@ -648,7 +673,7 @@ describe('handleSettings', () => {
       const { repo, deps, settle } = await run();
       expect(deps.waitUntil).toHaveBeenCalledTimes(1);
       await settle();
-      expect(repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number));
+      expect(repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number), NOW);
       expect(repo.conns.get(TUTOR).last_synced_at).toBe(NOW.toISOString());
     });
 
@@ -762,7 +787,7 @@ describe('handleDisconnect', () => {
       expect(repo.deleteConnection.mock.invocationCallOrder[0]).toBeLessThan(repo.markUpcomingPending.mock.invocationCallOrder[0]);
       expect(deps.waitUntil).toHaveBeenCalledTimes(1);
       await settle();
-      expect(repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number));
+      expect(repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number), NOW);
       expect(fetch.revokes()).toEqual([]); // the portal holds no student token to revoke
     });
 
@@ -811,7 +836,7 @@ describe('handleSync', () => {
       connected: true, purpose: 'tutor', google_email: 'tutor@gmail.com', sync_enabled: true,
       last_synced_at: NOW.toISOString(), last_error: null,
     });
-    expect(repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number));
+    expect(repo.pendingSessions).toHaveBeenCalledWith(TUTOR, expect.any(Number), NOW);
     expect(repo.claimPull).toHaveBeenCalledWith(TUTOR, NOW);
     expect(repo.pendingSessions.mock.invocationCallOrder[0]).toBeLessThan(repo.claimPull.mock.invocationCallOrder[0]);
     expect(fetch.api().some((c) => c.method === 'GET' && c.url.pathname === '/calendar/v3/calendars/cal-1/events')).toBe(true);
@@ -1043,7 +1068,7 @@ describe('maintainAll', () => {
       expect(ctx.repo.conns.get(id), id).toMatchObject({
         calendar_id: 'cal-new', channel_id: expect.any(String), last_synced_at: NOW.toISOString(), last_error: null,
       });
-      expect(ctx.repo.pendingSessions).toHaveBeenCalledWith(id, expect.any(Number));
+      expect(ctx.repo.pendingSessions).toHaveBeenCalledWith(id, expect.any(Number), NOW);
     }
   });
 

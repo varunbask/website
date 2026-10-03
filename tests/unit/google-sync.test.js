@@ -114,8 +114,8 @@ function fakeGoogle({ pageSize = 250, syncToken = 'sync-next' } = {}) {
   };
 }
 
-// In-memory repo with the methods the sync engine uses. claimPull keeps the
-// real 60 second rule; writes are recorded in `calls`.
+// In-memory repo with the methods the sync engine uses. claimPull and claimPush
+// keep the real 60 second rule; writes are recorded in `calls`.
 function fakeRepo({ sessions = [], connections = [], tombstones = [], profiles = {}, googleEmails = {}, students = [] } = {}) {
   const state = { sessions, connections, tombstones };
   const calls = [];
@@ -135,6 +135,18 @@ function fakeRepo({ sessions = [], connections = [], tombstones = [], profiles =
       if (started !== null && now.getTime() - started < 60_000) return false;
       c.pull_started_at = now.toISOString();
       return true;
+    },
+    async claimPush(userId, now) {
+      record('claimPush', [userId]);
+      const c = connOf(userId);
+      const started = c.push_started_at ? Date.parse(c.push_started_at) : null;
+      if (started !== null && now.getTime() - started < 60_000) return false;
+      c.push_started_at = now.toISOString();
+      return true;
+    },
+    async getConnection(userId) {
+      const c = connOf(userId);
+      return c ? { ...c } : null;
     },
     async getProfile(userId) { return profiles[userId] ?? null; },
     async studentGoogleEmail(userId) { return googleEmails[userId] ?? null; },
@@ -207,6 +219,7 @@ const makeConn = (over = {}) => ({
   channel_token: null,
   channel_expires_at: null,
   pull_started_at: null,
+  push_started_at: null,
   last_synced_at: null,
   last_error: null,
   ...over,
@@ -624,6 +637,112 @@ describe('pushPending', () => {
     await push(s);
     expect(s.g.called('insertEvent').map((c) => c.args[1].extendedProperties.private.vpSessionId)).toEqual(['3', '2']);
     expect(s.state.sessions[0].sync_state).toBe('pending');
+  });
+});
+
+describe('pushPending lock', () => {
+  const slow = (s, ms = 5) => {
+    const real = s.g.insertEvent;
+    s.g.insertEvent = async (...args) => {
+      await new Promise((resolve) => setTimeout(resolve, ms));
+      return real(...args);
+    };
+  };
+  const two = () => [session({ id: 1 }), session({ id: 2, starts_at: '2026-10-06T17:00:00+00:00', ends_at: '2026-10-06T18:00:00+00:00' })];
+
+  test('two overlapping pushes for one tutor insert exactly one event per row', async () => {
+    const s = setup({ sessions: two() });
+    slow(s);
+    const [a, b] = await Promise.all([push(s), push({ ...s, conn: { ...s.conn } })]);
+
+    expect(s.g.called('insertEvent')).toHaveLength(2);
+    expect(s.state.sessions.map((r) => r.google_event_id)).toEqual(['ev-1', 'ev-2']);
+    expect(s.state.sessions.map((r) => r.sync_state)).toEqual(['synced', 'synced']);
+    expect([a, b]).toContainEqual({ pushed: 2, deleted: 0, failed: 0, stopped: false });
+    expect([a, b]).toContainEqual({ busy: true, pushed: 0, deleted: 0, failed: 0, stopped: false });
+  });
+
+  test('a push that finds the lock held sends nothing and touches nothing', async () => {
+    const s = setup({ sessions: [session()], tombstones: [{ id: 7, tutor_id: TUTOR, calendar_id: 'old', event_id: 'evX' }], conn: { push_started_at: new Date(NOW.getTime() - 30_000).toISOString() } });
+    const result = await push(s);
+
+    expect(result).toEqual({ busy: true, pushed: 0, deleted: 0, failed: 0, stopped: false });
+    expect(s.g.calls).toHaveLength(0);
+    expect(s.called('updateSession')).toHaveLength(0);
+    expect(s.state.tombstones).toHaveLength(1);
+    expect(s.state.connections[0].push_started_at).toBe(new Date(NOW.getTime() - 30_000).toISOString()); // the holder's lock is left alone
+  });
+
+  test('takes over a lock that is more than 60 seconds old', async () => {
+    const s = setup({ sessions: [session()], conn: { push_started_at: new Date(NOW.getTime() - 61_000).toISOString() } });
+    const result = await push(s);
+    expect(result).toEqual({ pushed: 1, deleted: 0, failed: 0, stopped: false });
+  });
+
+  test('releases the lock when the run ends, and the next push goes through', async () => {
+    const s = setup({ sessions: [session()] });
+    expect(await push(s)).toMatchObject({ pushed: 1 });
+    expect(s.state.connections[0].push_started_at).toBeNull();
+    s.state.sessions[0].sync_state = 'pending';
+    expect(await push(s)).toMatchObject({ pushed: 1 });
+  });
+
+  test('releases the lock after an error, a rate stop and an empty run', async () => {
+    const auth = setup({ sessions: [session()] });
+    auth.g.fail('insertEvent', new GoogleAuthError());
+    await expect(push(auth)).rejects.toBeInstanceOf(GoogleAuthError);
+    expect(auth.state.connections[0].push_started_at).toBeNull();
+
+    const rate = setup({ sessions: [session()] });
+    rate.g.fail('insertEvent', new GoogleRateError());
+    expect((await push(rate)).stopped).toBe(true);
+    expect(rate.state.connections[0].push_started_at).toBeNull();
+
+    const calendar = setup({ sessions: [session()], conn: { calendar_id: null } });
+    calendar.g.fail('insertCalendar', new GoogleApiError(500));
+    await expect(push(calendar)).rejects.toBeInstanceOf(GoogleApiError);
+    expect(calendar.state.connections[0].push_started_at).toBeNull();
+
+    const none = setup();
+    await push(none);
+    expect(none.state.connections[0].push_started_at).toBeNull();
+  });
+
+  test('an error while releasing is logged by name and does not fail the run', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const s = setup({ sessions: [session()] });
+    const update = s.repo.updateConnection;
+    s.repo.updateConnection = async (userId, fields) => {
+      if ('push_started_at' in fields) throw new TypeError('secret detail maya@gmail.test');
+      return update(userId, fields);
+    };
+    expect(await push(s)).toMatchObject({ pushed: 1 });
+    expect(spy).toHaveBeenCalledWith('Google push unlock failed:', 'TypeError');
+    expect(JSON.stringify(spy.mock.calls)).not.toContain('maya@gmail.test');
+  });
+
+  test('the calendar is made under the lock: overlapping pushes make one calendar', async () => {
+    const s = setup({ sessions: two(), conn: { calendar_id: null } });
+    slow(s);
+    const real = s.g.insertCalendar;
+    s.g.insertCalendar = async (...args) => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return real(...args);
+    };
+    await Promise.all([push(s), push({ ...s, conn: { ...s.conn } })]);
+
+    expect(s.g.called('insertCalendar')).toHaveLength(1);
+    expect(s.g.called('insertEvent').map((c) => c.args[0])).toEqual(['new-cal-1', 'new-cal-1']);
+  });
+
+  test('a push whose connection was read before another run made the calendar uses that calendar', async () => {
+    const s = setup({ sessions: [session()], conn: { calendar_id: null } });
+    s.state.connections[0].calendar_id = 'made-meanwhile'; // saved by another run after this connection was read
+    const result = await push(s);
+
+    expect(result.pushed).toBe(1);
+    expect(s.g.called('insertCalendar')).toHaveLength(0);
+    expect(s.g.called('insertEvent')[0].args[0]).toBe('made-meanwhile');
   });
 });
 
@@ -1363,7 +1482,8 @@ describe('createGoogleRepo', () => {
     await expect(repo.updateConnection(TUTOR, {})).rejects.toThrow('updateConnection: boom');
     await expect(repo.takeState('n', NOW)).rejects.toThrow('takeState: boom');
     await expect(repo.claimPull(TUTOR, NOW)).rejects.toThrow('claimPull: boom');
-    await expect(repo.pendingSessions(TUTOR, 5)).rejects.toThrow('pendingSessions: boom');
+    await expect(repo.claimPush(TUTOR, NOW)).rejects.toThrow('claimPush: boom');
+    await expect(repo.pendingSessions(TUTOR, 5, NOW)).rejects.toThrow('pendingSessions: boom');
     await expect(repo.updateSession(1, {})).rejects.toThrow('updateSession: boom');
     await expect(repo.insertSession({})).rejects.toThrow('insertSession: boom');
     await expect(repo.cancelRecurring(TUTOR, 'm1', NOW)).rejects.toThrow('cancelRecurring: boom');
@@ -1437,11 +1557,9 @@ describe('createGoogleRepo', () => {
     has(db.log[0], 'eq', 'id', MAYA);
   });
 
-  test('pendingSessions filters by tutor, state and the last 30 days, oldest first', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(NOW);
+  test('pendingSessions filters by tutor, state and the 30 days before the given time, oldest first', async () => {
     const db = fakeDb(() => ok([{ id: 1 }]));
-    expect(await createGoogleRepo(db).pendingSessions(TUTOR, 50)).toEqual([{ id: 1 }]);
+    expect(await createGoogleRepo(db).pendingSessions(TUTOR, 50, NOW)).toEqual([{ id: 1 }]);
     const [entry] = db.log;
     expect(entry.table).toBe('sessions');
     has(entry, 'eq', 'tutor_id', TUTOR);
@@ -1590,5 +1708,17 @@ describe('createGoogleRepo', () => {
     has(entry, 'or', `pull_started_at.is.null,pull_started_at.lt.${new Date(NOW.getTime() - 60_000).toISOString()}`);
     expect(entry.ops.map((o) => o[0])).toContain('select');
     expect(await createGoogleRepo(fakeDb(() => ok([]))).claimPull(TUTOR, NOW)).toBe(false);
+  });
+
+  test('claimPush is true when a row came back, false when the lock is held, and takes over a lock older than a minute', async () => {
+    const db = fakeDb(() => ok([{ user_id: TUTOR }]));
+    expect(await createGoogleRepo(db).claimPush(TUTOR, NOW)).toBe(true);
+    const [entry] = db.log;
+    expect(entry.table).toBe('google_connections');
+    has(entry, 'update', { push_started_at: STAMP });
+    has(entry, 'eq', 'user_id', TUTOR);
+    has(entry, 'or', `push_started_at.is.null,push_started_at.lt.${new Date(NOW.getTime() - 60_000).toISOString()}`);
+    expect(entry.ops.map((o) => o[0])).toContain('select');
+    expect(await createGoogleRepo(fakeDb(() => ok([]))).claimPush(TUTOR, NOW)).toBe(false);
   });
 });

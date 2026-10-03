@@ -5,6 +5,7 @@
 const SESSION_FIELDS = 'id, tutor_id, student_id, subject, starts_at, ends_at, location, meeting_url, notes, status, '
   + 'updated_at, sync_state, google_event_id, google_calendar_id, google_recurring_id, google_link';
 const PULL_LOCK_MS = 60_000;
+const PUSH_LOCK_MS = 60_000;
 const PENDING_WINDOW_MS = 30 * 24 * 3600 * 1000;
 
 function check({ data, error }, what) {
@@ -62,8 +63,8 @@ export function createGoogleRepo(db) {
     },
 
     // ---- sessions to push
-    async pendingSessions(tutorId, limit) {
-      const since = new Date(Date.now() - PENDING_WINDOW_MS).toISOString();
+    async pendingSessions(tutorId, limit, now = new Date()) {
+      const since = new Date(now.getTime() - PENDING_WINDOW_MS).toISOString();
       return check(await sessions().select(SESSION_FIELDS)
         .eq('tutor_id', tutorId).in('sync_state', ['pending', 'error']).gt('starts_at', since)
         .order('starts_at', { ascending: true }).limit(limit), 'pendingSessions');
@@ -145,11 +146,19 @@ export function createGoogleRepo(db) {
       return rows.length;
     },
 
-    // ---- pull lock: true when this caller took it (a row came back from the update)
+    // ---- pull and push locks: true when this caller took it (a row came back from the update).
+    // A lock older than a minute is taken over. Release one by setting its column to null.
     async claimPull(userId, now) {
       const stale = new Date(now.getTime() - PULL_LOCK_MS).toISOString();
       const rows = check(await connections().update({ pull_started_at: now.toISOString() })
         .eq('user_id', userId).or(`pull_started_at.is.null,pull_started_at.lt.${stale}`).select('user_id'), 'claimPull');
+      return rows.length > 0;
+    },
+
+    async claimPush(userId, now) {
+      const stale = new Date(now.getTime() - PUSH_LOCK_MS).toISOString();
+      const rows = check(await connections().update({ push_started_at: now.toISOString() })
+        .eq('user_id', userId).or(`push_started_at.is.null,push_started_at.lt.${stale}`).select('user_id'), 'claimPush');
       return rows.length > 0;
     },
   };

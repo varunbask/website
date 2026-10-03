@@ -17,6 +17,7 @@ create table public.google_connections (
   channel_token       text,
   channel_expires_at  timestamptz,
   pull_started_at     timestamptz,
+  push_started_at     timestamptz,
   last_synced_at      timestamptz,
   last_error          text check (last_error in ('reconnect', 'google_error')),
   created_at          timestamptz not null default now(),

@@ -163,10 +163,31 @@ async function pushRow(row, conn, google, { repo, config, stamp, result }) {
   result.pushed += 1;
 }
 
+// Only one push runs per tutor at a time (the push lock on the connection, which
+// a crashed run leaves behind for at most a minute). Overlapping pushes would
+// each insert an event for the same row. A second caller gets { busy: true }
+// and does nothing; the rows it would have sent are sent by the run in progress
+// or the next one. The calendar is made under the same lock.
 export async function pushPending(conn, google, { repo, config, now = new Date() }) {
+  if (!(await repo.claimPush(conn.user_id, now))) return { busy: true, pushed: 0, deleted: 0, failed: 0, stopped: false };
+  try {
+    return await pushLocked(conn, google, { repo, config, now });
+  } finally {
+    // A release that fails only costs the minute the lock lasts; it must not hide what ended the run
+    await repo.updateConnection(conn.user_id, { push_started_at: null })
+      .catch((error) => console.error('Google push unlock failed:', error?.name ?? 'Error'));
+  }
+}
+
+async function pushLocked(conn, google, { repo, config, now }) {
   const result = { pushed: 0, deleted: 0, failed: 0, stopped: false };
   const stamp = now.toISOString();
   try {
+    if (!conn.calendar_id) {
+      // Another run may have made the calendar since this connection was read
+      const latest = await repo.getConnection(conn.user_id);
+      if (latest?.calendar_id) conn.calendar_id = latest.calendar_id;
+    }
     conn.calendar_id = await ensureCalendar(conn, google, repo); // an insert needs a calendar
   } catch (error) {
     if (!(error instanceof GoogleRateError)) throw error;
@@ -185,7 +206,7 @@ export async function pushPending(conn, google, { repo, config, now = new Date()
     }
   }
 
-  for (const row of await repo.pendingSessions(conn.user_id, PUSH_BATCH)) {
+  for (const row of await repo.pendingSessions(conn.user_id, PUSH_BATCH, now)) {
     try {
       await pushRow(row, conn, google, { repo, config, stamp, result });
     } catch (error) {
