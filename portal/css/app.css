@@ -2239,10 +2239,25 @@ dialog::backdrop { background-color: transparent; }
 .confirm-body { font: 400 14px/20px var(--font-ui); color: var(--text-2); overflow-wrap: anywhere; }
 .confirm-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--s-2);
   margin-top: var(--s-4);
 }
+/* A choice dialog's warning under the body (a move that clashes, say) */
+.confirm-warning {
+  display: flex;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+  padding: var(--s-3);
+  border-radius: var(--r-sm);
+  background: var(--warning-bg);
+  color: var(--warning-text);
+  font: 400 13px/18px var(--font-ui);
+}
+.confirm-warning > svg { flex: none; margin-top: 1px; }
+.confirm-warning-title { font-weight: 600; }
+.confirm-warning-lines { margin: var(--s-1) 0 0; padding-left: 1.1em; list-style: disc; }
 @media (max-width: 767.98px) {
   .confirm {
     --enter-from: translateY(100%);

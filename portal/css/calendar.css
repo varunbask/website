@@ -988,3 +988,65 @@ td.is-today .cal-num {
   color: var(--text-2);
 }
 .cal-pop-link { align-self: flex-start; margin-top: var(--s-2); }
+
+
+/* Drag to move ---------------------------------------------------------------
+   Mouse or pen only (portal/js/calendar-drag.js). A draggable session block or
+   chip shows a grab cursor; while dragging, the original fades, a ghost shows
+   where it lands, and a day that cannot take the drop is outlined dashed. */
+
+@media (hover: hover) and (pointer: fine) {
+  .cal-block.is-draggable,
+  .cal-chip.is-draggable { cursor: grab; }
+}
+.cal-block.is-draggable,
+.cal-chip.is-draggable { -webkit-user-select: none; user-select: none; }
+.is-cal-dragging,
+.is-cal-dragging * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
+
+.cal-block.is-drag-source,
+.cal-chip.is-drag-source { opacity: .35; }
+
+.cal-block.cal-drag-ghost {
+  z-index: 4;
+  pointer-events: none;
+  box-shadow: var(--shadow-pop);
+  outline: 2px solid var(--subj-solid);
+  outline-offset: -1px;
+}
+.cal-block.cal-drag-ghost.is-invalid {
+  opacity: .55;
+  outline-style: dashed;
+  outline-color: var(--danger-solid);
+}
+
+.cal-drag-float {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  max-width: 220px;
+  padding: 4px 8px;
+  overflow: hidden;
+  border-radius: var(--r-xs);
+  background: var(--surface, #fff);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
+  font: 500 12px/16px var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  transform: translate(var(--x, -999px), var(--y, -999px));
+}
+
+.cal-day.is-drop-target,
+.cal-week-due.is-drop-target {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background-color: var(--accent-soft);
+}
+.cal-day.is-drop-invalid,
+.cal-week-due.is-drop-invalid {
+  outline: 2px dashed var(--danger-solid);
+  outline-offset: -2px;
+}

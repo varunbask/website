@@ -109,6 +109,75 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', cancelLab
   });
 }
 
+// choiceDialog({ title, body, warning, choices, cancelLabel }) -> Promise<value | null>.
+// Like confirmDialog, but each of `choices` ([{ value, label, primary }]) is a
+// button that resolves its value; Cancel, Escape and a backdrop click resolve
+// null. warning: { title, lines } shown under the body (a clash, say).
+export function choiceDialog({ title, body, warning = null, choices = [], cancelLabel = 'Cancel' } = {}) {
+  let dialog = document.getElementById('confirm');
+  if (!dialog) {
+    dialog = h('dialog', { class: 'confirm', id: 'confirm' });
+    document.body.append(dialog);
+  }
+  const opener = dialog.open && activeConfirm ? activeConfirm.opener : document.activeElement;
+  settleConfirm(null);
+
+  const titleId = uid('confirm-title');
+  const bodyId = uid('confirm-body');
+  const finish = (value) => {
+    if (dialog.open) dialog.close();
+    settleConfirm(value);
+    restoreFocus(opener);
+  };
+  const cancel = button({ label: cancelLabel, variant: 'secondary', onClick: () => finish(null) });
+  cancel.autofocus = true;
+  const actions = choices.map((c) => button({
+    label: c.label,
+    variant: c.primary ? 'primary' : 'secondary',
+    onClick: () => finish(c.value),
+  }));
+
+  const warn = warning?.title
+    ? h('div', { class: 'confirm-warning', role: 'note' },
+      icon('warning-circle', { size: 16 }),
+      h('div', {},
+        h('p', { class: 'confirm-warning-title' }, warning.title),
+        warning.lines?.length ? h('ul', { class: 'confirm-warning-lines' }, warning.lines.map((line) => h('li', {}, line))) : null))
+    : null;
+
+  dialog.replaceChildren(h('div', { class: 'confirm-inner' },
+    h('h2', { class: 'confirm-title', id: titleId }, title),
+    body || warn ? h('div', { id: bodyId }, body ? h('p', { class: 'confirm-body' }, body) : null, warn) : null,
+    h('div', { class: 'confirm-actions' }, cancel, actions)));
+  prepareToastHost(dialog);
+  dialog.setAttribute('role', 'alertdialog');
+  dialog.setAttribute('aria-labelledby', titleId);
+  if (body || warn) dialog.setAttribute('aria-describedby', bodyId);
+  else dialog.removeAttribute('aria-describedby');
+
+  return new Promise((resolve) => {
+    let downOnDialog = false;
+    const onDown = (e) => { downOnDialog = e.target === dialog; };
+    const onClick = (e) => { if (e.target === dialog && downOnDialog) finish(null); };
+    const onClose = () => { settleConfirm(null); restoreFocus(opener); };
+    dialog.addEventListener('pointerdown', onDown);
+    dialog.addEventListener('click', onClick);
+    dialog.addEventListener('close', onClose);
+    activeConfirm = {
+      // a confirm that replaces this one settles it with false: that is a cancel too
+      resolve: (value) => resolve(typeof value === 'string' ? value : null),
+      opener,
+      cleanup: () => {
+        dialog.removeEventListener('pointerdown', onDown);
+        dialog.removeEventListener('click', onClick);
+        dialog.removeEventListener('close', onClose);
+      },
+    };
+    if (!dialog.open) dialog.showModal();
+    cancel.focus();
+  });
+}
+
 function restoreFocus(el) {
   if (!el || !el.isConnected || typeof el.focus !== 'function') return;
   const active = document.activeElement;

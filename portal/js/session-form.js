@@ -29,7 +29,7 @@ import {
 import { sb } from './supabase.js';
 import { displayName, canHaveSessions } from './format.js';
 import { viewerIsInBusinessZone, dayKey } from './dates.js';
-import { getGoogleStatus, personalEvents } from './google.js';
+import { getGoogleStatus, personalEvents, syncSoon } from './google.js';
 import { personalClashes, mergePersonalClashes, dayRange } from './google-model.js';
 import { ATTENDANCE, addMinutesToTime, followingInSeries, sessionTitle } from './sessions-model.js';
 import {
@@ -538,6 +538,7 @@ export function sessionForm(dctx, {
     }
     // Invalidate first, so what renders next reads the new sessions
     dctx.store.invalidate(sid);
+    if (sameId(tid, me?.id)) syncSoon();
     dctx.toast({ text: insertRows.length > 1 ? `${insertRows.length} sessions scheduled` : 'Session scheduled' });
     if (!dctx.alive()) return;
     const ids = result.data.map((r) => Number(r.id)).filter(Number.isFinite);
@@ -573,6 +574,7 @@ export function sessionForm(dctx, {
     }
     // Rows already saved stay saved, so the store reloads even after a failure
     if (done > 0) dctx.store.invalidate(session.student_id);
+    if (done > 0 && sameId(session.tutor_id, me?.id)) syncSoon();
     if (failure) {
       const partial = done > 0 ? `${done} of ${updates.length} sessions were updated. ` : '';
       showError('We couldn’t save your changes.', `${partial}${failure}`);

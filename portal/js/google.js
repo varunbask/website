@@ -133,6 +133,27 @@ export function syncNow() {
   return change('/api/google/sync');
 }
 
+// After someone changes one of their own sessions in the portal: when their
+// Google sync is on, push it now instead of on the next page load or the daily
+// run. Changes within a couple of seconds share one sync. Quiet: if it fails,
+// the change stays pending for the next sync.
+const SOON_MS = 2000;
+let soonTimer = null;
+export function syncSoon({ delay = SOON_MS } = {}) {
+  clearTimeout(soonTimer);
+  soonTimer = setTimeout(async () => {
+    soonTimer = null;
+    try {
+      const status = await getGoogleStatus();
+      // A sync that needs a reconnect would only fail; the switch already says so
+      if (!status.connected || !status.sync_enabled || status.purpose !== 'tutor' || status.last_error === 'reconnect') return;
+      await syncNow();
+    } catch (error) {
+      console.error(error);
+    }
+  }, delay);
+}
+
 // ---------------------------------------------------------------------------
 // Personal events
 
