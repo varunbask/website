@@ -369,6 +369,17 @@
   letter-spacing: -0.005em;
 }
 .rvw-note { max-width: 65ch; font-size: 14px; line-height: 22px; }
+.rvw-answer-text {
+  max-width: 72ch;
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  font-size: 15px;
+  line-height: 24px;
+  overflow-wrap: anywhere;
+}
+.rvw-answer .rvw-file-attempt { margin-left: var(--s-2); font-weight: 400; color: var(--text-3); }
 .rvw-muted { font: 400 14px/20px var(--font-ui); color: var(--text-3); }
 
 .rvw-disclosure {

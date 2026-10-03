@@ -1,6 +1,6 @@
 import { PermanentGradingError } from './errors.js';
 
-const FIELDS = 'id, student_id, task_id, storage_path, file_type, status, attempts, status_changed_at, task:tasks(title, details)';
+const FIELDS = 'id, student_id, task_id, body, storage_path, file_type, status, attempts, status_changed_at, task:tasks(title, details)';
 
 function check({ data, error }, what) {
   if (error) throw new Error(`${what}: ${error.message}`);
@@ -51,6 +51,20 @@ export function createRepo(db) {
         }
         throw new Error(`download: ${error.message}`);
       }
+      return new Uint8Array(await data.arrayBuffer());
+    },
+
+    // The tutor's gradable files on an assignment (PDFs and images), oldest first
+    async listAssignmentFiles(taskId, limit) {
+      return check(await db.from('materials').select('title, storage_path, file_type')
+        .eq('task_id', taskId).not('storage_path', 'is', null)
+        .in('file_type', ['application/pdf', 'image/png', 'image/jpeg'])
+        .order('created_at', { ascending: true }).limit(limit), 'listAssignmentFiles');
+    },
+
+    async downloadMaterial(path) {
+      const { data, error } = await db.storage.from('materials').download(path);
+      if (error) throw new Error(`downloadMaterial: ${error.message}`);
       return new Uint8Array(await data.arrayBuffer());
     },
 

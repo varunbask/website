@@ -128,6 +128,25 @@ describe.skipIf(!hasService)('portal row-level security', () => {
     expect((await c.from('submissions').delete().eq('id', ok.data.id)).error).not.toBeNull();
   });
 
+  test('a typed answer needs no file; a blank or empty submission is refused', async () => {
+    const c = P.studentA.client;
+    const task = await w.admin.from('tasks')
+      .insert({ student_id: P.studentA.id, kind: 'assignment', title: 'Typed answer check' }).select('id').single();
+    expect(task.error).toBeNull();
+    const id = task.data.id;
+
+    const typed = await c.from('submissions').insert({ task_id: id, body: 'x = 4 because 2x = 8' })
+      .select('id, status, storage_path, file_type').single();
+    expect(typed.error).toBeNull();
+    expect(typed.data).toMatchObject({ status: 'pending', storage_path: null, file_type: null });
+
+    expect((await c.from('submissions').insert({ task_id: id })).error).not.toBeNull();
+    expect((await c.from('submissions').insert({ task_id: id, body: '   ' })).error).not.toBeNull();
+    expect((await c.from('submissions').insert({ task_id: id, body: 'x', storage_path: `${P.studentA.id}/${randomUUID()}.pdf` })).error).not.toBeNull();
+    expect((await c.from('submissions').insert({ task_id: id, body: 'x', storage_path: `${P.studentA.id}/${randomUUID()}.pdf`, file_type: 'application/pdf' })).error).not.toBeNull();
+    expect((await P.parentA.client.from('submissions').insert({ task_id: id, body: 'from a parent' })).error).not.toBeNull();
+  });
+
   test('an unreleased grade is invisible to the student and parent, even through embeds', async () => {
     await w.admin.from('grades').update({ score: 88, feedback: 'Draft' }).eq('submission_id', w.seed.SA1);
     for (const who of ['studentA', 'parentA']) {

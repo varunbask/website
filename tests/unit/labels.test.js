@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { staffStatus, familyStatus, canRetry } from '../../portal/js/labels.js';
+import { staffStatus, familyStatus, canRetry, workLabel, workIcon } from '../../portal/js/labels.js';
 
 const NOW = new Date('2026-10-10T12:00:00Z');
 const ago = (minutes) => new Date(NOW.getTime() - minutes * 60_000).toISOString();
@@ -32,5 +32,21 @@ describe('canRetry', () => {
     expect(canRetry({ status: 'grading', status_changed_at: ago(5) }, NOW)).toBe(false);
     expect(canRetry({ status: 'grading', status_changed_at: ago(11) }, NOW)).toBe(true);
     expect(canRetry({ status: 'ai_graded', status_changed_at: ago(60) }, NOW)).toBe(false);
+  });
+});
+
+describe('workLabel and workIcon', () => {
+  test('name what a submission holds', () => {
+    expect(workLabel({ body: 'x = 4', file_type: null })).toBe('Typed answer');
+    expect(workLabel({ body: null, file_type: 'application/pdf' })).toBe('PDF');
+    expect(workLabel({ body: 'see photo', file_type: 'image/jpeg' })).toBe('Typed answer and photo');
+    expect(workLabel({ body: '  ', file_type: 'text/plain' })).toBe('Text');
+  });
+
+  test('pick the file icon, or a note for a typed answer alone', () => {
+    expect(workIcon({ body: 'x', file_type: null })).toBe('note-pencil');
+    expect(workIcon({ file_type: 'application/pdf' })).toBe('file-pdf');
+    expect(workIcon({ body: 'x', file_type: 'image/png' })).toBe('image-square');
+    expect(workIcon({ file_type: 'text/plain' })).toBe('file-text');
   });
 });

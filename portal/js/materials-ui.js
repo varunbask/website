@@ -31,6 +31,56 @@ async function sign(material) {
   return data.signedUrl;
 }
 
+// Uploads files to the materials bucket and adds a material row for each, on
+// a session ({ session_id }) or an assignment ({ task_id }). A file that fails
+// is reported, never half added: its upload is removed when the row fails.
+// -> { added, problems: ['name: what went wrong'] }
+export async function uploadMaterialFiles({ studentId, owner, files }) {
+  const problems = [];
+  let added = 0;
+  for (const file of files) {
+    const message = validateMaterialFile(file);
+    if (message) {
+      problems.push(`${file.name}: ${message}`);
+      continue;
+    }
+    const mime = materialType(file);
+    const path = materialPath(studentId, mime);
+    // storage-js sends a File with its own type and ignores contentType, and
+    // some systems give Office files none: re-wrap it with the type we chose
+    const body = file.type === mime ? file : new Blob([file], { type: mime });
+    const up = await sb.storage.from(MATERIALS_BUCKET).upload(path, body, { contentType: mime, upsert: false });
+    if (up.error) {
+      problems.push(`${file.name}: the upload failed.`);
+      continue;
+    }
+    const row = {
+      student_id: studentId, ...owner,
+      title: titleFromFile(file.name), storage_path: path, file_type: mime, size_bytes: file.size,
+    };
+    const ins = await sb.from('materials').insert(row).select('id');
+    if (ins.error || !ins.data?.length) {
+      sb.storage.from(MATERIALS_BUCKET).remove([path]).catch(() => {});
+      problems.push(`${file.name}: it could not be added.`);
+      continue;
+    }
+    added += 1;
+  }
+  return { added, problems };
+}
+
+// One toast line for files that were not added
+export function problemsText(problems) {
+  return problems.length === 1 ? `Not added. ${problems[0]}` : `${problems.length} files were not added. ${problems[0]}`;
+}
+
+// A pasted screenshot arrives as "image.png"; give it a name worth showing
+export function namePastedImage(file, n = 1) {
+  if (file.name && file.name !== 'image.png' && file.name !== 'image.jpg') return file;
+  const ext = file.type === 'image/png' ? 'png' : 'jpg';
+  return new File([file], `Screenshot${n > 1 ? ` ${n}` : ''}.${ext}`, { type: file.type });
+}
+
 export function materialsSection(dctx, {
   studentId, sessionId = null, taskId = null, items = [], canEdit = false,
   heading = 'Slides and materials', emptyText = 'No slides or files yet.', keyPrefix = 'mat',
@@ -122,44 +172,17 @@ export function materialsSection(dctx, {
   const fileInput = h('input', { type: 'file', multiple: true, accept: MATERIAL_ACCEPT, class: 'visually-hidden', tabindex: '-1', 'aria-hidden': 'true' });
 
   async function addFiles(files, btn) {
-    const problems = [];
-    let added = 0;
+    let result = { added: 0, problems: [] };
     await busy(btn, 'Uploading…', async () => {
-      for (const file of files) {
-        const message = validateMaterialFile(file);
-        if (message) {
-          problems.push(`${file.name}: ${message}`);
-          continue;
-        }
-        const mime = materialType(file);
-        const path = materialPath(studentId, mime);
-        // storage-js sends a File with its own type and ignores contentType, and
-        // some systems give Office files none: re-wrap it with the type we chose
-        const body = file.type === mime ? file : new Blob([file], { type: mime });
-        const up = await sb.storage.from(MATERIALS_BUCKET).upload(path, body, { contentType: mime, upsert: false });
-        if (up.error) {
-          problems.push(`${file.name}: the upload failed.`);
-          continue;
-        }
-        const row = {
-          student_id: studentId, ...owner,
-          title: titleFromFile(file.name), storage_path: path, file_type: mime, size_bytes: file.size,
-        };
-        const ins = await sb.from('materials').insert(row).select('id');
-        if (ins.error || !ins.data?.length) {
-          sb.storage.from(MATERIALS_BUCKET).remove([path]).catch(() => {});
-          problems.push(`${file.name}: it could not be added.`);
-          continue;
-        }
-        added += 1;
-      }
+      result = await uploadMaterialFiles({ studentId, owner, files });
     });
+    const { added, problems } = result;
     // Saved files must show next time even if the drawer closed meanwhile
     if (added) dctx.store.invalidate(studentId);
     if (!dctx.alive()) return;
     if (problems.length) {
       // The redraw replaces this section, so the problems go in a toast
-      dctx.toast({ text: problems.length === 1 ? `Not added. ${problems[0]}` : `${problems.length} files were not added. ${problems[0]}` });
+      dctx.toast({ text: problemsText(problems) });
     }
     if (added) dctx.toast({ text: added === 1 ? 'File added' : `${added} files added` });
   }

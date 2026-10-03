@@ -19,14 +19,16 @@
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
-import { button, field, select, setFieldError, busy, drawerHref } from './ui.js';
+import { button, iconButton, field, select, setFieldError, busy, drawerHref } from './ui.js';
 import { dueDateToIso, isoToDateInput, displayName } from './format.js';
 import { sb } from './supabase.js';
-import { lessonLabel } from './materials-model.js';
+import { lessonLabel, MATERIAL_ACCEPT, materialType, validateMaterialFile, materialIcon, sizeText } from './materials-model.js';
+import { uploadMaterialFiles, problemsText, namePastedImage } from './materials-ui.js';
 import { todayKey } from './dates.js';
 
 const KIND_LABEL = { assignment: 'Assignment', task: 'Task' };
 const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_ATTACHMENTS = 10;
 
 function titleFor(kind, editing) {
   return `${editing ? 'Edit' : 'New'} ${kind === 'task' ? 'task' : 'assignment'}`;
@@ -125,13 +127,98 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
 
   const errorSlot = h('div', { class: 'asg-form-errors' });
 
+  // Attachments (create only): worksheets or screenshots of the questions,
+  // uploaded as materials once the item exists. Editing uses the drawer's
+  // own attachments section instead.
+  const pendingFiles = [];
+  let attachField = null;
+  let attachList = null;
+  let attachProblem = null;
+  let renderAttachments = () => {};
+  let addAttachments = () => {};
+  if (!editing) {
+    const attachInput = h('input', {
+      type: 'file', multiple: true, accept: MATERIAL_ACCEPT,
+      class: 'visually-hidden', tabindex: '-1', 'aria-hidden': 'true',
+    });
+    attachList = h('ul', { class: 'asg-attach-list', 'aria-label': 'Files to attach' });
+    attachProblem = h('div', { class: 'asg-attach-problem' });
+    const attachBtn = button({
+      label: 'Add files',
+      icon: 'paperclip',
+      size: 'sm',
+      focusKey: 'create-attach',
+      onClick: () => attachInput.click(),
+    });
+    attachField = h('div', { class: 'field asg-attach-field' },
+      h('span', { class: 'field-label', id: `${formId}-attach` }, 'Attachments', h('span', { class: 'field-optional' }, 'Optional')),
+      attachList,
+      h('div', { class: 'asg-attach-actions' }, attachBtn, attachInput),
+      h('p', { class: 'field-hint' }, 'Worksheets or screenshots of the questions. PDF, PowerPoint, Word or images, up to 25 MB each. You can also paste a screenshot here.'),
+      attachProblem);
+
+    renderAttachments = () => {
+      attachList.replaceChildren(...pendingFiles.map((file, i) => h('li', { class: 'asg-attach-item' },
+        h('span', { class: 'mat-icon', 'aria-hidden': 'true' }, icon(materialIcon({ file_type: materialType(file) }), { size: 20 })),
+        h('span', { class: 'asg-attach-name' }, file.name),
+        h('span', { class: 'asg-attach-size num' }, sizeText(file.size)),
+        iconButton({
+          icon: 'x',
+          label: `Remove ${file.name}`,
+          tip: 'left',
+          onClick: () => {
+            pendingFiles.splice(i, 1);
+            renderAttachments();
+            attachBtn.focus();
+          },
+        }))));
+      attachList.hidden = pendingFiles.length === 0;
+    };
+
+    addAttachments = (files) => {
+      const problems = [];
+      for (const file of files) {
+        if (pendingFiles.length >= MAX_ATTACHMENTS) {
+          problems.push(`Attach at most ${MAX_ATTACHMENTS} files here. Add more from the assignment after you create it.`);
+          break;
+        }
+        const message = validateMaterialFile(file);
+        if (message) problems.push(`${file.name}: ${message}`);
+        else pendingFiles.push(file);
+      }
+      attachProblem.replaceChildren(problems.length
+        ? h('p', { class: 'field-error', role: 'alert' }, icon('warning-circle'), h('span', {}, problems.join(' ')))
+        : '');
+      renderAttachments();
+    };
+
+    attachInput.addEventListener('change', () => {
+      const files = [...(attachInput.files ?? [])];
+      attachInput.value = '';
+      if (files.length) addAttachments(files);
+    });
+    renderAttachments();
+  }
+
   const lessonNote = lesson && !editing
     ? h('p', { class: 'note asg-lesson-note' }, icon('book-open-text'),
       h('span', {}, `Homework for ${lessonLabel(lesson, todayKey())}. Add a worksheet or slides after you create it.`))
     : null;
 
   const form = h('form', { class: 'asg-form', id: formId, novalidate: true },
-    lessonNote, typeField, studentField, titleField, detailsField, dueField, errorSlot);
+    lessonNote, typeField, studentField, titleField, detailsField, dueField, attachField, errorSlot);
+
+  // A screenshot pasted anywhere in the form is attached (pasted text still
+  // goes into the field being typed in)
+  if (!editing) {
+    form.addEventListener('paste', (e) => {
+      const images = [...(e.clipboardData?.files ?? [])].filter((f) => f.type === 'image/png' || f.type === 'image/jpeg');
+      if (!images.length) return;
+      e.preventDefault();
+      const shots = pendingFiles.filter((f) => /^Screenshot( \d+)?\.(png|jpg)$/.test(f.name)).length;
+      addAttachments(images.map((f, i) => namePastedImage(f, shots + i + 1)));
+    });
+  }
 
   const root = h('div', { class: 'asg-form-wrap', dataset: { title: heading.textContent } }, heading, form);
 
@@ -240,9 +327,18 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
           errorSlot.scrollIntoView?.({ block: 'nearest' });
           return;
         }
+        // The item exists: attach its files. A file that fails is reported,
+        // and the item stays (files can be added from it later).
+        let attached = { added: 0, problems: [] };
+        if (!editing && pendingFiles.length && result.data?.id !== undefined) {
+          attached = await uploadMaterialFiles({ studentId, owner: { task_id: result.data.id }, files: pendingFiles });
+        }
         // Invalidate first, so what renders next reads the saved values
         dctx.store.invalidate(studentId);
-        dctx.toast({ text: editing ? 'Changes saved.' : (currentKind === 'task' ? 'Task created.' : 'Assignment created.') });
+        const created = currentKind === 'task' ? 'Task created' : 'Assignment created';
+        const withFiles = attached.added ? ` with ${attached.added === 1 ? '1 file' : `${attached.added} files`}` : '';
+        dctx.toast({ text: editing ? 'Changes saved.' : `${created}${withFiles}.` });
+        if (attached.problems.length) dctx.toast({ text: problemsText(attached.problems) });
         if (editing) onSaved?.();
         else {
           if (lesson && result.data?.id !== undefined) {

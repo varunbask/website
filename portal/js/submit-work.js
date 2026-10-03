@@ -7,13 +7,16 @@
 //                it redraws (invalidate) and shows the success message. Without
 //                it, the store is invalidated and a toast says the work is in.
 //
-// The section carries data-task-id, data-attempts and data-sending so the
-// drawer can keep it (with the chosen file and note) across refresh paints.
-// Files dropped anywhere on the section take the dropzone's path.
+// The answer is typed text first; a file (PDF, photo or text file) is
+// optional, and either one alone is enough. The section carries
+// data-task-id, data-attempts and data-sending so the drawer can keep it
+// (with the typed answer, the chosen file and the note) across refresh paints.
+// Files dropped anywhere on the section, or an image pasted into it (a
+// screenshot), take the dropzone's path.
 //
-// The upload order and error wording are unchanged from the old student view:
-// validateUpload, prepareUpload, storagePath, storage upload (upsert false),
-// submissions insert, startGrading (not awaited), then the redraw.
+// Order: validate, then (only with a file) prepareUpload, storagePath and the
+// storage upload (upsert false), then the submissions insert, startGrading
+// (not awaited), then the redraw.
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
@@ -28,7 +31,9 @@ const SUCCESS = 'Work submitted. Your tutor will review it soon.';
 // The work is saved even when grading could not start (rate limit, network);
 // the daily sweep grades it, so the student must not spend another attempt.
 const GRADING_LATER = 'Your work is saved, but grading could not start yet. It will be graded within a day, so you don’t need to submit again.';
-const AT_LIMIT = `You’ve used all ${MAX_SUBMISSIONS} attempts for this assignment. Message your tutor if you need to send another file.`;
+const AT_LIMIT = `You’ve used all ${MAX_SUBMISSIONS} attempts for this assignment. Message your tutor if you need to send another answer.`;
+const NOTHING = 'Type your answer, or attach a file.';
+export const MAX_ANSWER_CHARS = 20000;
 const FAILED = 'Your work could not be submitted. Try again, or email it to your tutor.';
 
 // "340 KB", "2.4 MB"
@@ -77,8 +82,22 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   const dropzone = h('label', { class: 'asg-dropzone' },
     input,
     h('span', { class: 'asg-drop-icon' }, icon('upload-simple', { size: 20 })),
-    h('span', { class: 'asg-drop-title' }, 'Choose a file or drop it here'),
-    h('span', { class: 'asg-drop-hint' }, 'PDF, photo (JPG or PNG) or text file, up to 20 MB.'));
+    h('span', { class: 'asg-drop-title' }, 'Attach a file, drop it here, or paste a screenshot'),
+    h('span', { class: 'asg-drop-hint' }, 'Optional. PDF, photo (JPG or PNG) or text file, up to 20 MB.'));
+
+  // The answer: typed text is the main way to respond
+  const answer = h('textarea', {
+    class: 'input textarea asg-answer-input',
+    name: 'answer',
+    rows: '8',
+    maxlength: String(MAX_ANSWER_CHARS),
+    placeholder: 'Type your answer here. Show your work for each question.',
+  });
+  const answerField = field({
+    label: 'Your answer',
+    hint: 'You can also attach a file below, like a photo of handwritten work.',
+    control: answer,
+  });
 
   // The chosen file, shown in place of the dropzone
   const fileIconSlot = h('span', { class: 'asg-file-icon' });
@@ -116,8 +135,9 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     h('span', { class: 'asg-attempt num' }, `Attempt ${attempt} of ${MAX_SUBMISSIONS}`));
 
   const progress = h('div', { class: 'asg-progress', 'aria-hidden': 'true' }, h('span', { class: 'asg-progress-bar' }));
+  const attachLabel = h('p', { class: 'field-label asg-attach-label' }, 'Attach a file', h('span', { class: 'field-optional' }, 'Optional'));
   const form = h('form', { class: 'asg-submit-form', novalidate: true, 'aria-labelledby': headingId },
-    dropzone, chosen, noteField, error, actions);
+    answerField, h('div', { class: 'asg-attach' }, attachLabel, dropzone, chosen), noteField, error, actions);
 
   const section = h('section', {
     class: 'drawer-section asg-submit',
@@ -150,6 +170,10 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     chosen.hidden = false;
     dropzone.hidden = true;
   }
+
+  answer.addEventListener('input', () => {
+    if (answer.value.trim()) setError('');
+  });
 
   input.addEventListener('change', () => {
     const file = input.files?.[0] ?? null;
@@ -207,6 +231,27 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
 
+  // A pasted image (a screenshot) becomes the attached file. Pasted text
+  // goes into the answer box as usual.
+  section.addEventListener('paste', (e) => {
+    if (sending) return;
+    const image = [...(e.clipboardData?.files ?? [])].find((f) => f.type === 'image/png' || f.type === 'image/jpeg');
+    if (!image) return;
+    e.preventDefault();
+    const named = image.name && image.name !== 'image.png'
+      ? image
+      : new File([image], `Screenshot.${image.type === 'image/png' ? 'png' : 'jpg'}`, { type: image.type });
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(named);
+      input.files = dt.files;
+    } catch {
+      setError('That screenshot could not be added. Save it and choose it with the file picker instead.');
+      return;
+    }
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
   const setSending = (on) => {
     sending = on;
     section.dataset.sending = on ? 'true' : 'false';
@@ -215,31 +260,37 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     event.preventDefault();
     if (sending) return;
     const file = input.files?.[0] ?? null;
-    const problem = validateUpload(file);
+    const text = answer.value.trim();
+    if (!text && !file) {
+      setError(NOTHING);
+      answer.focus();
+      return;
+    }
+    const problem = file ? validateUpload(file) : null;
     if (problem) {
       setError(problem);
-      if (!file) {
-        showChosen(null);
-        input.focus();
-      }
       return;
     }
     setError('');
     setSending(true);
     section.classList.add('is-busy');
     input.disabled = true;
+    answer.readOnly = true;
     note.readOnly = true;
     removeBtn.disabled = true;
     try {
-      await busy(submit, 'Uploading…', async () => {
+      await busy(submit, file ? 'Uploading…' : 'Submitting…', async () => {
         try {
-          const { body, type } = await prepareUpload(file);
-          const path = storagePath(studentId, type);
-          const uploaded = await sb.storage.from('homework').upload(path, body, { contentType: type, upsert: false });
-          if (uploaded.error) throw uploaded.error;
-          const inserted = await sb.from('submissions')
-            .insert({ task_id: task.id, storage_path: path, file_type: type, note: note.value.trim() || null })
-            .select('id').single();
+          const row = { task_id: task.id, body: text || null, note: note.value.trim() || null };
+          if (file) {
+            const { body, type } = await prepareUpload(file);
+            const path = storagePath(studentId, type);
+            const uploaded = await sb.storage.from('homework').upload(path, body, { contentType: type, upsert: false });
+            if (uploaded.error) throw uploaded.error;
+            row.storage_path = path;
+            row.file_type = type;
+          }
+          const inserted = await sb.from('submissions').insert(row).select('id').single();
           if (inserted.error) throw inserted.error;
           // Not awaited: the work is in. If grading could not start, say so once it answers.
           startGrading(inserted.data.id, { keepalive: true })
@@ -261,6 +312,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
       setSending(false);
       section.classList.remove('is-busy');
       input.disabled = false;
+      answer.readOnly = false;
       note.readOnly = false;
       removeBtn.disabled = false;
     }
