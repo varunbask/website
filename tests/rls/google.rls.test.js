@@ -100,6 +100,38 @@ describe.skipIf(!hasService)('google calendar sync row-level security', () => {
     expect(plan.data.sync_state).toBe('pending');
   });
 
+  test('a tutor cannot write the Google columns of a session, the etag included, but can read them', async () => {
+    for (const column of ['google_event_id', 'google_calendar_id', 'google_recurring_id', 'google_link', 'sync_state', 'google_synced_at', 'google_etag']) {
+      const value = column === 'google_synced_at' ? new Date().toISOString() : (column === 'google_link' ? 'https://calendar.google.com/x' : 'x');
+      const { error } = await P.tutorA.client.from('sessions').update({ [column]: column === 'sync_state' ? 'synced' : value }).eq('id', session);
+      expect(error?.code, column).toBe('42501');
+    }
+
+    must(await w.admin.from('sessions').update({ google_etag: '"etag-1"' }).eq('id', session), 'seed etag');
+    const read = await P.tutorA.client.from('sessions').select('google_etag').eq('id', session).single();
+    expect(read.error).toBeNull();
+    expect(read.data.google_etag).toBe('"etag-1"');
+  });
+
+  test('the connection has a push lock column for the service role, and a state needs its browser hash', async () => {
+    const lock = await w.admin.from('google_connections').update({ push_started_at: new Date().toISOString() }).eq('user_id', P.tutorA.id).select('push_started_at').single();
+    expect(lock.error).toBeNull();
+    expect(lock.data.push_started_at).not.toBeNull();
+    must(await w.admin.from('google_connections').update({ push_started_at: null }).eq('user_id', P.tutorA.id), 'release the lock');
+
+    const nonce = `nonce-${randomUUID()}`;
+    const row = {
+      nonce, user_id: P.tutorA.id, purpose: 'tutor', verifier: 'v', return_to: '/portal/',
+      expires_at: new Date(Date.now() + 600_000).toISOString(),
+    };
+    const without = await w.admin.from('google_oauth_states').insert(row);
+    expect(without.error?.code).toBe('23502'); // browser_hash is not null
+
+    const withHash = await w.admin.from('google_oauth_states').insert({ ...row, browser_hash: 'a'.repeat(64) });
+    expect(withHash.error).toBeNull();
+    must(await w.admin.from('google_oauth_states').delete().eq('nonce', nonce), 'remove the state');
+  });
+
   test('a tutor deleting a synced session leaves one tombstone', async () => {
     const eventId = `ev-${randomUUID()}`;
     const calendarId = `cal-${randomUUID()}`;
