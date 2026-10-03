@@ -478,6 +478,27 @@ describe('pushPending', () => {
     expect(s.state.sessions[0].google_event_id).toBeNull();
   });
 
+  test('a row that fails is logged by error name and session id only', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const s = setup({ sessions: [session({ id: 41, subject: 'Private Subject', notes: 'secret plan', location: 'Maya home' })] });
+    s.g.fail('insertEvent', new GoogleApiError(500));
+    await push(s);
+
+    expect(spy.mock.calls).toEqual([['Google push row failed:', 'GoogleApiError', 'session', 41]]);
+    expect(JSON.stringify(spy.mock.calls)).not.toMatch(/Private Subject|secret plan|Maya|maya@|tutor@|Google API error/);
+  });
+
+  test('a rate stop and an auth error are not logged as row failures', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const rate = setup({ sessions: [session()] });
+    rate.g.fail('insertEvent', new GoogleRateError());
+    await push(rate);
+    const auth = setup({ sessions: [session()] });
+    auth.g.fail('insertEvent', new GoogleAuthError());
+    await push(auth).catch(() => {});
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   test('an error-state session is retried', async () => {
     const s = setup({ sessions: [session({ sync_state: 'error' })] });
     const result = await push(s);
@@ -1455,6 +1476,27 @@ describe('withGoogle', () => {
     const logged = log.mock.calls.flat().join(' ');
     expect(logged).toContain('GoogleApiError');
     expect(logged).not.toMatch(/Google API error|refresh-secret|access-1|tutor@gmail/);
+  });
+
+  test('quiet: a Google error is logged by name but not recorded on the connection', async () => {
+    const s = setup();
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const out = await withGoogle(s.conn, { repo: s.repo, config, fetchImpl: router() }, async () => { throw new GoogleApiError(500); }, { quiet: true });
+
+    expect(out).toEqual({ ok: false, error: 'google_error' });
+    expect(s.called('updateConnection')).toHaveLength(0);
+    expect(log.mock.calls.flat().join(' ')).toContain('GoogleApiError');
+  });
+
+  test('quiet: a lost grant is still recorded as reconnect', async () => {
+    const s = setup();
+    const out = await withGoogle(s.conn, { repo: s.repo, config, fetchImpl: router({ token: reply(400, { error: 'invalid_grant' }) }) }, vi.fn(), { quiet: true });
+    expect(out).toEqual({ ok: false, error: 'reconnect' });
+    expect(s.state.connections[0].last_error).toBe('reconnect');
+
+    const other = setup();
+    await withGoogle(other.conn, { repo: other.repo, config, fetchImpl: router() }, async () => { throw new GoogleAuthError(); }, { quiet: true });
+    expect(other.state.connections[0].last_error).toBe('reconnect');
   });
 
   test('a token that cannot be decrypted is a google_error, not a crash', async () => {

@@ -182,6 +182,55 @@ describe('handleSweep', () => {
       expect(fetchImpl).not.toHaveBeenCalled();
     });
 
+    describe('without the model variables', () => {
+      const NO_LLM = { CRON_SECRET: 'cron-secret' };
+      const GOOGLE_NO_LLM = { ...NO_LLM, GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret', GOOGLE_TOKEN_KEY: 'key' };
+
+      test('still runs the Google upkeep, and only skips grading', async () => {
+        const gr = googleRepo();
+        const gradingRepo = { listDue: vi.fn(async () => []), listOrphanFiles: vi.fn(async () => []), removeFiles: vi.fn(async () => {}) };
+        const res = await handleSweep(get('Bearer cron-secret'), { repo: gradingRepo, googleRepo: gr, env: GOOGLE_NO_LLM, now });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ grading: 'not configured', google: { tutors: 0, ok: 0, failed: 0 } });
+        expect(gr.listSyncTutors).toHaveBeenCalledTimes(1);
+        expect(gradingRepo.listDue).not.toHaveBeenCalled();
+        expect(gradingRepo.listOrphanFiles).not.toHaveBeenCalled();
+      });
+
+      test('one model variable is as good as none', async () => {
+        const gr = googleRepo();
+        for (const env of [{ ...GOOGLE_NO_LLM, LLM_ENDPOINT: 'x' }, { ...GOOGLE_NO_LLM, LLM_KEY: 'y' }]) {
+          const res = await handleSweep(get('Bearer cron-secret'), { repo, googleRepo: gr, env, now });
+          expect(res.status).toBe(200);
+          expect((await res.json()).grading).toBe('not configured');
+        }
+      });
+
+      test('is still a 500 when Google is not set up either: there is nothing to do', async () => {
+        const gr = googleRepo();
+        for (const options of [{ repo, env: NO_LLM }, { repo, googleRepo: gr, env: NO_LLM }]) {
+          const res = await handleSweep(get('Bearer cron-secret'), { ...options, now });
+          expect(res.status).toBe(500);
+          expect(await res.json()).toEqual({ error: 'Grading is not configured.' });
+        }
+        expect(gr.listSyncTutors).not.toHaveBeenCalled();
+      });
+
+      test('a caller without the secret is still refused before anything runs', async () => {
+        const gr = googleRepo();
+        expect((await handleSweep(get('Bearer nope'), { repo, googleRepo: gr, env: GOOGLE_NO_LLM, now })).status).toBe(401);
+        expect(gr.listSyncTutors).not.toHaveBeenCalled();
+      });
+
+      test('a failure in the Google run is reported there, not thrown', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const gr = { listSyncTutors: vi.fn(async () => { throw new Error('listSyncTutors: down'); }) };
+        const res = await handleSweep(get('Bearer cron-secret'), { repo, googleRepo: gr, env: GOOGLE_NO_LLM, now });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ grading: 'not configured', google: { error: 'Google Calendar maintenance failed.' } });
+      });
+    });
+
     test('makes no Google call, and adds nothing, when Google is not set up', async () => {
       const gr = googleRepo();
       const res = await handleSweep(get('Bearer cron-secret'), { repo, googleRepo: gr, env: ENV, now });

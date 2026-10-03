@@ -73,12 +73,17 @@ export async function handleSweep(request, {
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
     return json(401, { error: 'Unauthorized' });
   }
-  if (!env.LLM_ENDPOINT || !env.LLM_KEY) return json(500, { error: 'Grading is not configured.' });
-  const summary = await sweep(repo, { env, now, fetchImpl });
-  summary.removed_files = await removeOrphanFiles(repo, { now });
+  // Grading needs the model variables; the Google upkeep below does not, so without them only grading is skipped
+  const grading = Boolean(env.LLM_ENDPOINT && env.LLM_KEY);
+  const config = googleRepo ? googleConfig(env) : null;
+  if (!grading && !config) return json(500, { error: 'Grading is not configured.' });
+  let summary = { grading: 'not configured' };
+  if (grading) {
+    summary = await sweep(repo, { env, now, fetchImpl });
+    summary.removed_files = await removeOrphanFiles(repo, { now });
+  }
 
   // Daily Google Calendar upkeep, only once Google is set up. It must not cost the grading summary.
-  const config = googleRepo ? googleConfig(env) : null;
   if (config) {
     try {
       summary.google = await maintainAll({ repo: googleRepo, config, fetchImpl, now });

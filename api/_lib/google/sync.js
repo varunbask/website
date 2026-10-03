@@ -20,8 +20,10 @@ const https = (url) => (typeof url === 'string' && /^https:\/\//.test(url) ? url
 
 // Runs fn(calendarClient) with a fresh access token for the connection.
 // Records last_error ('reconnect' or 'google_error') on failure; only error
-// names are logged, never tokens, addresses or event text.
-export async function withGoogle(conn, { repo, config, fetchImpl }, fn) {
+// names are logged, never tokens, addresses or event text. With { quiet: true } a
+// failure that is not a lost grant is logged but not recorded, for calls (the
+// personal overlay) whose hiccups must not show as a paused sync.
+export async function withGoogle(conn, { repo, config, fetchImpl }, fn, { quiet = false } = {}) {
   try {
     const refreshToken = decrypt(conn.refresh_token_enc, config.tokenKey);
     const { access_token: access } = await refreshAccess({
@@ -35,7 +37,7 @@ export async function withGoogle(conn, { repo, config, fetchImpl }, fn) {
       return { ok: false, error: 'reconnect' };
     }
     console.error('Google sync failed:', error?.name ?? 'Error');
-    await repo.updateConnection(conn.user_id, { last_error: 'google_error' });
+    if (!quiet) await repo.updateConnection(conn.user_id, { last_error: 'google_error' });
     return { ok: false, error: 'google_error' };
   }
 }
@@ -247,6 +249,7 @@ async function pushLocked(conn, google, { repo, config, now }) {
         break;
       }
       if (outcome(error) === 'stop') { result.stopped = true; break; } // this row and the rest stay pending
+      console.error('Google push row failed:', error?.name ?? 'Error', 'session', row.id);
       await repo.updateSession(row.id, { sync_state: 'error' });
       result.failed += 1;
     }

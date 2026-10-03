@@ -62,8 +62,11 @@ alter table public.google_connections  enable row level security;
 alter table public.google_oauth_states enable row level security;
 alter table public.google_deletions    enable row level security;
 
--- The Google columns on sessions are written by the server only. Users keep
--- their existing column grants, which do not include these.
+-- Users cannot write the Google columns on sessions: their column grants (insert
+-- and update) do not include them. They can read them, like the rest of the row,
+-- on the sessions they can see: the Google ids, link, sync_state and etag. A
+-- write by the service role counts as the sync itself, so it never marks a
+-- session pending, and a server-side delete (none exists yet) leaves no tombstone.
 
 -- True when this statement comes from the service role (the sync itself). The
 -- role PostgREST switched to is checked as well as the token's role claim, since

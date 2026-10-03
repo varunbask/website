@@ -398,7 +398,14 @@ function readRange(query) {
 }
 
 // GET ?from&to (tutor, sync on) -> { events: [{ id, title, start, end, all_day }] }. Nothing is stored.
+// Every answer varies on Authorization: it is one person's calendar, whatever a cache in between holds.
 export async function handlePersonal(request, deps) {
+  const response = await personalEvents(request, deps);
+  response.headers.append('Vary', 'Authorization');
+  return response;
+}
+
+async function personalEvents(request, deps) {
   const { repo } = deps;
   const who = await tutorCaller(request, deps);
   if (who.response) return who.response;
@@ -407,9 +414,10 @@ export async function handlePersonal(request, deps) {
   const found = await tutorConnection(repo, who.caller, { syncOn: true });
   if (found.response) return found.response;
 
+  // Quiet: a hiccup here must not turn the status into "Sync paused"; a lost grant is still recorded
   const listed = await withGoogle(found.conn, ctxOf(deps), (google) => google.listEvents('primary', {
     singleEvents: true, orderBy: 'startTime', timeMin: range.timeMin, timeMax: range.timeMax, maxResults: 250,
-  }));
+  }), { quiet: true });
   if (!listed.ok) return json(502, { error: NO_ANSWER });
   const events = (listed.value?.items ?? []).map(personalItem).filter(Boolean);
   return json(200, { events }, { 'cache-control': 'private, max-age=60' });

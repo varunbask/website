@@ -1093,6 +1093,32 @@ describe('handlePersonal', () => {
     expect(res.headers.get('cache-control')).toBe('private, max-age=60');
   });
 
+  test('every answer varies on Authorization: events, errors and refusals alike', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const answers = [
+      await run(),
+      await run({ caller: null }),
+      await run({ caller: { id: STUDENT }, connections: [studentConn()] }),
+      await run({ query: {} }),
+      await run({ connections: [] }),
+      await run({ fetch: fakeFetch({ calendarStatus: 500 }) }),
+    ];
+    expect(answers.map((a) => a.res.status)).toEqual([200, 401, 403, 400, 409, 502]);
+    for (const { res } of answers) expect(res.headers.get('vary')).toBe('Authorization');
+  });
+
+  test('a Google hiccup does not mark the connection as paused, but a lost grant is recorded', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const hiccup = await run({ fetch: fakeFetch({ calendarStatus: 500 }) });
+    expect(hiccup.res.status).toBe(502);
+    expect(hiccup.repo.updateConnection).not.toHaveBeenCalled();
+    expect(hiccup.repo.conns.get(TUTOR).last_error).toBeNull();
+
+    const lost = await run({ fetch: fakeFetch({ refresh: 'fail' }) });
+    expect(lost.res.status).toBe(502);
+    expect(lost.repo.conns.get(TUTOR).last_error).toBe('reconnect');
+  });
+
   test('502 when Google does not answer', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     for (const options of [{ calendarStatus: 500 }, { refresh: 'fail' }]) {
