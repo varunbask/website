@@ -208,7 +208,11 @@ describe.skipIf(!hasService)('portal row-level security', () => {
 
   test('a parent sees their child, not other children, and cannot act for them', async () => {
     const c = P.parentA.client;
-    expect(idSet((await c.from('tasks').select('id')).data)).toEqual(asSet(w.seed.A1, w.seed.T1));
+    // every task of their child (earlier tests add some to the seed), and no one else's
+    const childTasks = (await w.admin.from('tasks').select('id').eq('student_id', P.studentA.id)).data;
+    const seen = idSet((await c.from('tasks').select('id')).data);
+    expect(seen).toEqual(idSet(childTasks));
+    expect(seen.has(String(w.seed.A1)) && seen.has(String(w.seed.T1))).toBe(true);
     const updates = (await c.from('updates').select('id')).data;
     expect(idSet(updates).has(String(w.seed.U1))).toBe(true);
     expect(idSet(updates).has(String(w.seed.U2))).toBe(true);
