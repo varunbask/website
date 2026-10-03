@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
-  formatDate, dueDateToIso, isoToDateInput, firstName, displayName, one, isOverdue, byDue,
+  formatDate, dueDateToIso, isoToDateInput, firstName, displayName, one, isOverdue, byDue, canTeach,
 } from '../../portal/js/format.js';
 
 describe('format helpers', () => {
@@ -59,4 +59,10 @@ describe('format helpers', () => {
       expect(isoToDateInput(dueDateToIso(value))).toBe(value);
     }
   });
+});
+
+test('canTeach: tutors and admins have sessions of their own; students and parents do not', () => {
+  expect(canTeach('tutor')).toBe(true);
+  expect(canTeach('admin')).toBe(true);
+  for (const role of ['student', 'parent', 'pending', undefined, null]) expect(canTeach(role)).toBe(false);
 });

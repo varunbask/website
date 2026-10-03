@@ -27,7 +27,7 @@ import {
   button, field, select, segmented, setSegmented, setFieldError, busy, drawerHref,
 } from './ui.js';
 import { sb } from './supabase.js';
-import { displayName } from './format.js';
+import { displayName, canTeach } from './format.js';
 import { viewerIsInBusinessZone, dayKey } from './dates.js';
 import { getGoogleStatus, personalEvents } from './google.js';
 import { personalClashes, mergePersonalClashes, dayRange } from './google-model.js';
@@ -335,13 +335,13 @@ export function sessionForm(dctx, {
   if (editing) studentLists.set(String(session.student_id), siblings);
   let clashKey = null;
 
-  // A tutor scheduling their own session with Google sync on is also told what
+  // A tutor (or teaching admin) scheduling their own session with Google sync on is also told what
   // their Google Calendar has at that time. One fetch per day; if it fails, or
   // sync is off, nothing extra is said.
   const personalDays = new Map();   // day key -> that day's personal events
   const personalLoading = new Set();
   let personalOn = false;
-  if (me?.role === 'tutor') {
+  if (canTeach(me?.role)) {
     getGoogleStatus().then((status) => {
       if (!dctx.alive() || !status.connected || !status.sync_enabled) return;
       personalOn = true;

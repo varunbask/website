@@ -488,14 +488,18 @@ export function filterSessions(sessions, filter, me) {
 }
 
 // The admin's tutor select: [{ value, label }] by name, from the tutors the
-// links and the sessions mention. names: Map of ids to names (staffNames).
-export function tutorOptions({ links = [], sessions = [], names = new Map() } = {}) {
+// links and the sessions mention. names: Map of ids to names (staffNames). An
+// admin who teaches (meId among them) comes first as "My sessions".
+export function tutorOptions({ links = [], sessions = [], names = new Map(), meId = null } = {}) {
   const ids = new Set();
   for (const l of links) if (l.tutor_id) ids.add(String(l.tutor_id));
   for (const s of sessions) if (s.tutor_id) ids.add(String(s.tutor_id));
-  return [...ids]
+  const me = meId === null || meId === undefined ? null : String(meId);
+  const others = [...ids]
+    .filter((id) => id !== me)
     .map((id) => ({ value: id, label: String(names.get(id) ?? '').trim() || 'Unknown tutor' }))
     .sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
+  return me && ids.has(me) ? [{ value: me, label: 'My sessions' }, ...others] : others;
 }
 
 // The name after "with" for a session. One student's calendar names the tutor.

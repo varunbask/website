@@ -326,6 +326,17 @@ describe('whose sessions', () => {
     expect(tutorOptions()).toEqual([]);
   });
 
+  test('tutorOptions: an admin who teaches comes first as "My sessions"', () => {
+    const names = new Map([['t1', 'Daniel Ortiz'], ['a1', 'Varun Baskaran']]);
+    const links = [{ tutor_id: 'a1', student_id: 's1', subject: 'Algebra' }, { tutor_id: 't1', student_id: 's2', subject: null }];
+    expect(tutorOptions({ links, names, meId: 'a1' })).toEqual([
+      { value: 'a1', label: 'My sessions' },
+      { value: 't1', label: 'Daniel Ortiz' },
+    ]);
+    // an admin who teaches nobody gets the plain list
+    expect(tutorOptions({ links: [links[1]], names, meId: 'a1' })).toEqual([{ value: 't1', label: 'Daniel Ortiz' }]);
+  });
+
   test('sessionWho names the tutor on one student, the student on the all-students calendar', () => {
     const tutorNames = new Map([['t1', 'Daniel Ortiz'], ['t2', 'Priya Shah']]);
     const studentNames = new Map([['s1', 'Maya Lin']]);

@@ -287,8 +287,9 @@ describe('handleStart', () => {
   test('403 when the role does not match the purpose', async () => {
     expect((await start({ purpose: 'tutor', return_to: RETURN_TO }, { caller: { id: STUDENT } })).res.status).toBe(403);
     expect((await start({ purpose: 'student', return_to: RETURN_TO }, { caller: { id: TUTOR } })).res.status).toBe(403);
-    expect((await start({ purpose: 'tutor', return_to: RETURN_TO }, { caller: { id: 'admin' } })).res.status).toBe(403);
+    expect((await start({ purpose: 'student', return_to: RETURN_TO }, { caller: { id: 'admin' } })).res.status).toBe(403);
     expect((await start({ purpose: 'student', return_to: RETURN_TO }, { caller: { id: 'parent' } })).res.status).toBe(403);
+    expect((await start({ purpose: 'tutor', return_to: RETURN_TO }, { caller: { id: 'parent' } })).res.status).toBe(403);
     expect((await start({ purpose: 'tutor', return_to: RETURN_TO }, { caller: { id: 'nobody' } })).res.status).toBe(403);
   });
 
@@ -316,6 +317,13 @@ describe('handleStart', () => {
     expect(url.searchParams.get('client_id')).toBe('client-id');
     expect(url.searchParams.get('redirect_uri')).toBe('https://site.test/api/google/callback');
     expect(url.searchParams.get('access_type')).toBe('offline');
+  });
+
+  test('an admin (who can also teach) starts a tutor connection with the tutor scopes', async () => {
+    const { res, json, repo } = await start({ purpose: 'tutor', return_to: RETURN_TO }, { caller: { id: 'admin' } });
+    expect(res.status).toBe(200);
+    expect(new URL(json.url).searchParams.get('scope').split(' ')).toEqual(SCOPES.tutor);
+    expect(repo.saveState.mock.calls[0][0]).toMatchObject({ user_id: 'admin', purpose: 'tutor' });
   });
 
   test('a student asks for the identity scopes only', async () => {
@@ -784,12 +792,24 @@ describe('handleSettings', () => {
     expect(repo.updateConnection).not.toHaveBeenCalled();
   });
 
-  test('403 for a student, a parent and an admin', async () => {
-    for (const id of [STUDENT, 'parent', 'admin']) {
+  test('403 for a student and a parent', async () => {
+    for (const id of [STUDENT, 'parent']) {
       const { res, repo } = await run({ caller: { id } });
       expect(res.status, id).toBe(403);
       expect(repo.updateConnection).not.toHaveBeenCalled();
     }
+  });
+
+  test('an admin with a tutor connection turns their own sync on', async () => {
+    const { res, repo } = await run({ caller: { id: 'admin' }, connections: [tutorConn({ user_id: 'admin', sync_enabled: false })] });
+    expect(res.status).toBe(200);
+    expect(repo.updateConnection).toHaveBeenCalledWith('admin', { sync_enabled: true });
+  });
+
+  test('an admin without a connection gets 409, not 403', async () => {
+    const { res, json } = await run({ caller: { id: 'admin' }, connections: [] });
+    expect(res.status).toBe(409);
+    expect(json).toEqual({ error: 'Connect Google Calendar first.' });
   });
 
   test('400 when sync_enabled is not a boolean', async () => {

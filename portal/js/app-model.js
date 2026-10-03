@@ -157,9 +157,11 @@ export function roleChangeBody(person, { tutorLinks = [], parentLinks = [] } = {
   const n = tutorLinks.filter((l) => l.tutor_id === person.id || l.student_id === person.id).length
     + parentLinks.filter((l) => l.parent_id === person.id || l.student_id === person.id).length;
   if (!n) return 'Their access changes right away.';
-  const what = person.role === 'tutor' ? (n === 1 ? 'student' : 'students')
+  // A teaching admin's links are their students, as for a tutor
+  const teaches = person.role === 'tutor' || (person.role === 'admin' && tutorLinks.some((l) => l.tutor_id === person.id));
+  const what = teaches ? (n === 1 ? 'student' : 'students')
     : person.role === 'parent' ? (n === 1 ? 'child' : 'children')
       : (n === 1 ? 'tutor or parent link' : 'tutor and parent links');
-  const verb = person.role === 'tutor' || person.role === 'parent' ? 'unlinked' : 'removed';
+  const verb = teaches || person.role === 'parent' ? 'unlinked' : 'removed';
   return `Their access changes right away, and their ${n} ${what} will be ${verb}. You can link them again afterwards.`;
 }

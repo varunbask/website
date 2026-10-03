@@ -9,6 +9,7 @@
 
 import { relativeTime, addDays, parseKey, zonedIso, dayKey } from './dates.js';
 import { timeRange, shortDayText } from './sessions-model.js';
+import { canTeach } from './format.js';
 
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -255,7 +256,7 @@ export const RECONNECT_NOTE = 'Reconnect Google Calendar to sync this session.';
 // needs a reconnect the note says that instead, because waiting will not help.
 // Otherwise null.
 export function syncNote(session, me, status) {
-  if (!session || !me || me.role !== 'tutor' || String(session.tutor_id) !== String(me.id)) return null;
+  if (!session || !me || !canTeach(me.role) || String(session.tutor_id) !== String(me.id)) return null;
   if (!status?.connected || !status.sync_enabled) return null;
   if (session.sync_state !== 'pending' && session.sync_state !== 'error') return null;
   return status.last_error === 'reconnect' ? RECONNECT_NOTE : SYNC_NOTE;

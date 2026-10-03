@@ -26,6 +26,12 @@ export function firstName(fullName) {
   return (fullName ?? '').trim().split(/\s+/)[0] || 'there';
 }
 
+// Who can have sessions of their own: a tutor, or an admin, who may also be
+// linked to students as their tutor
+export function canTeach(role) {
+  return role === 'tutor' || role === 'admin';
+}
+
 export function displayName(profile) {
   return profile?.full_name?.trim() || profile?.email || 'Unknown';
 }

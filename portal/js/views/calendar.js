@@ -25,7 +25,7 @@ import { deriveItems } from '../buckets.js';
 import {
   todayKey, dayKey, monthTitle, dayHeading, addDays, longDate, viewerIsInBusinessZone,
 } from '../dates.js';
-import { displayName } from '../format.js';
+import { displayName, canTeach } from '../format.js';
 import { markSeen } from '../seen.js';
 import { staffNames } from '../updates-feed.js';
 import {
@@ -201,10 +201,10 @@ export function mount(ctx) {
     })
     : null;
 
-  // Google Calendar: a tutor's sync switch, a student's invite button, nothing
-  // for parents and admins
+  // Google Calendar: the sync switch for a tutor or an admin (for the sessions
+  // they teach), a student's invite button, nothing for parents
   let googleEl = null;
-  if (ctx.me.role === 'tutor') {
+  if (canTeach(ctx.me.role)) {
     googleEl = tutorGoogleControl({ toast: ctx.toast, store: ctx.store, signal: ctx.signal, onStatus: onGoogleStatus });
   } else if (ctx.me.role === 'student') {
     googleEl = studentInviteControl({ toast: ctx.toast });
@@ -357,7 +357,7 @@ export function mount(ctx) {
       keyButtons(seg, 'cal-who');
       filterSlot.append(seg);
     } else if (ctx.me.role === 'admin') {
-      const options = tutorOptions({ links: state.links ?? [], sessions: state.sessions, names: state.tutorNames });
+      const options = tutorOptions({ links: state.links ?? [], sessions: state.sessions, names: state.tutorNames, meId: ctx.me.id });
       // A tutor in the hash that nobody has any more is dropped
       if (state.filter.tutor && !options.some((o) => o.value === state.filter.tutor)) {
         state.filter = { who: 'all', tutor: null };
@@ -377,8 +377,8 @@ export function mount(ctx) {
 
   // ---- Google Calendar ----------------------------------------------------
 
-  // Personal events are the tutor's own, and only while sync is on and usable
-  const personalOn = () => ctx.me.role === 'tutor'
+  // Personal events are the viewer's own, and only while sync is on and usable
+  const personalOn = () => canTeach(ctx.me.role)
     && Boolean(state.google?.connected && state.google.sync_enabled && state.google.last_error !== 'reconnect');
 
   // Hears the switch's status each time it is read or changed. Turning sync on makes the
