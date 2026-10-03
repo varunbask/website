@@ -326,6 +326,10 @@
 }
 
 .auth-back {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-6);
   margin-top: var(--s-10);
   padding-inline: calc(var(--s-8) + 1px);
 }

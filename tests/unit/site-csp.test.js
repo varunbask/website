@@ -8,13 +8,13 @@ const hashOf = (code) => `'sha256-${createHash('sha256').update(code).digest('ba
 
 // The marketing page CSP allows its inline code by hash. A change to that code
 // changes its hash, so the CSP must change with it.
-test('the site CSP has the hash of each inline script and event handler on index.html', () => {
+test.each(['index.html', 'privacy.html'])('the site CSP has the hash of each inline script and event handler on %s', (page) => {
   const vercel = JSON.parse(read('vercel.json'));
   const rule = vercel.headers.find((h) => h.source === '/((?!portal).*)');
   const csp = rule.headers.find((h) => h.key === 'Content-Security-Policy').value;
   const scriptSrc = csp.split(';').map((part) => part.trim()).find((part) => part.startsWith('script-src '));
 
-  const html = read('index.html');
+  const html = read(page);
   const inline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
   const handlers = [...html.matchAll(/\son\w+="([^"]*)"/g)].map((m) => m[1]);
   expect(inline.length).toBeGreaterThan(0);

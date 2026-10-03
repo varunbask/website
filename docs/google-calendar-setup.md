@@ -4,7 +4,7 @@ The portal's Google Calendar sync needs a Google Cloud project that you own. Do 
 
 ## 1. Google Cloud project
 
-1. Open https://console.cloud.google.com and sign in with the business Google account (vbmgroupsllc@gmail.com).
+1. Open https://console.cloud.google.com and sign in with the Google account that will own the project. The live project, `vp-education-group-portal`, is owned by bvarun2004@gmail.com.
 2. Create a project named **VP Education Group portal**.
 3. Go to **APIs and services**, then **Library**. Enable the **Google Calendar API**.
 
@@ -17,7 +17,7 @@ In **APIs and services**, go to **OAuth consent screen** (shown as **Google Auth
 - **User support email and developer contact:** the business address.
 - **App domain:**
   - Home page: `https://www.varunbaskaran.com`
-  - Privacy policy: a page on the site that says what the portal stores. Google requires one before verification.
+  - Privacy policy: `https://www.varunbaskaran.com/privacy.html`. Google requires one before verification.
 - **Authorized domain:** `varunbaskaran.com`.
 - **Scopes:** add exactly these:
   - `openid`
