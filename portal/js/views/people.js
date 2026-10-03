@@ -25,7 +25,7 @@ import {
   segmented, setSegmented, groupHeader, badgeText, visuallyHidden,
 } from '../ui.js';
 import { displayName } from '../format.js';
-import { filterPeople, roleChangeBody } from '../app-model.js';
+import { filterPeople, roleChangeBody, normalizeFullName, NAME_MAX } from '../app-model.js';
 import { relativeTime } from '../dates.js';
 import { SUBJECT_MAX, linkSubject, normalizeSubject } from '../schedule-summary.js';
 
@@ -683,6 +683,75 @@ export function mount(ctx) {
       h('div', { class: 'ppl-link-body' }, chips, adder));
   }
 
+  // The name with an Edit button that swaps in a field. Enter or Save saves,
+  // Escape or Cancel puts the name back; zero rows back means it did not save
+  // (act reports it). The sidebar shows a new name of your own after a reload.
+  function nameField(person, name, self) {
+    const key = `name-${person.id}`;
+    const wrap = h('span', { class: 'ppl-name' });
+    const show = () => {
+      wrap.classList.remove('is-editing');
+      // replaceChildren would write a null as the text "null", so leave it out
+      wrap.replaceChildren(...[
+        h('span', { class: 'ppl-name-text' }, name),
+        self ? h('span', { class: 'ppl-you' }, 'You') : null,
+        iconButton({ icon: 'pencil-simple', label: `Edit name: ${name}`, className: 'ppl-name-edit', focusKey: key, tip: 'top', onClick: edit }),
+      ].filter(Boolean));
+    };
+    function edit() {
+      const input = h('input', {
+        class: 'input ppl-name-input',
+        type: 'text',
+        maxlength: String(NAME_MAX),
+        autocomplete: 'off',
+        spellcheck: 'false',
+        'aria-label': `Name for ${person.email || name}`,
+        dataset: { focusKey: `${key}-input` },
+      });
+      input.value = person.full_name ?? '';
+      let saving = false;
+      const cancel = () => {
+        show();
+        wrap.querySelector('.ppl-name-edit')?.focus();
+      };
+      const commit = () => {
+        if (saving) return;
+        const parsed = normalizeFullName(input.value);
+        if (!parsed.ok) {
+          say(parsed.error, 'error');
+          input.focus();
+          return;
+        }
+        if (parsed.name === String(person.full_name ?? '').trim()) {
+          cancel();
+          return;
+        }
+        saving = true;
+        input.disabled = true;
+        act(sb.from('profiles').update({ full_name: parsed.name }).eq('id', person.id).select('id'),
+          self ? `Your name is now ${parsed.name}. Reload to see it in the sidebar.` : `Renamed to ${parsed.name}.`,
+          { key });
+      };
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          commit();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          cancel();
+        }
+      });
+      wrap.classList.add('is-editing');
+      wrap.replaceChildren(input,
+        button({ label: 'Save', variant: 'primary', size: 'sm', className: 'ppl-name-save', onClick: commit }),
+        button({ label: 'Cancel', variant: 'ghost', size: 'sm', className: 'ppl-name-cancel', onClick: cancel }));
+      input.focus();
+      input.select();
+    }
+    show();
+    return wrap;
+  }
+
   function personRow(person, { tutors, parents }) {
     const name = displayName(person);
     const self = person.id === me.id;
@@ -717,7 +786,7 @@ export function mount(ctx) {
       h('div', { class: 'ppl-person-head' },
         avatar(name, { size: 32 }),
         h('div', { class: 'ppl-id' },
-          h('span', { class: 'ppl-name' }, h('span', { class: 'ppl-name-text' }, name), self ? h('span', { class: 'ppl-you' }, 'You') : null),
+          nameField(person, name, self),
           person.email && person.email !== name ? h('span', { class: 'ppl-email' }, person.email) : null,
           detail),
         h('div', { class: 'ppl-controls' }, workspace, roleSelect(person))),

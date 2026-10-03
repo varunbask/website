@@ -28,7 +28,8 @@
          div.ppl-approve (label, .select, .btn)
        Everyone: div.ppl-toolbar (.ppl-search, .ppl-filter-wrap > .segmented.ppl-filter)
          div.ppl-everyone > section.ppl-group > (.group-header) + ul.ppl-list > li.ppl-person
-           div.ppl-person-head (avatar, .ppl-id > .ppl-name > .ppl-name-text + .ppl-you,
+           div.ppl-person-head (avatar, .ppl-id > .ppl-name > .ppl-name-text + .ppl-you + .ppl-name-edit
+             (editing: .ppl-name.is-editing > input.ppl-name-input + Save + Cancel),
              .ppl-controls > .ppl-open + .ppl-role)
            div.ppl-links > div.ppl-link-group x2 (students only)
              tutors: ul.ppl-chips.is-tutors > li.ppl-tutor > span.ppl-chip + input.ppl-subject-input
@@ -469,6 +470,21 @@
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+.ppl-name .icon-btn.ppl-name-edit { width: 24px; height: 24px; color: var(--text-3); }
+.ppl-name .icon-btn.ppl-name-edit:hover { color: var(--text); }
+.ppl-name .icon-btn.ppl-name-edit svg { width: 14px; height: 14px; }
+.ppl-name.is-editing { flex-wrap: wrap; gap: var(--s-2); }
+.input.ppl-name-input {
+  width: 240px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  font: 400 14px/20px var(--font-ui);
+}
+@media (max-width: 1023.98px), (pointer: coarse) {
+  .ppl-name .icon-btn.ppl-name-edit { width: 44px; height: 44px; margin-block: -10px; }
+  .input.ppl-name-input { height: 44px; }
 }
 .ppl-you {
   display: inline-flex;
