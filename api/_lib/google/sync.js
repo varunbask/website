@@ -107,7 +107,7 @@ async function writeIfUnchanged(repo, row, fields) {
 // Marks a pushed row synced only if the portal has not changed it since it was
 // read (compare-and-set on updated_at). If it changed meanwhile, the row stays
 // pending for the next push, which sends the newer edit; `kept` is what Google
-// now holds for it (event id, calendar, link) and is saved regardless.
+// now holds for it (event id, calendar, link, etag) and is saved regardless.
 async function settle(repo, row, synced, kept) {
   const done = await writeIfUnchanged(repo, row, synced);
   if (!done && kept) await repo.updateSession(row.id, kept);
@@ -129,7 +129,7 @@ async function pushRow(row, conn, google, { repo, config, stamp, result }) {
   if (row.status === 'cancelled') {
     if (row.google_event_id) {
       await google.deleteEvent(calendarId, row.google_event_id);
-      const cleared = { google_event_id: null, google_link: null };
+      const cleared = { google_event_id: null, google_link: null, google_etag: null };
       await settle(repo, row, { ...cleared, sync_state: 'synced', google_synced_at: stamp }, cleared);
       result.deleted += 1;
     } else {
@@ -158,7 +158,7 @@ async function pushRow(row, conn, google, { repo, config, stamp, result }) {
     ev = await google.insertEvent(conn.calendar_id, body);
     savedCalendar = conn.calendar_id;
   }
-  const kept = { google_event_id: ev.id, google_calendar_id: savedCalendar, google_link: https(ev.htmlLink) };
+  const kept = { google_event_id: ev.id, google_calendar_id: savedCalendar, google_link: https(ev.htmlLink), google_etag: ev.etag ?? null };
   await settle(repo, row, { ...kept, sync_state: 'synced', google_synced_at: stamp }, kept);
   result.pushed += 1;
 }
@@ -326,6 +326,8 @@ async function applyEvent(ctx, e, recurringId) {
   if (row) {
     // The row is bound to another event: this one is a stale or copied event
     if (row.google_event_id && row.google_event_id !== e.id) return skip();
+    // The event is the version our own push left (its echo): there is nothing in it we do not already have
+    if (row.google_etag && e.etag === row.google_etag) return skip();
     // Changed in the portal after the event: the next push wins
     if (resolveConflict(row, e) === 'portal') return skip();
 

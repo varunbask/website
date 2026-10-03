@@ -48,6 +48,7 @@ alter table public.sessions
   add column google_calendar_id  text,
   add column google_recurring_id text,
   add column google_link         text check (google_link is null or google_link ~ '^https://'),
+  add column google_etag         text, -- the event's version as the last push left it, so its echo can be told from a real change
   add column sync_state          text check (sync_state in ('synced', 'pending', 'error')),
   add column google_synced_at    timestamptz;
 create unique index sessions_google_event_idx on public.sessions (google_calendar_id, google_event_id)

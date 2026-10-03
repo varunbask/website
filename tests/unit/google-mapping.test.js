@@ -72,6 +72,10 @@ describe('sessionToEvent', () => {
     expect(sessionToEvent(session(), { ...OPTS, studentEmail: null }).attendees).toEqual([]);
   });
 
+  test('the event is confirmed, so a patch from the portal revives one that was cancelled in Google', () => {
+    expect(sessionToEvent(session(), OPTS).status).toBe('confirmed');
+  });
+
   test('guests cannot modify or invite', () => {
     const e = sessionToEvent(session(), OPTS);
     expect(e.guestsCanModify).toBe(false);
@@ -198,7 +202,7 @@ describe('eventToSessionFields', () => {
 
     test('entities decode, and nbsp becomes a space', () => {
       const f = eventToSessionFields(event({
-        description: 'Tom &amp; Jerry &lt;3 &quot;quoted&quot; it&#39;s&nbsp;fine &gt; &amp;lt; stays',
+        description: 'Tom &amp; Jerry &lt;3 &quot;quoted&quot; it&#39;s&nbsp;fine &gt; &amp;lt; stays<br>',
       }));
       expect(f.notes).toBe('Tom & Jerry <3 "quoted" it\'s fine > &lt; stays');
     });
@@ -339,6 +343,94 @@ describe('round trip through an HTML description', () => {
     expect(html).toContain('<a href="https://meet.test/abc">');
     const f = eventToSessionFields({ ...e, description: html });
     expect(f).toMatchObject({ notes: 'Note', location: 'Library', meeting_url: 'https://meet.test/abc' });
+  });
+});
+
+describe('plain-text descriptions (what the portal writes) are taken as they are', () => {
+  const OWN = (notes) => sessionToEvent(session({ notes }), OPTS);
+  const back = (notes, over = {}) => eventToSessionFields({
+    id: 'e1', status: 'confirmed', ...OWN(notes), ...over,
+  });
+
+  const NOTES = {
+    'angle brackets that are not tags': 'Review vectors <a, b>',
+    'a comparison': 'if a<b and c>d',
+    'an entity written out': 'Q&amp;A',
+    'entities in several forms': 'x &lt; y &amp;&amp; &quot;z&quot; it&#39;s&nbsp;here',
+    'three or more blank lines': 'Part one\n\n\n\nPart two',
+    'the Join online words inside a sentence': 'Remember: Join online: https://example.test/x is not our link',
+    'the portal words inside a sentence': 'The line Open in the portal: is added for you',
+    'markup that Google does not write': 'Use <h1>big</h1> or <script>x</script> or <img src=x>',
+    'a tag with a space that is not an attribute': 'x <b and c> y',
+  };
+
+  for (const [name, notes] of Object.entries(NOTES)) {
+    test(`notes with ${name} come back unchanged`, () => {
+      expect(back(notes).notes).toBe(notes);
+    });
+  }
+
+  test('the Join online line the portal adds is still found and cut, with the notes kept', () => {
+    const f = eventToSessionFields({
+      id: 'e1', status: 'confirmed',
+      ...sessionToEvent(session({ notes: 'Q&amp;A <a, b>', location: 'Library', meeting_url: 'https://meet.test/abc' }), OPTS),
+    });
+    expect(f).toMatchObject({ notes: 'Q&amp;A <a, b>', location: 'Library', meeting_url: 'https://meet.test/abc' });
+  });
+
+  test('a line that starts with the portal words is where the notes end', () => {
+    const f = eventToSessionFields({
+      id: 'e1', status: 'confirmed', start: { dateTime: '2026-10-05T09:00:00-07:00' }, end: { dateTime: '2026-10-05T10:00:00-07:00' },
+      description: `Mind the gap\nJoin online: https://meet.test/abc\nOpen in the portal: ${PORTAL}`,
+    });
+    expect(f.notes).toBe('Mind the gap');
+    expect(f.meeting_url).toBe('https://meet.test/abc');
+  });
+
+  test('a Join online link in the middle of a line is not the meeting link', () => {
+    const f = eventToSessionFields({
+      id: 'e1', status: 'confirmed', start: { dateTime: '2026-10-05T09:00:00-07:00' }, end: { dateTime: '2026-10-05T10:00:00-07:00' },
+      description: 'Remember: Join online: https://evil.test/x',
+    });
+    expect(f.meeting_url).toBeNull();
+    expect(f.notes).toBe('Remember: Join online: https://evil.test/x');
+  });
+});
+
+describe('which descriptions are treated as the web editor\'s HTML', () => {
+  const notesOf = (description) => eventToSessionFields({
+    id: 'e1', status: 'confirmed', start: { dateTime: '2026-10-05T09:00:00-07:00' }, end: { dateTime: '2026-10-05T10:00:00-07:00' }, description,
+  }).notes;
+
+  // An entity only decodes once the description counts as the editor's HTML
+  const converted = (description) => notesOf(description)?.includes('Q&A') ?? false;
+
+  test('each tag the editor writes triggers the conversion, in any case', () => {
+    const tags = ['br', 'p', 'div', 'a', 'b', 'i', 'u', 'ul', 'ol', 'li', 'span', 'strong', 'em'];
+    for (const tag of tags) {
+      for (const name of [tag, tag.toUpperCase()]) {
+        expect(converted(`Q&amp;A <${name}>`), `<${name}>`).toBe(true);
+        expect(converted(`Q&amp;A </${name}>`), `</${name}>`).toBe(true);
+      }
+    }
+  });
+
+  test('a self-closing tag and a tag with attributes trigger it too', () => {
+    for (const markup of ['<br/>', '<br />', '<br\n/>', '<b >', '<span style="color:red">', "<a href='https://t.test/'>", '<div class=x id=y>']) {
+      expect(converted(`Q&amp;A ${markup}`), markup).toBe(true);
+    }
+  });
+
+  test('other tags and bare angle brackets do not', () => {
+    for (const text of ['<h1>t</h1> &amp; x', '<script>a</script> &amp;', '<img src=x> &amp;', '<table><tr><td>a</td></tr></table> &amp;',
+      'a<b and c>d &amp;', '<a, b> &amp;', 'x <bad> &amp;', '<abbr>t</abbr> &amp;', 'a <i, j> &amp;']) {
+      expect(notesOf(text), text).toBe(text);
+    }
+  });
+
+  test('a description the editor made still comes out as before', () => {
+    expect(notesOf('<p>Bring chapter 3</p><p>Tom &amp; Jerry &lt;3</p><p>Open in the portal: <a href="https://p.test/">https://p.test/</a></p>'))
+      .toBe('Bring chapter 3\nTom & Jerry <3');
   });
 });
 

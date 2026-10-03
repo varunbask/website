@@ -4,25 +4,34 @@ export const PORTAL_LINE = 'Open in the portal:';
 export const JOIN_LINE = 'Join online:';
 const SUFFIX = / \(([^()]+)\)$/;
 const GENERIC_SUBJECT = 'Tutoring session'; // what sessionToEvent writes for a session with no subject
-const JOIN_URL = new RegExp(`${JOIN_LINE}[ \\t]*(https://[^\\s<]+)`);
+// The portal's lines count only when they start a line, so a note that mentions them in a sentence keeps them
+const JOIN_URL = new RegExp(`^${JOIN_LINE}[ \\t]*(https://[^\\s<]+)`, 'm');
+const OWN_LINE = new RegExp(`^(?:${JOIN_LINE}|${PORTAL_LINE})`, 'm');
 
 const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", nbsp: ' ' };
 
-// Google's web editor saves descriptions as HTML. Reduce one to plain text:
-// line breaks and block ends become newlines, a link becomes its text (or its
-// href when the text is empty), other tags go, and common entities decode.
-// Text that has no markup comes out unchanged (apart from the final trim).
-function plainText(html) {
-  return String(html ?? '')
+// The tags Google's web editor writes into a description: a bare tag name followed by
+// `>` or `/>`, or one with attributes (`<a href=...>`). Plain text such as `a<b and c>d`
+// or `<a, b>` does not look like one.
+const EDITOR_TAG = /<\/?(?:br|p|div|a|b|i|u|ul|ol|li|span|strong|em)(?:\s*\/?>|\s+[a-z][\w:-]*\s*=)/i;
+
+// Google's web editor saves a description as HTML once it has formatting. Reduce one
+// to plain text: line breaks and block ends become newlines, a link becomes its text
+// (or its href when the text is empty), other tags go, and common entities decode.
+// A description with none of the editor's tags is plain text, which is what the
+// portal writes: it is taken as it is, so a note such as `Q&amp;A` or `if a<b` survives.
+function plainText(description) {
+  const text = String(description ?? '');
+  if (!EDITOR_TAG.test(text)) return text;
+  return text
     .replace(/<br\s*\/?>|<\/(?:p|div)\s*>/gi, '\n')
     .replace(/<a\b([^>]*)>([\s\S]*?)<\/a\s*>/gi, (_, attrs, inner) => {
-      const text = inner.replace(/<\/?[a-z][^>]*>/gi, '').trim();
-      return text || (attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')/i)?.slice(1).find(Boolean) ?? '');
+      const label = inner.replace(/<\/?[a-z][^>]*>/gi, '').trim();
+      return label || (attrs.match(/\bhref\s*=\s*(?:"([^"]*)"|'([^']*)')/i)?.slice(1).find(Boolean) ?? '');
     })
     .replace(/<\/?[a-z][^>]*>/gi, '')
     .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name) => ENTITIES[name])
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+    .replace(/\n{3,}/g, '\n\n');
 }
 
 // The Google event for a portal session (insert body; also used as a patch).
@@ -36,6 +45,7 @@ export function sessionToEvent(s, { studentName, studentEmail, portalUrl }) {
     `${PORTAL_LINE} ${portalUrl}`,
   ].filter(Boolean).join('\n\n');
   return {
+    status: 'confirmed', // a patch from the portal brings back an event someone cancelled in Google
     summary: studentName ? `${subject} (${studentName})` : subject,
     description,
     location: s.location || s.meeting_url || '',
@@ -60,8 +70,8 @@ export function eventToSessionFields(e) {
   const subject = stripped === GENERIC_SUBJECT ? null : (stripped || null);
   const desc = plainText(e.description);
   // Notes are what comes before the first line the portal added
-  const cuts = [JOIN_LINE, PORTAL_LINE].map((marker) => desc.indexOf(marker)).filter((i) => i >= 0);
-  const notes = (cuts.length ? desc.slice(0, Math.min(...cuts)) : desc).trim() || null;
+  const cut = desc.search(OWN_LINE);
+  const notes = (cut >= 0 ? desc.slice(0, cut) : desc).trim() || null;
   const loc = String(e.location ?? '').trim();
   const isUrl = /^https:\/\/\S+$/.test(loc);
   const joined = desc.match(JOIN_URL)?.[1] ?? null;

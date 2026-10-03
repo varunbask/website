@@ -73,7 +73,7 @@ function fakeGoogle({ pageSize = 250, syncToken = 'sync-next' } = {}) {
     async insertEvent(cal, body) {
       enter('insertEvent', [cal, body]);
       seq += 1;
-      const ev = { ...body, id: `ev-${seq}`, status: 'confirmed', htmlLink: `https://calendar.google.test/ev-${seq}`, updated: STAMP };
+      const ev = { ...body, id: `ev-${seq}`, status: 'confirmed', htmlLink: `https://calendar.google.test/ev-${seq}`, updated: STAMP, etag: `"etag-${seq}"` };
       events.set(key(cal, ev.id), ev);
       return ev;
     },
@@ -81,7 +81,8 @@ function fakeGoogle({ pageSize = 250, syncToken = 'sync-next' } = {}) {
       enter('patchEvent', [cal, id, body]);
       const old = events.get(key(cal, id));
       if (!old) throw new GoogleNotFound();
-      const ev = { ...old, ...body };
+      seq += 1;
+      const ev = { ...old, ...body, etag: `"etag-${seq}"` };
       events.set(key(cal, id), ev);
       return ev;
     },
@@ -578,7 +579,7 @@ describe('pushPending', () => {
     const result = await push(s);
 
     expect(result).toEqual({ pushed: 1, deleted: 0, failed: 0, stopped: false });
-    const kept = { google_event_id: 'ev-1', google_calendar_id: CAL, google_link: 'https://calendar.google.test/ev-1' };
+    const kept = { google_event_id: 'ev-1', google_calendar_id: CAL, google_link: 'https://calendar.google.test/ev-1', google_etag: '"etag-1"' };
     expect(s.state.sessions[0]).toMatchObject({ ...kept, sync_state: 'pending', subject: 'Edited' });
     expect(s.state.sessions[0].google_synced_at).toBeUndefined();
     expect(s.called('updateSession').map((c) => c.args)).toEqual([
@@ -1444,6 +1445,134 @@ describe('withGoogle', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const out = await withGoogle(s.conn, { repo: s.repo, config, fetchImpl: router() }, vi.fn());
     expect(out).toEqual({ ok: false, error: 'google_error' });
+  });
+});
+
+// ---------------------------------------------------------------- etag and the echo of a push
+
+describe('the etag of a push', () => {
+  const NOTES = [
+    'Review vectors <a, b>',
+    'if a<b and c>d',
+    'Q&amp;A',
+    'Part one\n\n\n\nPart two',
+    'Remember: Join online: https://example.test/x is not our link',
+    'x &lt; y &amp;&amp; &quot;z&quot;',
+  ];
+
+  test('an insert stores the etag Google answered with, beside the event id and link', async () => {
+    const s = setup({ sessions: [session()] });
+    await push(s);
+    expect(s.state.sessions[0]).toMatchObject({ google_event_id: 'ev-1', google_etag: '"etag-1"', sync_state: 'synced' });
+  });
+
+  test('a patch stores the new etag', async () => {
+    const s = setup({ sessions: [session({ google_event_id: 'ev1', google_calendar_id: CAL, google_etag: '"old"' })] });
+    s.g.seed(CAL, event());
+    await push(s);
+    expect(s.state.sessions[0].google_etag).toBe('"etag-1"');
+  });
+
+  test('the etag is saved with the event id even when the row was edited meanwhile', async () => {
+    const s = setup({ sessions: [session()] });
+    editDuring(s, 'insertEvent', EDITED);
+    await push(s);
+    expect(s.state.sessions[0]).toMatchObject({ google_etag: '"etag-1"', sync_state: 'pending' });
+  });
+
+  test('a deleted event leaves no etag behind', async () => {
+    const s = setup({ sessions: [session({ status: 'cancelled', google_event_id: 'ev1', google_calendar_id: CAL, google_etag: '"old"' })] });
+    s.g.seed(CAL, event());
+    await push(s);
+    expect(s.state.sessions[0]).toMatchObject({ google_event_id: null, google_etag: null });
+  });
+
+  test('an answer with no etag stores null', async () => {
+    const s = setup({ sessions: [session()] });
+    const real = s.g.insertEvent;
+    s.g.insertEvent = async (...args) => { const { etag, ...rest } = await real(...args); return rest; };
+    await push(s);
+    expect(s.state.sessions[0].google_etag).toBeNull();
+  });
+
+  test('the echo of a push is ignored: skipped, and no write at all', async () => {
+    const s = setup({ sessions: [session()] });
+    await push(s);
+    const before = structuredClone(s.state.sessions[0]);
+    s.calls.length = 0;
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+    expect(s.state.sessions[0]).toEqual(before);
+    expect(s.called('updateSession')).toHaveLength(0);
+  });
+
+  for (const notes of NOTES) {
+    test(`push then pull leaves a row with the notes ${JSON.stringify(notes)} unchanged`, async () => {
+      const s = setup({ sessions: [session({ notes })] });
+      await push(s);
+      const before = structuredClone(s.state.sessions[0]);
+      await pull(s);
+      expect(s.state.sessions[0]).toEqual(before);
+      expect(s.state.sessions[0].notes).toBe(notes);
+    });
+
+    test(`and when Google changed the event's version meanwhile (a guest answered), the notes ${JSON.stringify(notes)} still survive`, async () => {
+      const s = setup({ sessions: [session({ notes })] });
+      await push(s);
+      s.g.event(CAL, 'ev-1').etag = '"after-an-rsvp"';
+      await pull(s);
+      expect(s.state.sessions[0].notes).toBe(notes);
+    });
+  }
+
+  test('a real change made in Google has another etag and is applied', async () => {
+    const s = setup({ sessions: [session()] });
+    await push(s);
+    Object.assign(s.g.event(CAL, 'ev-1'), { summary: 'Calculus (Maya Lee)', etag: '"edited-in-google"', updated: '2026-10-02T12:30:00.000Z' });
+    s.state.sessions[0].updated_at = '2026-10-02T11:00:00+00:00';
+    const result = await pull(s);
+
+    expect(result.updated).toBe(1);
+    expect(s.state.sessions[0].subject).toBe('Calculus');
+  });
+
+  test('an event with an etag is applied when the row has none stored (an older row)', async () => {
+    const s = setup({ sessions: [syncedSession({ subject: 'Geometry' })] });
+    s.g.seed(CAL, event({ etag: '"e1"', extendedProperties: { private: { vpSessionId: '1' } } }));
+    expect((await pull(s)).updated).toBe(1);
+    expect(s.state.sessions[0].subject).toBe('Algebra');
+  });
+
+  test('an event with no etag is applied even when the row has one', async () => {
+    const s = setup({ sessions: [syncedSession({ subject: 'Geometry', google_etag: '"e1"' })] });
+    s.g.seed(CAL, event({ extendedProperties: { private: { vpSessionId: '1' } } }));
+    expect((await pull(s)).updated).toBe(1);
+  });
+
+  test('an event whose etag is the row\'s stored one is skipped without a write, whatever its content looks like', async () => {
+    const s = setup({ sessions: [syncedSession({ subject: 'Geometry', google_etag: '"e1"' })] });
+    s.g.seed(CAL, event({ etag: '"e1"', extendedProperties: { private: { vpSessionId: '1' } } })); // would change the subject if applied
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+    expect(s.called('updateSession')).toHaveLength(0);
+    expect(s.state.sessions[0].subject).toBe('Geometry');
+  });
+
+  test('a change a pull applies leaves the stored etag alone, and the same event again is a no-op', async () => {
+    const s = setup({ sessions: [syncedSession({ subject: 'Geometry', google_etag: '"e1"' })] });
+    s.g.seed(CAL, event({ etag: '"e2"', extendedProperties: { private: { vpSessionId: '1' } } }));
+    await pull(s);
+    expect(s.called('updateSession')[0].args[1]).not.toHaveProperty('google_etag');
+    const again = await pull(s);
+    expect(again).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+  });
+
+  test('createGoogleRepo reads google_etag with the session', async () => {
+    const db = fakeDb(() => ok({ id: 5 }));
+    await createGoogleRepo(db).sessionById('5');
+    expect(db.log[0].ops.find((o) => o[0] === 'select')[1]).toContain('google_etag');
   });
 });
 
