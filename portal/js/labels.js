@@ -3,6 +3,23 @@
 
 export const FILE_LABELS = { 'application/pdf': 'PDF', 'image/png': 'Photo', 'image/jpeg': 'Photo', 'text/plain': 'Text' };
 
+// What a submission holds: "Typed answer", "PDF", or "Typed answer and photo"
+export function workLabel(sub) {
+  const typed = typeof sub?.body === 'string' && sub.body.trim() !== '';
+  const file = sub?.file_type ? (FILE_LABELS[sub.file_type] ?? 'File') : null;
+  if (typed && file) return `Typed answer and ${file.toLowerCase()}`;
+  if (typed) return 'Typed answer';
+  return file ?? 'File';
+}
+
+// The icon for a submission: its file's, or a note for a typed answer alone
+export function workIcon(sub) {
+  if (sub?.file_type === 'application/pdf') return 'file-pdf';
+  if (String(sub?.file_type ?? '').startsWith('image/')) return 'image-square';
+  if (!sub?.file_type) return 'note-pencil';
+  return 'file-text';
+}
+
 export function staffStatus(sub, grade) {
   if (grade?.released_at) return { text: 'Released', tone: 'done' };
   if (sub.status === 'pending') return { text: 'Submitted', tone: 'wait' };

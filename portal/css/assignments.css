@@ -265,6 +265,9 @@
 .asg-file-meta { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
 
 .asg-submit-form textarea.input { min-height: 64px; }
+.asg-submit-form textarea.asg-answer-input { min-height: 180px; resize: vertical; }
+.asg-attach { display: flex; flex-direction: column; gap: var(--s-2); }
+.asg-attach .asg-dropzone { min-height: 88px; padding: var(--s-4); }
 .asg-submit-error:empty { display: none; }
 
 .asg-submit-actions {
@@ -362,6 +365,8 @@
   margin-top: var(--s-2);
 }
 .asg-sub-note { max-width: 65ch; }
+.asg-sub-answer > summary { cursor: pointer; font: 500 13px/20px var(--font-ui); color: var(--text-2); }
+.asg-sub-answer > p { max-width: 65ch; margin-top: var(--s-2); overflow-wrap: anywhere; }
 .asg-sub-error {
   display: flex;
   align-items: flex-start;
@@ -427,3 +432,28 @@
   .asg-dropzone:focus-within { border-color: Highlight; outline-color: Highlight; }
   .asg-progress-bar { background-color: Highlight; }
 }
+
+/* Attachments on the create form (tutor and admin) */
+.asg-attach-list { display: flex; flex-direction: column; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.asg-attach-list[hidden] { display: none; }
+.asg-attach-item {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 6px 6px 6px var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.asg-attach-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+}
+.asg-attach-size { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
+.asg-attach-actions { display: flex; gap: var(--s-2); }
+.asg-attach-problem:empty { display: none; }

@@ -49,7 +49,7 @@ async function loadStudentData(studentId) {
       .select('id, student_id, kind, title, details, due_at, completed_at, created_at, created_by, session_id')
       .eq('student_id', studentId),
     sb.from('submissions')
-      .select('id, task_id, student_id, file_type, note, status, error, attempts, status_changed_at, created_at, grade:grades(score, feedback, reviewed_by, reviewed_at, released_at)')
+      .select('id, task_id, student_id, body, file_type, note, status, error, attempts, status_changed_at, created_at, grade:grades(score, feedback, reviewed_by, reviewed_at, released_at)')
       .eq('student_id', studentId)
       .order('created_at', { ascending: false }),
   ]);

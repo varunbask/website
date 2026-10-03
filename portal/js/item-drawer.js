@@ -20,7 +20,7 @@ import { menu } from './overlays.js';
 import { itemStatus, submissionStatus } from './status.js';
 import { dueLabel, dayKey, parseKey, todayKey, relativeTime } from './dates.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
-import { FILE_LABELS } from './labels.js';
+import { workLabel, workIcon } from './labels.js';
 import { displayName, firstName } from './format.js';
 import { staffNames } from './updates-feed.js';
 import { taskCheck } from './task-check.js';
@@ -46,12 +46,6 @@ const sameId = (a, b) => String(a) === String(b);
 function shortDate(iso, now) {
   const { y, m, d } = parseKey(dayKey(iso));
   return `${MONTHS[m - 1]} ${d}${y === parseKey(todayKey(now)).y ? '' : `, ${y}`}`;
-}
-
-function fileIcon(type) {
-  if (type === 'application/pdf') return 'file-pdf';
-  if (String(type ?? '').startsWith('image/')) return 'image-square';
-  return 'file-text';
 }
 
 function callout({ tone = 'neutral', icon: iconName = 'info', title, text, role }) {
@@ -636,17 +630,24 @@ function historySection(item, { staff, isStudent, now, live }) {
   const entries = item.subs.map((sub, i) => {
     const n = total - i;
     const status = submissionStatus(sub, sub.grade, { audience });
-    const kind = FILE_LABELS[sub.file_type] ?? 'File';
+    const kind = workLabel(sub);
     const draft = staff && sub.grade && !sub.grade.released_at && !blank(sub.grade.score) ? draftChip(sub.grade.score) : null;
 
     const inner = [
-      h('span', { class: 'asg-sub-icon', 'aria-hidden': 'true' }, icon(fileIcon(sub.file_type))),
+      h('span', { class: 'asg-sub-icon', 'aria-hidden': 'true' }, icon(workIcon(sub))),
       h('span', { class: 'asg-sub-main' },
         h('span', { class: 'asg-sub-title' }, `Attempt ${n}`),
         h('span', { class: 'asg-sub-meta' }, `${kind}, `, timeEl(sub.created_at, now))),
       h('span', { class: 'asg-sub-status' }, draft, pill(status)),
     ];
+    // Families read the typed answer here; staff open it on the review page
+    const typed = !staff && typeof sub.body === 'string' && sub.body.trim()
+      ? h('details', { class: 'asg-sub-answer' },
+        h('summary', {}, isStudent ? 'Your answer' : 'Answer'),
+        h('p', { class: 'read is-pre' }, sub.body))
+      : null;
     const extra = [
+      typed,
       sub.note ? h('blockquote', { class: 'quote asg-sub-note' }, sub.note) : null,
       sub.error && (staff ? sub.status === 'failed' : status.key === 'needs-attention')
         ? h('p', { class: 'asg-sub-error' }, icon('warning-circle'), h('span', {}, sub.error))

@@ -14,16 +14,16 @@ import { submissionStatus } from '../status.js';
 import { staffNames } from '../updates-feed.js';
 import { startGrading } from '../grading.js';
 import { filePreview } from '../file-preview.js';
+import { workIcon } from '../labels.js';
 import { gradeEditor } from '../grade-editor.js';
 import {
   normalizeFilter, queueOrder, neighbors, attemptInfo, reviewHref, stampLabel,
 } from '../review-model.js';
 
-const FIELDS = 'id, task_id, student_id, storage_path, file_type, note, status, error, attempts, '
+const FIELDS = 'id, task_id, student_id, body, storage_path, file_type, note, status, error, attempts, '
   + 'status_changed_at, created_at, student:profiles(full_name, email), task:tasks(title, details, due_at), '
   + 'grade:grades(score, feedback, reviewed_by, reviewed_at, released_at)';
 
-const FILE_ICON = { 'application/pdf': 'file-pdf', 'image/png': 'image-square', 'image/jpeg': 'image-square', 'text/plain': 'file-text' };
 const JUST_RELEASED_MS = 10 * 60 * 1000;
 
 // Kept only across refresh re-renders: a store change (after the tutor's own
@@ -84,7 +84,7 @@ function attemptRow(other, n, { filter, now }) {
     'aria-label': [`Attempt ${n}`, `submitted ${when}`, draft?.textContent, status.label].filter(Boolean).join(', '),
     dataset: { focusKey: `sub-${other.id}` },
   },
-  h('span', { class: 'row-lead tone-neutral' }, icon(FILE_ICON[other.file_type] ?? 'file-text')),
+  h('span', { class: 'row-lead tone-neutral' }, icon(workIcon(other))),
   h('span', { class: 'row-main' },
     h('span', { class: 'row-title' }, `Attempt ${n}`),
     h('span', { class: 'row-meta num' }, `Submitted ${when}`)),
@@ -192,8 +192,14 @@ export async function mount(ctx) {
   });
   ctx.setTopbarActions(nb.index >= 0 ? [pager(nb, filter)] : []);
 
-  // Left column: file, note, instructions, other attempts
-  const main = h('div', { class: 'rvw-main' }, filePreview(sub, { signal: ctx.signal, attempt: info.n }));
+  // Left column: typed answer, file, note, instructions, other attempts
+  const main = h('div', { class: 'rvw-main' });
+  if (typeof sub.body === 'string' && sub.body.trim()) {
+    main.append(h('section', { class: 'rvw-block rvw-answer', 'aria-label': 'Typed answer' },
+      h('h2', { class: 'rvw-block-title' }, `${first}’s answer`, h('span', { class: 'rvw-file-attempt' }, `attempt ${info.n}`)),
+      h('p', { class: 'read is-pre rvw-answer-text' }, sub.body)));
+  }
+  if (sub.storage_path) main.append(filePreview(sub, { signal: ctx.signal, attempt: info.n }));
 
   if (sub.note) {
     main.append(h('section', { class: 'rvw-block' },
