@@ -14,7 +14,7 @@ import { icon } from './icons.js';
 import { pill, emptyState, errorCallout, button, avatar, itemRow, rowList, drawerHref } from './ui.js';
 import { menu } from './overlays.js';
 import { todayKey } from './dates.js';
-import { displayName, firstName, canTeach } from './format.js';
+import { displayName, firstName, canHaveSessions } from './format.js';
 import { staffNames } from './updates-feed.js';
 import { sb } from './supabase.js';
 import {
@@ -182,7 +182,7 @@ async function loadExtras(dctx, found) {
   const { session } = found;
   // Only a tutor (or teaching admin) looking at their own session still waiting for Google needs the
   // sync status (it never rejects; an unreadable one just means no note)
-  const waiting = canTeach(dctx.me?.role) && sameId(session.tutor_id, dctx.me.id)
+  const waiting = canHaveSessions(dctx.me?.role) && sameId(session.tutor_id, dctx.me.id)
     && (session.sync_state === 'pending' || session.sync_state === 'error');
   const [materials, data, google] = await Promise.all([
     store.getMaterials(found.studentId).catch((error) => { console.error(error); return null; }),

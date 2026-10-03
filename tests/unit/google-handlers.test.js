@@ -995,6 +995,14 @@ describe('handleSync', () => {
     expect(off.fetch).not.toHaveBeenCalled();
   });
 
+  test('an admin who teaches syncs only their own sessions', async () => {
+    const { res, repo } = await run({ caller: { id: 'admin' }, connections: [tutorConn({ user_id: 'admin' }), tutorConn()] });
+    expect(res.status).toBe(200);
+    expect(repo.pendingSessions.mock.calls.map((c) => c[0])).toEqual(['admin']);
+    expect(repo.claimPull).toHaveBeenCalledWith('admin', NOW);
+    expect(repo.claimPull).not.toHaveBeenCalledWith(TUTOR, expect.anything());
+  });
+
   test('pushes then pulls, and answers the status with the new sync time', async () => {
     const { res, json, repo, fetch } = await run();
     expect(res.status).toBe(200);

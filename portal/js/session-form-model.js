@@ -99,7 +99,8 @@ export function tutorChoices({ links = [], studentId, me, names = new Map() }) {
   const mine = ids.includes(String(me?.id));
   if (me?.role === 'admin') {
     const others = ids.filter((id) => id !== String(me.id)).map((id) => ({ value: id, label: label(id) })).sort(byLabel);
-    return mine ? [{ value: String(me.id), label: `${label(me.id)} (you)` }, ...others] : others;
+    const myName = names.get(String(me.id)) || String(me.full_name ?? '').trim();
+    return mine ? [{ value: String(me.id), label: myName ? `${myName} (you)` : 'You' }, ...others] : others;
   }
   return mine ? [{ value: String(me.id), label: label(me.id) }] : [];
 }

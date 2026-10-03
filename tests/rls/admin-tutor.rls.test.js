@@ -1,7 +1,7 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
 import { buildWorld, hasService } from './world.js';
 
-// Needs supabase/migrations/20261003120000_admin_tutor_links.sql applied to the
+// Needs supabase/migrations/20261003130000_admin_tutor_links.sql applied to the
 // project the .env points at. Tests run in file order; later ones build on earlier ones.
 
 const HOUR = 3_600_000;
@@ -55,5 +55,7 @@ describe.skipIf(!hasService)('an admin who also teaches', () => {
     expect((tutors.data ?? []).some((t) => t.tutor_id === P.admin.id && t.subject === 'Physics')).toBe(true);
     const other = await P.studentA.client.from('sessions').select('id').eq('tutor_id', P.admin.id);
     expect(other.data ?? []).toEqual([]);
+    const otherTutors = await P.studentA.client.rpc('student_tutors', { p_student: P.studentB.id });
+    expect(otherTutors.data ?? []).toEqual([]);
   });
 });

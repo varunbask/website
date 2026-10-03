@@ -28,7 +28,7 @@ export function firstName(fullName) {
 
 // Who can have sessions of their own: a tutor, or an admin, who may also be
 // linked to students as their tutor
-export function canTeach(role) {
+export function canHaveSessions(role) {
   return role === 'tutor' || role === 'admin';
 }
 

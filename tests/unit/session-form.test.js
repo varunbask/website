@@ -102,6 +102,10 @@ describe('who a tutor can book', () => {
       { value: 'a1', label: 'Varun Baskaran (you)' },
       { value: 't1', label: 'Daniel Ortiz' }, { value: 't2', label: 'Priya Shah' },
     ]);
+    // without a staff name it uses the admin's own name, or just "You"
+    expect(tutorChoices({ links: withAdmin, studentId: 's1', me: { ...admin, full_name: 'Varun B' }, names })[0])
+      .toEqual({ value: 'a1', label: 'Varun B (you)' });
+    expect(tutorChoices({ links: withAdmin, studentId: 's1', me: admin, names })[0]).toEqual({ value: 'a1', label: 'You' });
   });
 
   test('tutor choices: a tutor is only themselves, and only when linked', () => {

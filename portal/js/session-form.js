@@ -27,7 +27,7 @@ import {
   button, field, select, segmented, setSegmented, setFieldError, busy, drawerHref,
 } from './ui.js';
 import { sb } from './supabase.js';
-import { displayName, canTeach } from './format.js';
+import { displayName, canHaveSessions } from './format.js';
 import { viewerIsInBusinessZone, dayKey } from './dates.js';
 import { getGoogleStatus, personalEvents } from './google.js';
 import { personalClashes, mergePersonalClashes, dayRange } from './google-model.js';
@@ -341,7 +341,7 @@ export function sessionForm(dctx, {
   const personalDays = new Map();   // day key -> that day's personal events
   const personalLoading = new Set();
   let personalOn = false;
-  if (canTeach(me?.role)) {
+  if (canHaveSessions(me?.role)) {
     getGoogleStatus().then((status) => {
       if (!dctx.alive() || !status.connected || !status.sync_enabled) return;
       personalOn = true;

@@ -25,7 +25,7 @@ import { deriveItems } from '../buckets.js';
 import {
   todayKey, dayKey, monthTitle, dayHeading, addDays, longDate, viewerIsInBusinessZone,
 } from '../dates.js';
-import { displayName, canTeach } from '../format.js';
+import { displayName, canHaveSessions } from '../format.js';
 import { markSeen } from '../seen.js';
 import { staffNames } from '../updates-feed.js';
 import {
@@ -204,7 +204,7 @@ export function mount(ctx) {
   // Google Calendar: the sync switch for a tutor or an admin (for the sessions
   // they teach), a student's invite button, nothing for parents
   let googleEl = null;
-  if (canTeach(ctx.me.role)) {
+  if (canHaveSessions(ctx.me.role)) {
     googleEl = tutorGoogleControl({ toast: ctx.toast, store: ctx.store, signal: ctx.signal, onStatus: onGoogleStatus });
   } else if (ctx.me.role === 'student') {
     googleEl = studentInviteControl({ toast: ctx.toast });
@@ -362,6 +362,7 @@ export function mount(ctx) {
       if (state.filter.tutor && !options.some((o) => o.value === state.filter.tutor)) {
         state.filter = { who: 'all', tutor: null };
         setParams({ tutor: null });
+        applyFilter();
       }
       filterSlot.append(selectControl({
         label: 'Filter by tutor',
@@ -378,7 +379,7 @@ export function mount(ctx) {
   // ---- Google Calendar ----------------------------------------------------
 
   // Personal events are the viewer's own, and only while sync is on and usable
-  const personalOn = () => canTeach(ctx.me.role)
+  const personalOn = () => canHaveSessions(ctx.me.role)
     && Boolean(state.google?.connected && state.google.sync_enabled && state.google.last_error !== 'reconnect');
 
   // Hears the switch's status each time it is read or changed. Turning sync on makes the
