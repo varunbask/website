@@ -211,6 +211,11 @@ describe('roleChangeBody', () => {
       .toMatch(/their 2 students will be unlinked/);
   });
 
+  test('counts a teaching admin\'s students as students', () => {
+    expect(roleChangeBody({ id: 't1', role: 'admin' }, { tutorLinks, parentLinks }))
+      .toMatch(/their 2 students will be unlinked/);
+  });
+
   test('counts a parent\'s one child', () => {
     expect(roleChangeBody({ id: 'p1', role: 'parent' }, { tutorLinks, parentLinks }))
       .toMatch(/their 1 child will be unlinked/);

@@ -469,7 +469,8 @@ export function mount(ctx) {
       return;
     }
 
-    const tutors = data.people.filter((p) => p.role === 'tutor').sort(byName);
+    // An admin can also be a student's tutor (marked in the add list)
+    const tutors = data.people.filter((p) => p.role === 'tutor' || p.role === 'admin').sort(byName);
     const parents = data.people.filter((p) => p.role === 'parent').sort(byName);
     let n = 0;
     const animate = firstRender && !ctx.isRefresh;
@@ -613,7 +614,7 @@ export function mount(ctx) {
         label: `${isTutor ? 'Add a tutor' : 'Add a parent'} for ${studentName}`,
         size: 'sm',
         value: '',
-        options: [{ value: '', label: isTutor ? 'Add a tutor' : 'Add a parent' }, ...available.map((p) => ({ value: p.id, label: displayName(p) }))],
+        options: [{ value: '', label: isTutor ? 'Add a tutor' : 'Add a parent' }, ...available.map((p) => ({ value: p.id, label: p.role === 'admin' ? `${displayName(p)} (admin)` : displayName(p) }))],
       });
       picker.classList.add('ppl-add');
       const sel = picker.firstElementChild;
@@ -688,10 +689,13 @@ export function mount(ctx) {
     const isStudent = person.role === 'student';
 
     let detail = null;
-    if (person.role === 'tutor' || person.role === 'parent') {
-      const linked = studentsOf(person.id, person.role === 'tutor' ? data.tutorLinks : data.parentLinks,
-        person.role === 'tutor' ? 'tutor_id' : 'parent_id', data.byId);
-      const word = person.role === 'tutor' ? 'Students' : 'Children';
+    // An admin who teaches shows their students too
+    const teachingAdmin = person.role === 'admin' && data.tutorLinks.some((l) => l.tutor_id === person.id);
+    if (person.role === 'tutor' || person.role === 'parent' || teachingAdmin) {
+      const asTutor = person.role !== 'parent';
+      const linked = studentsOf(person.id, asTutor ? data.tutorLinks : data.parentLinks,
+        asTutor ? 'tutor_id' : 'parent_id', data.byId);
+      const word = asTutor ? 'Students' : 'Children';
       detail = h('p', { class: linked.length ? 'ppl-detail' : 'ppl-detail is-empty' },
         linked.length ? `${word}: ${linked.map(displayName).join(', ')}` : `${word}: none yet`);
     }

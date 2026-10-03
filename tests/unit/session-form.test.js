@@ -94,6 +94,20 @@ describe('who a tutor can book', () => {
     expect(tutorChoices({ links, studentId: '', me: admin, names })).toEqual([]);
   });
 
+  test('tutor choices: an admin who teaches the student comes first, marked as them', () => {
+    const admin = { id: 'a1', role: 'admin' };
+    const withAdmin = [...links, { tutor_id: 'a1', student_id: 's1', subject: 'Algebra' }];
+    const named = new Map([...names, ['a1', 'Varun Baskaran']]);
+    expect(tutorChoices({ links: withAdmin, studentId: 's1', me: admin, names: named })).toEqual([
+      { value: 'a1', label: 'Varun Baskaran (you)' },
+      { value: 't1', label: 'Daniel Ortiz' }, { value: 't2', label: 'Priya Shah' },
+    ]);
+    // without a staff name it uses the admin's own name, or just "You"
+    expect(tutorChoices({ links: withAdmin, studentId: 's1', me: { ...admin, full_name: 'Varun B' }, names })[0])
+      .toEqual({ value: 'a1', label: 'Varun B (you)' });
+    expect(tutorChoices({ links: withAdmin, studentId: 's1', me: admin, names })[0]).toEqual({ value: 'a1', label: 'You' });
+  });
+
   test('tutor choices: a tutor is only themselves, and only when linked', () => {
     const me = { id: 't1', role: 'tutor' };
     expect(tutorChoices({ links, studentId: 's1', me, names })).toEqual([{ value: 't1', label: 'Daniel Ortiz' }]);

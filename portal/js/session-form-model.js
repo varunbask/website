@@ -90,13 +90,19 @@ export function studentChoices({ students = [], links = [], me }) {
 }
 
 // [{ value, label }] of the tutors who can teach a student: for an admin every
-// linked tutor (by name), for a tutor only themselves, and only when linked
+// linked tutor (by name), themselves first when they teach the student, for a
+// tutor only themselves, and only when linked
 export function tutorChoices({ links = [], studentId, me, names = new Map() }) {
   if (!studentId) return [];
   const ids = [...new Set(links.filter((l) => sameId(l.student_id, studentId)).map((l) => String(l.tutor_id)))];
   const label = (id) => names.get(String(id)) || 'Tutor';
-  if (me?.role === 'admin') return ids.map((id) => ({ value: id, label: label(id) })).sort(byLabel);
-  return ids.includes(String(me?.id)) ? [{ value: String(me.id), label: label(me.id) }] : [];
+  const mine = ids.includes(String(me?.id));
+  if (me?.role === 'admin') {
+    const others = ids.filter((id) => id !== String(me.id)).map((id) => ({ value: id, label: label(id) })).sort(byLabel);
+    const myName = names.get(String(me.id)) || String(me.full_name ?? '').trim();
+    return mine ? [{ value: String(me.id), label: myName ? `${myName} (you)` : 'You' }, ...others] : others;
+  }
+  return mine ? [{ value: String(me.id), label: label(me.id) }] : [];
 }
 
 // The subjects on a student's tutor links, for the datalist

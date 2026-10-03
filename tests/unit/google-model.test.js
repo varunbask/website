@@ -557,6 +557,13 @@ describe('syncNote', () => {
     expect(syncNote({ tutor_id: 't1', sync_state: 'error' }, me, reconnect)).toBe(RECONNECT_NOTE);
   });
 
+  test('an admin hears it for the sessions they teach, not for other tutors\u2019', () => {
+    const admin = { id: 'a1', role: 'admin' };
+    expect(syncNote({ tutor_id: 'a1', sync_state: 'pending' }, admin, on)).toBe(SYNC_NOTE);
+    expect(syncNote({ tutor_id: 't1', sync_state: 'pending' }, admin, on)).toBeNull();
+    expect(syncNote({ tutor_id: 'p1', sync_state: 'pending' }, { id: 'p1', role: 'parent' }, on)).toBeNull();
+  });
+
   test('a paused sync (google_error) still says it will sync shortly', () => {
     expect(syncNote({ tutor_id: 't1', sync_state: 'error' }, me, { ...on, last_error: 'google_error' })).toBe(SYNC_NOTE);
   });

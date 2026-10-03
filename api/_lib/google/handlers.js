@@ -147,12 +147,17 @@ function sameSecret(given, expected) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-// The signed-in tutor, or the response that ends the request
+// Who may connect for each purpose. An admin can also teach (a tutor link may
+// name them), so they get the tutor's sync for the sessions they teach.
+const ROLES_FOR = { tutor: ['tutor', 'admin'], student: ['student'] };
+const fits = (profile, purpose) => ROLES_FOR[purpose].includes(profile?.role);
+
+// The signed-in tutor (or teaching admin), or the response that ends the request
 async function tutorCaller(request, { repo, verify }) {
   const caller = await verify(request);
   if (!caller) return { response: json(401, { error: SIGN_IN }) };
   const profile = await repo.getProfile(caller.id);
-  if (profile?.role !== 'tutor') return { response: json(403, { error: NOT_AVAILABLE }) };
+  if (!fits(profile, 'tutor')) return { response: json(403, { error: NOT_AVAILABLE }) };
   return { caller };
 }
 
@@ -177,7 +182,7 @@ export async function handleStart(request, deps) {
   const purpose = body?.purpose;
   if (purpose !== 'tutor' && purpose !== 'student') return json(400, { error: 'purpose must be tutor or student.' });
   const profile = await repo.getProfile(caller.id);
-  if (profile?.role !== purpose) return json(403, { error: NOT_AVAILABLE });
+  if (!fits(profile, purpose)) return json(403, { error: NOT_AVAILABLE });
   if (!isSafeReturnTo(body.return_to)) return json(400, { error: 'return_to must be a portal page.' });
 
   const state = newState();
