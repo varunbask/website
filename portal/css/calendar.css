@@ -999,8 +999,10 @@ td.is-today .cal-num {
   .cal-block.is-draggable,
   .cal-chip.is-draggable { cursor: grab; }
 }
+.cal-block.is-draggable,
+.cal-chip.is-draggable { -webkit-user-select: none; user-select: none; }
 .is-cal-dragging,
-.is-cal-dragging * { cursor: grabbing !important; user-select: none; }
+.is-cal-dragging * { cursor: grabbing !important; -webkit-user-select: none; user-select: none; }
 
 .cal-block.is-drag-source,
 .cal-chip.is-drag-source { opacity: .35; }

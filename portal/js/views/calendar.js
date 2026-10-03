@@ -22,9 +22,9 @@ import { choiceDialog } from '../overlays.js';
 import { pointerDrag, hitAt } from '../calendar-drag.js';
 import {
   canDragSession, canDragDue, dropStart, grabOffset, minutesToTime, movedTimes, moveProblem, moveUpdates,
-  moveSummary, moveToast, MOVE_PROBLEMS, dueMoveProblem, dueAtFor, dueToast, DUE_PAST,
+  moveSummary, moveToast, MOVE_PROBLEMS, dueMoveProblem, dueAtFor, dueToast, DUE_PAST, followingFits,
 } from '../calendar-drag-model.js';
-import { clashReport, mergeSessions } from '../session-form-model.js';
+import { clashReport, mergeSessions, saveErrorText } from '../session-form-model.js';
 import {
   itemRow, rowList, groupHeader, emptyState, errorCallout, skeletonRows,
   segmented, iconButton, button, select as selectControl, pill, initials, visuallyHidden, drawerHref,
@@ -858,7 +858,9 @@ export function mount(ctx) {
         if (!track || !state.hours || !(rect.height > 0)) return null;
         const grab = grabOffset({ fraction: (down.clientY - rect.top) / rect.height, hours: state.hours, session: s });
         const time = h('span', { class: 'cal-block-time num' });
-        const ghost = h('div', { class: `cal-block cal-drag-ghost ${toneClass(s.subject)}`, 'aria-hidden': 'true' },
+        const minutes = durationMinutes(s);
+        const size = minutes < 43 ? 'is-tiny' : minutes < 60 ? 'is-short' : null;
+        const ghost = h('div', { class: ['cal-block', 'cal-drag-ghost', toneClass(s.subject), size].filter(Boolean).join(' '), 'aria-hidden': 'true' },
           h('span', { class: 'cal-block-head' }, time),
           h('span', { class: 'cal-block-title' }, sessionTitle(s)));
         el.classList.add('is-drag-source');
@@ -866,8 +868,14 @@ export function mount(ctx) {
       },
       move: (e, d) => {
         const hit = hitAt(e.clientX, e.clientY, '.cal-week-track');
-        const track = hit && body.contains(hit) ? hit : d.track;
-        if (!track || !state.hours) return;
+        const track = hit && body.contains(hit) ? hit : null;
+        // Off the day columns (the toolbar, the hours, outside): no drop there
+        if (!track || !state.hours) {
+          d.ghost.remove();
+          d.track = null;
+          d.date = null;
+          return;
+        }
         const rect = track.getBoundingClientRect();
         const minutes = dropStart({ fraction: (e.clientY - rect.top) / rect.height, hours: state.hours, duration: d.duration, grabMinutes: d.grab });
         d.track = track;
@@ -931,7 +939,16 @@ export function mount(ctx) {
   // about the rest of a series, then save the new times like the edit form
   // does. Families see it as moved, and Google gets it on the next sync (now,
   // for the viewer's own sessions).
-  async function moveSession(s, { date, start }) {
+  function moveSession(s, where) {
+    moveSessionNow(s, where).catch((error) => {
+      console.error(error);
+      ctx.toast({ text: 'We couldn’t move that session. Refresh the page and try again.' });
+    });
+  }
+
+  // The view may be redrawn while this runs (the store refreshes); nothing
+  // here needs it, so it carries on
+  async function moveSessionNow(s, { date, start }) {
     const problem = moveProblem(s, { date, start }, clock());
     if (problem === 'same') return;
     if (problem) {
@@ -939,21 +956,22 @@ export function mount(ctx) {
       return;
     }
     const times = movedTimes(s, { date, start });
-    let siblings = [];
-    try {
-      siblings = await ctx.store.getSessions(s.student_id);
-    } catch (error) {
-      console.error(error); // the move still works; the clash check just knows less
-    }
-    if (!ctx.alive()) return;
+    // The student's sessions (the series and their clashes) and the tutor's
+    // (their other students); either failing only makes the clash check know less
+    const [siblings, ws] = await Promise.all([
+      Promise.resolve(ctx.store.getSessions(s.student_id)).catch((error) => { console.error(error); return []; }),
+      Promise.resolve(ctx.store.getWorkspace()).catch((error) => { console.error(error); return null; }),
+    ]);
     const rows = s.series_id ? followingInSeries(mergeSessions(siblings, [s]), s) : [s];
     const series = rows.length > 1;
+    const fits = series && followingFits({ session: s, rows, date, start });
+    const tutorsOwn = (list) => (list ?? []).filter((x) => String(x.tutor_id) === String(s.tutor_id));
 
     let report = clashReport({
       planned: [{ id: s.id, ...times }],
       studentId: s.student_id,
       tutorId: s.tutor_id,
-      list: mergeSessions(siblings, state.sessions.filter((x) => String(x.tutor_id) === String(s.tutor_id))),
+      list: mergeSessions(siblings ?? [], tutorsOwn(ws?.sessions), tutorsOwn(state.sessions)),
       ignoreIds: [s.id],
       tutorNames: state.tutorNames,
       studentNames: state.studentNames,
@@ -963,24 +981,39 @@ export function mount(ctx) {
     }
 
     const summary = moveSummary(s, times, { who: shortWho(s) });
+    const later = rows.length - 1;
+    const laterText = later === 1 ? 'the later session' : `the ${later} later sessions`;
+    let body = summary;
+    if (series && fits) body = `${summary} This and following moves ${laterText} in the series by the same amount.`;
+    else if (series) body = `${summary} Only this session can move: moving ${laterText} too would run one past midnight.`;
     const choice = await choiceDialog({
       title: 'Move this session?',
-      body: series ? `${summary} This and following moves the ${rows.length - 1} later sessions in the series by the same amount.` : summary,
+      body,
       warning: report?.title ? { title: report.title, lines: report.lines } : null,
-      choices: series
+      choices: series && fits
         ? [{ value: 'following', label: 'This and following' }, { value: 'this', label: 'This session', primary: true }]
         : [{ value: 'this', label: 'Move', primary: true }],
     });
     if (!choice) return;
+    // The dialog may have stayed open while the new time went by
+    const late = moveProblem(s, { date, start }, clock());
+    if (late === 'past') {
+      ctx.toast({ text: MOVE_PROBLEMS.past });
+      return;
+    }
 
     const updates = moveUpdates({ session: s, rows, apply: choice, date, start });
     let done = 0;
-    let failed = false;
+    let failure = null;
     for (const u of updates) {
       const result = await sb.from('sessions').update(u.fields).eq('id', u.id).select('id');
-      if (result.error || !result.data?.length) {
-        if (result.error) console.error(result.error);
-        failed = true;
+      if (result.error) {
+        console.error(result.error);
+        failure = saveErrorText(result.error);
+        break;
+      }
+      if (!result.data?.length) {
+        failure = 'It was changed or removed. Refresh the page and try again.';
         break;
       }
       done += 1;
@@ -989,17 +1022,22 @@ export function mount(ctx) {
       ctx.store.invalidate(s.student_id);
       if (String(s.tutor_id) === String(ctx.me.id)) syncSoon();
     }
-    if (failed) {
-      ctx.toast({ text: done > 0
-        ? `${done} of ${updates.length} sessions moved. Refresh the page and try the rest again.`
-        : 'We couldn’t move that session. Refresh the page and try again.' });
+    if (failure) {
+      ctx.toast({ text: done > 0 ? `${done} of ${updates.length} sessions moved. ${failure}` : `We couldn’t move that session. ${failure}` });
       return;
     }
     if (done) ctx.toast({ text: moveToast(done) });
   }
 
   // A dropped due date saves at once (nothing is announced to families), with Undo
-  async function moveDue(item, date) {
+  function moveDue(item, date) {
+    moveDueNow(item, date).catch((error) => {
+      console.error(error);
+      ctx.toast({ text: 'We couldn’t move that due date. Refresh the page and try again.' });
+    });
+  }
+
+  async function moveDueNow(item, date) {
     const problem = dueMoveProblem(item, date, todayKey(clock()));
     if (problem === 'same') return;
     if (problem) {
@@ -1007,23 +1045,31 @@ export function mount(ctx) {
       return;
     }
     const before = item.task.due_at ?? null;
-    if (!(await setDue(item, dueAtFor(date)))) return;
+    const after = dueAtFor(date);
+    if (!(await setDue(item, after))) return;
     ctx.toast({
       text: dueToast(date),
       action: {
         label: 'Undo',
+        // Only while it is still the date this drop set: a later move wins
         run: async () => {
-          if (await setDue(item, before)) ctx.toast({ text: 'Due date put back' });
+          if (await setDue(item, before, { from: after })) ctx.toast({ text: 'Due date put back' });
         },
       },
     });
   }
 
-  async function setDue(item, dueAt) {
-    const result = await sb.from('tasks').update({ due_at: dueAt }).eq('id', item.task.id).select('id');
+  // from: the due_at the row must still hold (Undo); a row that has moved on
+  // since is left alone
+  async function setDue(item, dueAt, { from } = {}) {
+    let query = sb.from('tasks').update({ due_at: dueAt }).eq('id', item.task.id);
+    if (from !== undefined) query = query.eq('due_at', from);
+    const result = await query.select('id');
     if (result.error || !result.data?.length) {
       if (result.error) console.error(result.error);
-      ctx.toast({ text: 'We couldn’t move that due date. Refresh the page and try again.' });
+      ctx.toast({ text: from !== undefined && !result.error
+        ? 'That due date has changed since, so it was left as it is.'
+        : 'We couldn’t move that due date. Refresh the page and try again.' });
       return false;
     }
     ctx.store.invalidate(item.task.student_id);

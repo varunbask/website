@@ -145,7 +145,8 @@ export function syncSoon({ delay = SOON_MS } = {}) {
     soonTimer = null;
     try {
       const status = await getGoogleStatus();
-      if (!status.connected || !status.sync_enabled || status.purpose !== 'tutor') return;
+      // A sync that needs a reconnect would only fail; the switch already says so
+      if (!status.connected || !status.sync_enabled || status.purpose !== 'tutor' || status.last_error === 'reconnect') return;
       await syncNow();
     } catch (error) {
       console.error(error);

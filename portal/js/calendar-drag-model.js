@@ -101,6 +101,21 @@ export function moveUpdates({ session, rows = null, apply = 'this', date, start 
   return changedUpdates(updates, [session, ...(rows ?? [])]);
 }
 
+// Whether "This and following" can move every row of `rows` by the change
+// that takes `session` to `date` at `start`: false when a later session would
+// start before midnight or run past it (those rows would be cut short, and
+// the database refuses a session that ends before it starts)
+export function followingFits({ session, rows, date, start }) {
+  const times = movedTimes(session, { date, start });
+  if (!times) return false;
+  const delta = toMinutes(timeInput(times.starts_at)) - toMinutes(timeInput(session.starts_at));
+  return (rows ?? []).every((row) => {
+    const begin = toMinutes(timeInput(row.starts_at)) + delta;
+    const end = begin + durationMinutes(row);
+    return begin >= 0 && end <= DAY_END - 1 && end > begin;
+  });
+}
+
 // "Algebra with Maya Lin moves to Wednesday, September 30, 4:00 to 5:00 pm."
 export function moveSummary(session, times, { who = null, viewerInZone } = {}) {
   const what = who ? `${sessionTitle(session)} with ${who}` : sessionTitle(session);

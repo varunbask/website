@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import {
   SNAP_MINUTES, toMinutes, minutesToTime, canDragSession, canDragDue, dropStart, grabOffset,
-  movedTimes, moveProblem, moveUpdates, moveSummary, moveToast, MOVE_PROBLEMS,
+  movedTimes, moveProblem, moveUpdates, moveSummary, moveToast, MOVE_PROBLEMS, followingFits,
   dueMoveProblem, dueAtFor, dueToast, DUE_PAST,
 } from '../../portal/js/calendar-drag-model.js';
 import { zonedIso } from '../../portal/js/dates.js';
@@ -117,6 +117,37 @@ describe('the move', () => {
       { id: 's2', fields: { starts_at: zonedIso('2026-10-07', '15:00'), ends_at: zonedIso('2026-10-07', '16:00') } },
       { id: 's3', fields: { starts_at: zonedIso('2026-10-14', '15:30'), ends_at: zonedIso('2026-10-14', '16:30') } },
     ]);
+  });
+
+  test('this and following must fit every later session inside its day', () => {
+    const first = session({ series_id: 'x' });
+    const late = session({ id: 's2', series_id: 'x', starts_at: zonedIso('2026-10-06', '21:30'), ends_at: zonedIso('2026-10-06', '22:30') });
+    // +4 hours would push the 9:30 pm session past midnight
+    expect(followingFits({ session: first, rows: [first, late], date: '2026-09-29', start: '20:00' })).toBe(false);
+    // +1 hour fits (10:30 to 11:30 pm)
+    expect(followingFits({ session: first, rows: [first, late], date: '2026-09-29', start: '17:00' })).toBe(true);
+    // an earlier move that would start a session before midnight the day before
+    const early = session({ id: 's3', series_id: 'x', starts_at: zonedIso('2026-10-13', '01:00'), ends_at: zonedIso('2026-10-13', '02:00') });
+    expect(followingFits({ session: first, rows: [first, early], date: '2026-09-29', start: '14:00' })).toBe(false);
+    expect(followingFits({ session: first, rows: [first], date: '2026-09-29', start: '23:30' })).toBe(false);
+  });
+
+  test('following with no rows moves just the session', () => {
+    expect(moveUpdates({ session: session(), rows: [], apply: 'following', date: '2026-09-30', start: '15:00' })).toHaveLength(1);
+    expect(moveUpdates({ session: session(), rows: null, apply: 'following', date: '2026-09-30', start: '15:00' })).toHaveLength(1);
+  });
+
+  test('a series across the November time change keeps its wall time', () => {
+    const first = session({ series_id: 'x', starts_at: zonedIso('2026-10-27', '16:00'), ends_at: zonedIso('2026-10-27', '17:00') });
+    const after = session({ id: 's2', series_id: 'x', starts_at: zonedIso('2026-11-03', '16:00'), ends_at: zonedIso('2026-11-03', '17:00') });
+    const updates = moveUpdates({ session: first, rows: [first, after], apply: 'following', date: '2026-10-28', start: '15:00' });
+    expect(updates[1].fields).toEqual({ starts_at: zonedIso('2026-11-04', '15:00'), ends_at: zonedIso('2026-11-04', '16:00') });
+  });
+
+  test('a Month drop keeps the start time', () => {
+    const start = '16:00';
+    expect(moveProblem(session(), { date: '2026-10-02', start }, NOW)).toBeNull();
+    expect(moveUpdates({ session: session(), date: '2026-10-02', start })[0].fields.starts_at).toBe(zonedIso('2026-10-02', '16:00'));
   });
 
   test('words', () => {

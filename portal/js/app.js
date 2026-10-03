@@ -51,6 +51,7 @@ import { navCounts } from './buckets.js';
 import { getSeen, hasNewSince } from './seen.js';
 import { recentChanges } from './sessions-model.js';
 import { toast, confirmDialog } from './overlays.js';
+import { dragInProgress, whenDragEnds } from './calendar-drag.js';
 import { errorCallout, skeletonRows, linkTabs } from './ui.js';
 import { displayName } from './format.js';
 import {
@@ -474,8 +475,20 @@ export function startApp(config) {
     }));
   }
 
+  // Never redraw the calendar under a drag: refresh once, after it is dropped
+  let refreshAfterDrag = false;
   function refreshView() {
     if (!route || !view || !scopeLoaded) return;
+    if (dragInProgress()) {
+      if (!refreshAfterDrag) {
+        refreshAfterDrag = true;
+        whenDragEnds(() => {
+          refreshAfterDrag = false;
+          refreshView();
+        });
+      }
+      return;
+    }
     mountView({ isRefresh: true });
     if (drawerOpen()) syncDrawer({ isRefresh: true });
   }
