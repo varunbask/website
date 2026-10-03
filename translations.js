@@ -26,6 +26,7 @@ const UI = {
     ko: "무료 상담 예약"
   },
   "Log in": { zh: "登录", es: "Acceder", fr: "Connexion", ko: "로그인" },
+  "Privacy policy": { zh: "隐私政策", es: "Política de privacidad", fr: "Politique de confidentialité", ko: "개인정보 처리방침" },
   "Main": { zh: "主导航", es: "Principal", fr: "Principal", ko: "메인" },
   "Menu": { zh: "菜单", es: "Menú", fr: "Menu", ko: "메뉴" },
 
