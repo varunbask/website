@@ -189,6 +189,15 @@ function fakeRepo({ sessions = [], connections = [], tombstones = [], profiles =
       for (const r of hit) Object.assign(r, { status: 'cancelled', sync_state: 'synced', google_synced_at: now.toISOString() });
       return hit.length;
     },
+    // Like the real one: scheduled rows of the series that start in the window and whose event Google does not list
+    async cancelMissingInstances(tutorId, recurringId, keepIds, fromIso, toIso, now) {
+      record('cancelMissingInstances', [tutorId, recurringId, keepIds, fromIso, toIso, now]);
+      const hit = state.sessions.filter((r) => r.tutor_id === tutorId && r.google_recurring_id === recurringId
+        && r.status === 'scheduled' && r.google_event_id && !keepIds.includes(r.google_event_id)
+        && Date.parse(r.starts_at) >= Date.parse(fromIso) && Date.parse(r.starts_at) < Date.parse(toIso));
+      for (const r of hit) Object.assign(r, { status: 'cancelled', sync_state: 'synced', google_synced_at: now.toISOString() });
+      return hit.length;
+    },
     async insertSession(row) {
       record('insertSession', [row]);
       nextId += 1;
@@ -1448,6 +1457,142 @@ describe('withGoogle', () => {
   });
 });
 
+describe('a series edited in Google', () => {
+  const WINDOW = { from: '2026-08-07T12:00:00.000Z', to: '2027-04-02T12:00:00.000Z' };
+  const week = (n, hour = 17) => ({
+    starts_at: `2026-10-${String(5 + 7 * n).padStart(2, '0')}T${hour}:00:00+00:00`,
+    ends_at: `2026-10-${String(5 + 7 * n).padStart(2, '0')}T${hour + 1}:00:00+00:00`,
+  });
+  const when = (n, hour = 17) => ({
+    start: { dateTime: `2026-10-${String(5 + 7 * n).padStart(2, '0')}T${hour}:00:00Z` },
+    end: { dateTime: `2026-10-${String(5 + 7 * n).padStart(2, '0')}T${hour + 1}:00:00Z` },
+  });
+  const row = (id, event, recurring, n, over = {}) => syncedSession({ id, google_event_id: event, google_recurring_id: recurring, ...week(n), ...over });
+  const instance = (id, master, n, hour = 17) => event({ id, recurringEventId: master, ...mayaInvited, ...when(n, hour), etag: undefined });
+  const master = (id) => event({ id, recurrence: ['RRULE:FREQ=WEEKLY'], ...mayaInvited });
+  const live = (s) => s.state.sessions.filter((r) => r.status !== 'cancelled');
+  const perWeek = (s) => live(s).map((r) => r.starts_at.slice(0, 13)).sort();
+
+  test('a split at "this and following" leaves one row per week: the old tail is cancelled, the new series is added', async () => {
+    const s = setup({ sessions: [row(1, 'M1_w0', 'M1', 0), row(2, 'M1_w1', 'M1', 1), row(3, 'M1_w2', 'M1', 2), row(4, 'M1_w3', 'M1', 3)] });
+    s.g.seed(CAL, master('M1'));
+    s.g.seedInstances('M1', [instance('M1_w0', 'M1', 0), instance('M1_w1', 'M1', 1)]); // the old series now stops after week 1
+    s.g.seed(CAL, master('M2'));
+    s.g.seedInstances('M2', [instance('M2_w2', 'M2', 2), instance('M2_w3', 'M2', 3)]); // a new series carries on from week 2
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 2, cancelled: 2, skipped: 2 });
+    expect(s.state.sessions.filter((r) => r.status === 'cancelled').map((r) => r.google_event_id)).toEqual(['M1_w2', 'M1_w3']);
+    expect(perWeek(s)).toEqual(['2026-10-05T17', '2026-10-12T17', '2026-10-19T17', '2026-10-26T17']);
+    expect(live(s).map((r) => r.google_event_id).sort()).toEqual(['M1_w0', 'M1_w1', 'M2_w2', 'M2_w3']);
+    expect(s.state.sessions.filter((r) => r.status === 'cancelled').every((r) => r.sync_state === 'synced' && r.google_synced_at === STAMP)).toBe(true);
+  });
+
+  test('a new time for all events leaves one row per week: every old row is cancelled, new ones take their place', async () => {
+    const s = setup({ sessions: [row(1, 'M1_old0', 'M1', 0), row(2, 'M1_old1', 'M1', 1), row(3, 'M1_old2', 'M1', 2)] });
+    s.g.seed(CAL, master('M1'));
+    s.g.seedInstances('M1', [instance('M1_new0', 'M1', 0, 18), instance('M1_new1', 'M1', 1, 18), instance('M1_new2', 'M1', 2, 18)]);
+    const result = await pull(s);
+
+    expect(result).toEqual({ updated: 0, inserted: 3, cancelled: 3, skipped: 0 });
+    expect(perWeek(s)).toEqual(['2026-10-05T18', '2026-10-12T18', '2026-10-19T18']);
+    expect(live(s).map((r) => r.google_recurring_id)).toEqual(['M1', 'M1', 'M1']);
+  });
+
+  test('asks the repo with the ids Google listed (cancelled ones too) and the window it listed', async () => {
+    const s = setup({ sessions: [row(1, 'M1_a', 'M1', 0)] });
+    s.g.seed(CAL, master('M1'));
+    s.g.seedInstances('M1', [instance('M1_a', 'M1', 0), { id: 'M1_gone', recurringEventId: 'M1', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' }]);
+    await pull(s);
+
+    expect(s.called('cancelMissingInstances').map((c) => c.args)).toEqual([[TUTOR, 'M1', ['M1_a', 'M1_gone'], WINDOW.from, WINDOW.to, NOW]]);
+    expect(s.g.called('listInstances')[0].args[2]).toMatchObject({ timeMin: WINDOW.from, timeMax: WINDOW.to });
+  });
+
+  test('rows of other series, other tutors, outside the window, already cancelled or never bound to an event are left alone', async () => {
+    const s = setup({
+      sessions: [
+        row(1, 'M1_a', 'M1', 0),
+        row(2, 'other_a', 'OTHER', 1),
+        row(3, 'M1_b', 'M1', 2, { tutor_id: OTHER_TUTOR }),
+        row(4, 'M1_far', 'M1', 0, { starts_at: '2027-05-01T17:00:00+00:00', ends_at: '2027-05-01T18:00:00+00:00' }),
+        row(5, 'M1_early', 'M1', 0, { starts_at: '2026-07-01T17:00:00+00:00', ends_at: '2026-07-01T18:00:00+00:00' }),
+        row(6, 'M1_c', 'M1', 3, { status: 'cancelled' }),
+        row(7, null, 'M1', 1, { sync_state: 'pending', google_calendar_id: null, google_link: null }), // restored in the portal, not yet pushed
+      ],
+    });
+    s.g.seed(CAL, master('M1'));
+    s.g.seedInstances('M1', [instance('M1_a', 'M1', 0)]);
+    const result = await pull(s);
+
+    expect(result.cancelled).toBe(0);
+    expect(s.state.sessions.map((r) => r.status)).toEqual(['scheduled', 'scheduled', 'scheduled', 'scheduled', 'scheduled', 'cancelled', 'scheduled']);
+  });
+
+  test('a series whose instances are all gone from the window cancels the rows it had there', async () => {
+    const s = setup({ sessions: [row(1, 'M1_a', 'M1', 0), row(2, 'M1_b', 'M1', 1)] });
+    s.g.seed(CAL, master('M1'));
+    s.g.seedInstances('M1', []);
+    const result = await pull(s);
+
+    expect(result.cancelled).toBe(2);
+    expect(s.called('cancelMissingInstances')[0].args[2]).toEqual([]);
+  });
+
+  test('a deleted series, a plain event and a bare cancelled master do not reach for it', async () => {
+    const s = setup({ sessions: [row(1, 'M1_a', 'M1', 0)] });
+    s.g.seed(CAL, master('M1'));
+    s.g.fail('listInstances', new GoogleNotFound());
+    s.g.seed(CAL, event({ id: 'plain', ...mayaInvited }));
+    s.g.seed(CAL, { id: 'M9', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' });
+    await pull(s);
+
+    expect(s.called('cancelMissingInstances')).toHaveLength(0);
+  });
+
+  test('a failure while cancelling is isolated: counted skipped, and the pull still completes', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const s = setup({ sessions: [row(1, 'M1_a', 'M1', 0)] });
+    s.g.seed(CAL, master('M1'));
+    s.g.seedInstances('M1', [instance('M1_b', 'M1', 1)]);
+    s.repo.cancelMissingInstances = async () => { throw new Error('cancelMissingInstances: down'); };
+    const result = await pull(s);
+
+    expect(result.inserted).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(s.state.connections[0].sync_token).toBe('sync-next');
+    expect(s.state.connections[0].pull_started_at).toBeNull();
+  });
+
+  test('createGoogleRepo.cancelMissingInstances picks the stale rows by event id here and cancels them by row id', async () => {
+    const db = fakeDb((entry) => ok(entry.ops.some((o) => o[0] === 'update')
+      ? [{ id: 2 }, { id: 4 }]
+      : [{ id: 1, google_event_id: 'a' }, { id: 2, google_event_id: 'b' }, { id: 3, google_event_id: 'c' }, { id: 4, google_event_id: 'd' }]));
+    const count = await createGoogleRepo(db).cancelMissingInstances(TUTOR, 'M1', ['a', 'c', 'z'], '2026-08-07T12:00:00.000Z', '2027-04-02T12:00:00.000Z', NOW);
+
+    expect(count).toBe(2);
+    const [pick, cancel] = db.log;
+    expect(pick.table).toBe('sessions');
+    has(pick, 'eq', 'tutor_id', TUTOR);
+    has(pick, 'eq', 'google_recurring_id', 'M1');
+    has(pick, 'eq', 'status', 'scheduled');
+    has(pick, 'not', 'google_event_id', 'is', null);
+    has(pick, 'gte', 'starts_at', '2026-08-07T12:00:00.000Z');
+    has(pick, 'lt', 'starts_at', '2027-04-02T12:00:00.000Z');
+    has(cancel, 'update', { status: 'cancelled', sync_state: 'synced', google_synced_at: STAMP });
+    has(cancel, 'in', 'id', [2, 4]);
+    has(cancel, 'eq', 'status', 'scheduled');
+  });
+
+  test('createGoogleRepo.cancelMissingInstances makes no second query when every row is still listed', async () => {
+    const db = fakeDb(() => ok([{ id: 1, google_event_id: 'a' }]));
+    expect(await createGoogleRepo(db).cancelMissingInstances(TUTOR, 'M1', ['a'], 'x', 'y', NOW)).toBe(0);
+    expect(db.log).toHaveLength(1);
+    await expect(createGoogleRepo(fakeDb(() => ({ data: null, error: { message: 'boom' } }))).cancelMissingInstances(TUTOR, 'M1', [], 'x', 'y', NOW))
+      .rejects.toThrow('cancelMissingInstances: boom');
+  });
+});
+
 // ---------------------------------------------------------------- etag and the echo of a push
 
 describe('the etag of a push', () => {
@@ -1803,7 +1948,7 @@ describe('createGoogleRepo', () => {
     expect(db.log).toHaveLength(1);
   });
 
-  test('markUpcomingPending marks scheduled sessions after now, filtered by tutor and/or student', async () => {
+  test('markUpcomingPending marks later sessions that are scheduled or still have an event, filtered by tutor and/or student', async () => {
     const db = fakeDb(() => ok(null));
     const repo = createGoogleRepo(db);
     await repo.markUpcomingPending({ tutorId: TUTOR, now: NOW });
@@ -1813,10 +1958,12 @@ describe('createGoogleRepo', () => {
     for (const entry of db.log) {
       expect(entry.table).toBe('sessions');
       has(entry, 'update', { sync_state: 'pending' });
-      has(entry, 'eq', 'status', 'scheduled');
       has(entry, 'gt', 'starts_at', STAMP);
+      // a cancellation made while sync was off still has its event to delete
+      has(entry, 'or', 'status.eq.scheduled,google_event_id.not.is.null');
+      expect(entry.ops.some((o) => o[0] === 'eq' && o[1] === 'status')).toBe(false);
     }
-    const eqs = (entry) => entry.ops.filter((o) => o[0] === 'eq' && o[1] !== 'status').map((o) => o[1]);
+    const eqs = (entry) => entry.ops.filter((o) => o[0] === 'eq').map((o) => o[1]);
     expect(eqs(db.log[0])).toEqual(['tutor_id']);
     expect(eqs(db.log[1])).toEqual(['student_id']);
     expect(eqs(db.log[2])).toEqual(['tutor_id', 'student_id']);

@@ -248,18 +248,19 @@ async function listChanges(google, conn) {
   }
 }
 
-// The instances of a recurring master around now, or null when the master is
+// The window of instances read for a recurring master: around now
+function instanceWindow(now) {
+  return { from: new Date(now.getTime() - INSTANCES_BACK_MS).toISOString(), to: new Date(now.getTime() + INSTANCES_AHEAD_MS).toISOString() };
+}
+
+// The instances of a recurring master in the window, or null when the master is
 // gone (404 or 410): its series was deleted in Google.
-async function listAllInstances(google, calendarId, masterId, now) {
+async function listAllInstances(google, calendarId, masterId, window) {
   const items = [];
   let pageToken;
   try {
     do {
-      const query = {
-        timeMin: new Date(now.getTime() - INSTANCES_BACK_MS).toISOString(),
-        timeMax: new Date(now.getTime() + INSTANCES_AHEAD_MS).toISOString(),
-        showDeleted: true,
-      };
+      const query = { timeMin: window.from, timeMax: window.to, showDeleted: true };
       if (pageToken) query.pageToken = pageToken;
       const page = await google.listInstances(calendarId, masterId, query);
       items.push(...(page.items ?? []));
@@ -292,6 +293,14 @@ async function cancelSeries(ctx, recurringId) {
   const count = await ctx.repo.cancelRecurring(ctx.conn.user_id, recurringId, ctx.now);
   if (count) ctx.result.cancelled += count;
   else ctx.result.skipped += 1;
+}
+
+// A series edited in Google: the rows of it in the window whose events Google no longer lists
+// (the edit gave its instances new ids) are cancelled, so each week keeps one row
+async function cancelStaleInstances(ctx, masterId, instances, window) {
+  ctx.result.cancelled += await ctx.repo.cancelMissingInstances(
+    ctx.conn.user_id, masterId, instances.map((i) => i.id), window.from, window.to, ctx.now,
+  );
 }
 
 // One event that cannot be applied (a database error, say) is counted as skipped and
@@ -391,9 +400,14 @@ export async function pullChanges(conn, google, { repo, now = new Date() }) {
     const { items, nextSyncToken } = await listChanges(google, conn);
     for (const e of items) {
       if (e.recurrence) {
-        const instances = e.status === 'cancelled' ? null : await listAllInstances(google, conn.calendar_id, e.id, now);
-        if (instances === null) await isolated(ctx, e, () => cancelSeries(ctx, e.id));
-        else for (const instance of instances) await isolated(ctx, instance, () => applyEvent(ctx, instance, e.id));
+        const window = instanceWindow(now);
+        const instances = e.status === 'cancelled' ? null : await listAllInstances(google, conn.calendar_id, e.id, window);
+        if (instances === null) {
+          await isolated(ctx, e, () => cancelSeries(ctx, e.id));
+        } else {
+          for (const instance of instances) await isolated(ctx, instance, () => applyEvent(ctx, instance, e.id));
+          await isolated(ctx, e, () => cancelStaleInstances(ctx, e.id, instances, window));
+        }
       } else {
         await isolated(ctx, e, () => applyEvent(ctx, e, e.recurringEventId ?? null));
       }

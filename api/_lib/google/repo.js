@@ -125,11 +125,13 @@ export function createGoogleRepo(db) {
       return check(await connections().select('*').in('user_id', ids).eq('purpose', 'tutor').eq('sync_enabled', true), 'tutorsWithSyncFor');
     },
 
-    // Scheduled sessions after `now`, of one tutor and/or one student, for the next push.
+    // Sessions after `now`, of one tutor and/or one student, for the next push: the scheduled ones, and
+    // cancelled ones that still have an event, so a cancellation made while the sync was off reaches Google.
     // It does not look at whether the tutor has sync on: the callers only push for tutors who do.
     async markUpcomingPending({ tutorId, studentId, now }) {
       if (!tutorId && !studentId) throw new Error('markUpcomingPending: a tutor or a student is required');
-      let query = sessions().update({ sync_state: 'pending' }).eq('status', 'scheduled').gt('starts_at', now.toISOString());
+      let query = sessions().update({ sync_state: 'pending' }).gt('starts_at', now.toISOString())
+        .or('status.eq.scheduled,google_event_id.not.is.null');
       if (tutorId) query = query.eq('tutor_id', tutorId);
       if (studentId) query = query.eq('student_id', studentId);
       check(await query, 'markUpcomingPending');
@@ -144,6 +146,24 @@ export function createGoogleRepo(db) {
         .gt('ends_at', now.toISOString()).neq('status', 'cancelled')
         .select('id'), 'cancelRecurring');
       return rows.length;
+    },
+
+    // A series edited in Google (a split at "this and following", a new time for all events) gives its
+    // instances new ids, which leaves the old rows behind: cancels the tutor's scheduled rows of the series
+    // that start in [fromIso, toIso) and whose event is not among keepIds (the ids Google lists for that
+    // window). Returns how many it cancelled. The ids are filtered here, not in the query, so a long
+    // series cannot make the request address too long.
+    async cancelMissingInstances(tutorId, recurringId, keepIds, fromIso, toIso, now) {
+      const keep = new Set(keepIds);
+      const rows = check(await sessions().select('id, google_event_id')
+        .eq('tutor_id', tutorId).eq('google_recurring_id', recurringId).eq('status', 'scheduled')
+        .not('google_event_id', 'is', null).gte('starts_at', fromIso).lt('starts_at', toIso), 'cancelMissingInstances');
+      const stale = rows.filter((r) => !keep.has(r.google_event_id)).map((r) => r.id);
+      if (!stale.length) return 0;
+      const cancelled = check(await sessions()
+        .update({ status: 'cancelled', sync_state: 'synced', google_synced_at: now.toISOString() })
+        .in('id', stale).eq('status', 'scheduled').select('id'), 'cancelMissingInstances');
+      return cancelled.length;
     },
 
     // ---- pull and push locks: true when this caller took it (a row came back from the update).
