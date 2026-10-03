@@ -84,15 +84,15 @@
       <section aria-labelledby="collect">
         <h2 id="collect">What we collect</h2>
         <h3>When you visit the website</h3>
-        <p>The website has no sign-up form, analytics, ads, or tracking cookies. If you email us, we receive your email address and whatever you write. Your browser remembers your language and your light or dark choice on your own device. The site loads its fonts from Google Fonts, so Google receives your IP address and basic browser details when a page loads.</p>
+        <p>The website has no sign-up form, analytics, ads, or tracking cookies. If you email us, we receive your email address and whatever you write. Your browser saves your language (taken from your browser settings or your choice) and your light or dark choice on your own device. The site loads its fonts from Google Fonts, so Google receives your IP address and basic browser details when a page loads.</p>
         <h3>When you use the client portal</h3>
         <ul>
           <li><strong>Account details:</strong> your name, email address, password, the role you ask for (student, parent, or tutor), and the optional note you add when you sign up. Our sign-in provider stores passwords in a scrambled (hashed) form, so we never see them.</li>
           <li><strong>Who is connected to whom:</strong> which students each parent and tutor is linked to, and the subject each tutor teaches.</li>
-          <li><strong>Schoolwork:</strong> assignments and due dates, the work students turn in (typed answers, photos, PDFs, and notes), grades, and tutor feedback.</li>
+          <li><strong>Schoolwork:</strong> assignments and due dates, the worksheets and files tutors attach to them, the work students turn in (typed answers, photos, PDFs, and notes), grades, and tutor feedback.</li>
           <li><strong>Lessons:</strong> session dates and times, the place or online meeting link, the tutor’s plan, attendance, session notes, and the slides, files, and links attached to a lesson.</li>
           <li><strong>Updates:</strong> messages posted in the portal.</li>
-          <li><strong>Technical information:</strong> the portal keeps you signed in by saving a sign-in token in your browser. Our hosting provider records basic request details, such as IP addresses, to keep the service running and secure. Our own error logs hold only error codes and record numbers, never the content of your work.</li>
+          <li><strong>Technical information:</strong> the portal keeps you signed in by saving a sign-in token in your browser, and it saves a few display preferences there too, such as your calendar view, sidebar layout, and which updates you have already seen. When you connect Google Calendar, the portal sets one cookie for 10 minutes that ties the connection to your browser; it is not used for tracking. Our hosting provider records basic request details, such as IP addresses, to keep the service running and secure. Our own error logs hold only error codes and record numbers, never the content of your work.</li>
         </ul>
       </section>
 
@@ -100,7 +100,7 @@
         <h2 id="use">How we use it</h2>
         <ul>
           <li><strong>To run tutoring:</strong> scheduling sessions, assigning and grading homework, and sharing progress with the student and their parents.</li>
-          <li><strong>To draft grades:</strong> when a student turns in work, we send the work and the assignment to an AI service, which writes a draft grade and comments. A tutor reviews every draft, and students and parents see a grade only after the tutor releases it.</li>
+          <li><strong>To draft grades:</strong> when a student turns in work, we send an AI service the assignment’s title and instructions, any worksheets attached to it, and the student’s typed answer and uploaded file. We do not send the student’s name or email address. The AI service writes a draft grade and comments. A tutor or our administrator looks at each draft and decides whether to release it, and students and parents see a grade only after it is released.</li>
           <li><strong>To send account emails,</strong> such as confirming your email address or resetting your password.</li>
           <li><strong>To keep the portal secure</strong> and to fix problems.</li>
         </ul>
@@ -110,9 +110,10 @@
       <section aria-labelledby="see">
         <h2 id="see">Who can see what</h2>
         <ul>
-          <li><strong>Students</strong> see their own assignments, grades, sessions, and lesson materials.</li>
-          <li><strong>Parents</strong> see the same for the children linked to their account.</li>
-          <li><strong>Tutors</strong> see the students they are assigned to.</li>
+          <li><strong>Students</strong> see their own assignments, released grades, sessions, and lesson materials, and the updates their tutor chooses to share with them.</li>
+          <li><strong>Parents</strong> see the same for the children linked to their account, plus every update a tutor writes about their child.</li>
+          <li><strong>Tutors</strong> see the students they are assigned to. A student’s tutors can see each other’s sessions and notes for that student.</li>
+          <li><strong>Everyone with an approved account</strong> can see the names of our tutors and administrator, and students and parents see which subject each of their tutors teaches.</li>
           <li><strong>Our administrator</strong> can see everything in the portal, to approve accounts, run the service, and help with problems.</li>
         </ul>
         <p>The database itself enforces these limits, not just the screens.</p>
@@ -126,7 +127,7 @@
         <p>When a tutor turns on Google Calendar sync, the portal asks Google for permission to:</p>
         <ul>
           <li>see the tutor’s Google email address;</li>
-          <li>create one calendar in the tutor’s Google account, named “VP Education sessions”, and add, change, and remove events in that calendar only;</li>
+          <li>create a calendar in the tutor’s Google account, named “VP Education sessions”, and add, change, and remove events in the calendars the portal created only;</li>
           <li>view the events on the tutor’s calendars, read-only.</li>
         </ul>
         <p>We use these permissions only to:</p>
@@ -134,17 +135,18 @@
           <li><strong>Keep sessions in step.</strong> The tutor’s portal sessions and the “VP Education sessions” calendar stay the same in both directions. Each event carries the session’s subject, the student’s name, the time, the place or meeting link, the tutor’s plan, and a link back to the portal. A move or cancellation in either place updates the other, and an event the tutor creates in that calendar with a student invited becomes a portal session.</li>
           <li><strong>Show the tutor their own schedule.</strong> The tutor’s personal events appear next to their sessions, and the portal warns them when a new session would overlap one. Private events show only as “Busy”. Personal events are read when the tutor opens their calendar, are shown only to that tutor, and are never saved in our database.</li>
         </ul>
-        <p>To keep the sync running, we store the tutor’s Google email address, a Google access key that we encrypt before saving, the ID of the “VP Education sessions” calendar, and the IDs Google gives each synced event.</p>
+        <p>Session details that sync from a tutor’s “VP Education sessions” calendar become ordinary portal sessions, so the people who can see that student’s sessions (described above) can see them.</p>
+        <p>To keep the sync running, we store the tutor’s Google email address, the permissions they granted, a Google refresh token (the credential that lets the portal reach the calendar without asking again) that we encrypt before saving, the ID of the “VP Education sessions” calendar, and the details Google uses to notify the portal when that calendar changes. Each synced session also keeps its Google event ID and link. Turning the sync switch off pauses syncing but keeps the connection so it can be turned back on. Disconnecting removes it.</p>
 
         <h3>Students</h3>
-        <p>A student who chooses “Get Google Calendar invites” shares only their Google email address with us. We add that address as a guest on their sessions, so Google sends them invitations and updates. We cannot see or change anything in a student’s calendar. Parents are never invited.</p>
+        <p>A student who chooses “Get Google Calendar invites” shares only their Google email address with us. We add that address as a guest on their sessions, so Google sends them invitations and updates, and their tutor sees the address as a guest on the event. We cannot see or change anything in a student’s calendar. Parents are never invited.</p>
 
         <h3>Disconnecting</h3>
-        <p>Tutors and students can disconnect Google Calendar in the portal at any time. We then delete the stored connection and access key. For tutors we also cancel our access with Google, and students are taken off their upcoming invitations. Events already in a tutor’s “VP Education sessions” calendar stay there until the tutor deletes them. You can also remove our access from your Google Account at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
+        <p>Tutors and students can disconnect Google Calendar in the portal at any time. We then delete the stored connection and refresh token. For tutors we also ask Google to cancel our access, and students are taken off their upcoming invitations. Events already in a tutor’s “VP Education sessions” calendar stay there until the tutor deletes them. You can also remove our access from your Google Account at <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.</p>
 
         <h3>Limited Use</h3>
         <p class="legal-callout">VP Education Group’s use and transfer to any other app of information received from Google APIs will adhere to the <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>, including the Limited Use requirements.</p>
-        <p>In particular, we do not use Google user data for advertising, we do not sell it, we do not send it to the AI service we use for draft grades, and we do not use it to train AI models. No one at VP Education Group reads it unless you ask us to help with a problem, or it is needed for security or to comply with the law.</p>
+        <p>In particular, we do not use Google user data for advertising, we do not sell it, we do not send it to the AI service we use for draft grades, and we do not use it to train AI models. Apart from synced session details, which become portal sessions as described above, no one at VP Education Group reads Google user data unless you ask us to help with a problem, or it is needed for security or to comply with the law. A tutor’s personal events and Google tokens are never shown to anyone else.</p>
       </section>
 
       <section aria-labelledby="providers">
@@ -153,8 +155,9 @@
         <ul>
           <li><strong>Supabase:</strong> the database, file storage, sign-in, and account emails.</li>
           <li><strong>Vercel:</strong> hosting for the website and the portal.</li>
+          <li><strong>jsDelivr:</strong> delivers a code library that portal pages load, so it receives your IP address and basic browser details.</li>
           <li><strong>Anthropic:</strong> the AI service that writes draft grades from the work students turn in.</li>
-          <li><strong>Google:</strong> Google Calendar for people who connect it, and the fonts on our pages.</li>
+          <li><strong>Google:</strong> Google Calendar for people who connect it, and the fonts on our website and portal pages.</li>
         </ul>
         <p>We may also share information if the law requires it, or to protect the safety of our students and tutors.</p>
       </section>
@@ -166,7 +169,7 @@
 
       <section aria-labelledby="keep">
         <h2 id="keep">How long we keep it</h2>
-        <p>We keep account information and schoolwork while the account is open, so students and parents can look back on past work. If you ask us to delete an account, we delete it within 30 days, together with its files, work, grades, sessions, and Google connection, unless the law requires us to keep something. Copies in our providers’ backups are removed on their regular schedule.</p>
+        <p>We keep account information and schoolwork while the account is open, so students and parents can look back on past work. If you ask us to delete an account, we delete the account and its work, grades, sessions, uploaded files, and stored Google connection within 30 days, unless the law requires us to keep something. Calendar events already copied into a tutor’s Google Calendar, and invitations Google already sent, stay in Google, where the tutor or student controls them. Copies in our providers’ backups are removed on their regular schedule.</p>
       </section>
 
       <section aria-labelledby="security">
@@ -175,7 +178,7 @@
           <li>Every page and connection is encrypted (HTTPS).</li>
           <li>The database checks who is asking before it returns anything, so each person sees only what their role allows.</li>
           <li>Links to files stop working after 10 minutes.</li>
-          <li>Google access keys are encrypted before they are saved.</li>
+          <li>Google tokens are encrypted before they are saved.</li>
         </ul>
         <p>No system is perfectly secure, but we work to protect your information, and we will tell you if a breach affects it.</p>
       </section>
