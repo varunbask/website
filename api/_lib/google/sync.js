@@ -46,6 +46,16 @@ async function saveConnection(conn, repo, fields) {
   Object.assign(conn, fields);
 }
 
+const NO_CHANNEL = { channel_id: null, channel_resource_id: null, channel_token: null, channel_expires_at: null };
+
+// Google answered 404 for the connection's own VP calendar: it was deleted there. Forget it, its
+// sync token and its channel, and queue the tutor's upcoming sessions, so the next run makes a new
+// calendar (ensureCalendar) and sends them again. That is not a failure to show the tutor.
+async function calendarGone(conn, repo, now) {
+  await saveConnection(conn, repo, { calendar_id: null, sync_token: null, ...NO_CHANNEL });
+  await repo.markUpcomingPending({ tutorId: conn.user_id, now });
+}
+
 export async function ensureCalendar(conn, google, repo) {
   if (conn.calendar_id) return conn.calendar_id;
   const calendar = await google.insertCalendar({ summary: CALENDAR_NAME, timeZone: TIME_ZONE });
@@ -71,9 +81,16 @@ export async function ensureChannel(conn, google, repo, { config, now = new Date
   await stopQuietly(conn, google);
   const id = randomUUID();
   const token = Buffer.from(random(32)).toString('base64url');
-  const watch = await google.watchEvents(conn.calendar_id, {
-    id, token, address: config.notifyUrl, ttlSeconds: CHANNEL_TTL_SECONDS,
-  });
+  let watch;
+  try {
+    watch = await google.watchEvents(conn.calendar_id, {
+      id, token, address: config.notifyUrl, ttlSeconds: CHANNEL_TTL_SECONDS,
+    });
+  } catch (error) {
+    if (!(error instanceof GoogleNotFound)) throw error;
+    await calendarGone(conn, repo, now);
+    return false;
+  }
   const expiration = Number(watch.expiration);
   await saveConnection(conn, repo, {
     channel_id: id,
@@ -86,7 +103,7 @@ export async function ensureChannel(conn, google, repo, { config, now = new Date
 
 export async function stopSync(conn, google, repo) {
   await stopQuietly(conn, google);
-  await saveConnection(conn, repo, { channel_id: null, channel_resource_id: null, channel_token: null, channel_expires_at: null });
+  await saveConnection(conn, repo, NO_CHANNEL);
 }
 
 // ---------------------------------------------------------------- push
@@ -123,12 +140,25 @@ async function patchIfThere(google, calendarId, eventId, body) {
   }
 }
 
+// Best effort: an event in a calendar the connection no longer uses may be gone along with it
+async function deleteQuietly(google, calendarId, eventId) {
+  try {
+    await google.deleteEvent(calendarId, eventId);
+  } catch {
+    // nothing more to do for an event nobody will look at
+  }
+}
+
 async function pushRow(row, conn, google, { repo, config, stamp, result }) {
+  // A row bound to another calendar than the connection's (the VP calendar was deleted or replaced)
+  // is not bound at all: its old event is dropped if it can be, and the row goes into the current calendar
+  const moved = Boolean(row.google_calendar_id && row.google_calendar_id !== conn.calendar_id);
   const calendarId = row.google_calendar_id ?? conn.calendar_id;
 
   if (row.status === 'cancelled') {
     if (row.google_event_id) {
-      await google.deleteEvent(calendarId, row.google_event_id);
+      if (moved) await deleteQuietly(google, calendarId, row.google_event_id);
+      else await google.deleteEvent(calendarId, row.google_event_id);
       const cleared = { google_event_id: null, google_link: null, google_etag: null };
       await settle(repo, row, { ...cleared, sync_state: 'synced', google_synced_at: stamp }, cleared);
       result.deleted += 1;
@@ -141,9 +171,10 @@ async function pushRow(row, conn, google, { repo, config, stamp, result }) {
   const [student, studentEmail] = await Promise.all([repo.getProfile(row.student_id), repo.studentGoogleEmail(row.student_id)]);
   const body = sessionToEvent(row, { studentName: student?.full_name, studentEmail, portalUrl: config.portalUrl });
 
+  if (moved && row.google_event_id) await deleteQuietly(google, calendarId, row.google_event_id);
   let ev = null;
   let savedCalendar = calendarId;
-  if (row.google_event_id) {
+  if (row.google_event_id && !moved) {
     ev = await patchIfThere(google, calendarId, row.google_event_id, body);
   } else {
     // An earlier insert may have reached Google without its id being saved: bind that event instead of adding a twin
@@ -210,6 +241,11 @@ async function pushLocked(conn, google, { repo, config, now }) {
     try {
       await pushRow(row, conn, google, { repo, config, stamp, result });
     } catch (error) {
+      if (error instanceof GoogleNotFound) { // an event cannot be put into the VP calendar because it is gone
+        await calendarGone(conn, repo, now);
+        result.stopped = true;
+        break;
+      }
       if (outcome(error) === 'stop') { result.stopped = true; break; } // this row and the rest stay pending
       await repo.updateSession(row.id, { sync_state: 'error' });
       result.failed += 1;
@@ -421,6 +457,10 @@ export async function pullChanges(conn, google, { repo, now = new Date() }) {
   } catch (error) {
     // Let the next pull in at once; the sync token did not move, so nothing is lost
     await repo.updateConnection(conn.user_id, { pull_started_at: null }).catch(() => {});
+    if (error instanceof GoogleNotFound) { // the list call found no VP calendar: see calendarGone
+      await calendarGone(conn, repo, now);
+      return result;
+    }
     throw error;
   }
   return result;

@@ -182,6 +182,14 @@ function fakeRepo({ sessions = [], connections = [], tombstones = [], profiles =
       Object.assign(row, fields);
       return row;
     },
+    // Like the real one: later sessions that are scheduled or still have an event
+    async markUpcomingPending({ tutorId, studentId, now }) {
+      record('markUpcomingPending', [{ tutorId, studentId, now }]);
+      for (const r of state.sessions) {
+        if ((tutorId && r.tutor_id !== tutorId) || (studentId && r.student_id !== studentId)) continue;
+        if (Date.parse(r.starts_at) > now.getTime() && (r.status === 'scheduled' || r.google_event_id)) r.sync_state = 'pending';
+      }
+    },
     async cancelRecurring(tutorId, recurringId, now) {
       record('cancelRecurring', [tutorId, recurringId, now]);
       const hit = state.sessions.filter((r) => r.tutor_id === tutorId && r.google_recurring_id === recurringId
@@ -1590,6 +1598,194 @@ describe('a series edited in Google', () => {
     expect(db.log).toHaveLength(1);
     await expect(createGoogleRepo(fakeDb(() => ({ data: null, error: { message: 'boom' } }))).cancelMissingInstances(TUTOR, 'M1', [], 'x', 'y', NOW))
       .rejects.toThrow('cancelMissingInstances: boom');
+  });
+});
+
+describe('the VP calendar changes or disappears', () => {
+  const OLD = 'old-vp-calendar';
+  const bound = (over = {}) => session({ google_event_id: 'evOld', google_calendar_id: OLD, google_link: 'https://calendar.google.test/evOld', google_etag: '"old"', ...over });
+  const GONE_FIELDS = { calendar_id: null, sync_token: null, channel_id: null, channel_resource_id: null, channel_token: null, channel_expires_at: null };
+  const withChannel = { calendar_id: CAL, sync_token: 'tok-1', channel_id: 'ch-1', channel_resource_id: 'res-1', channel_token: 'secret', channel_expires_at: '2026-10-09T00:00:00.000Z' };
+  const noErrorRecorded = (s) => s.calls.filter((c) => c.name === 'updateConnection').every((c) => !('last_error' in c.args[1]));
+
+  describe('a row bound to another calendar', () => {
+    test('has its old event deleted (best effort) and goes into the current calendar as a new event, no patch', async () => {
+      const s = setup({ sessions: [bound()] });
+      s.g.seed(OLD, event({ id: 'evOld' }));
+      const result = await push(s);
+
+      expect(result).toEqual({ pushed: 1, deleted: 0, failed: 0, stopped: false });
+      expect(s.g.called('deleteEvent').map((c) => c.args)).toEqual([[OLD, 'evOld']]);
+      expect(s.g.called('patchEvent')).toHaveLength(0);
+      expect(s.g.called('insertEvent')[0].args[0]).toBe(CAL);
+      expect(s.state.sessions[0]).toMatchObject({ google_event_id: 'ev-1', google_calendar_id: CAL, google_etag: '"etag-1"', sync_state: 'synced' });
+      expect(s.g.event(OLD, 'evOld')).toBeUndefined();
+    });
+
+    test('an error deleting the old event, of any kind, does not stop the push', async () => {
+      for (const error of [new GoogleApiError(403), new GoogleNotFound(), new GoogleGone(), new GoogleRateError(), new GoogleAuthError()]) {
+        const s = setup({ sessions: [bound()] });
+        s.g.fail('deleteEvent', error);
+        const result = await push(s);
+        expect(result, error.name).toEqual({ pushed: 1, deleted: 0, failed: 0, stopped: false });
+        expect(s.state.sessions[0].google_calendar_id, error.name).toBe(CAL);
+      }
+    });
+
+    test('still looks for an event of its own in the current calendar first, so no twin is made', async () => {
+      const s = setup({ sessions: [bound()] });
+      s.g.seed(CAL, event({ id: 'tagged', extendedProperties: { private: { vpSessionId: '1' } } }));
+      await push(s);
+
+      expect(s.g.called('listEvents')[0].args[0]).toBe(CAL);
+      expect(s.g.called('insertEvent')).toHaveLength(0);
+      expect(s.state.sessions[0]).toMatchObject({ google_event_id: 'tagged', google_calendar_id: CAL });
+    });
+
+    test('a cancelled row drops its old event the same way, and is cleared', async () => {
+      const s = setup({ sessions: [bound({ status: 'cancelled' })] });
+      s.g.fail('deleteEvent', new GoogleApiError(500));
+      const result = await push(s);
+
+      expect(result).toEqual({ pushed: 0, deleted: 1, failed: 0, stopped: false });
+      expect(s.g.called('insertEvent')).toHaveLength(0);
+      expect(s.state.sessions[0]).toMatchObject({ google_event_id: null, google_link: null, google_etag: null, sync_state: 'synced' });
+    });
+
+    test('a row bound to the current calendar is patched as before', async () => {
+      const s = setup({ sessions: [bound({ google_calendar_id: CAL })] });
+      s.g.seed(CAL, event({ id: 'evOld' }));
+      await push(s);
+      expect(s.g.called('patchEvent').map((c) => c.args.slice(0, 2))).toEqual([[CAL, 'evOld']]);
+      expect(s.g.called('deleteEvent')).toHaveLength(0);
+    });
+
+    test('a calendar made anew moves every bound row over on the next push', async () => {
+      const s = setup({
+        conn: { calendar_id: null },
+        sessions: [bound({ id: 1 }), bound({ id: 2, google_event_id: 'evOld2', starts_at: '2026-10-06T17:00:00+00:00', ends_at: '2026-10-06T18:00:00+00:00' })],
+      });
+      await push(s);
+
+      expect(s.g.called('insertCalendar')).toHaveLength(1);
+      expect(s.g.called('insertEvent').map((c) => c.args[0])).toEqual(['new-cal-1', 'new-cal-1']);
+      expect(s.state.sessions.map((r) => r.google_calendar_id)).toEqual(['new-cal-1', 'new-cal-1']);
+    });
+  });
+
+  describe('Google answering "not found" for the connection\'s own calendar', () => {
+    test('while inserting an event: the calendar, sync token and channel are forgotten, upcoming sessions are queued, the run ends', async () => {
+      const s = setup({
+        conn: withChannel,
+        sessions: [
+          session({ id: 1 }),
+          session({ id: 2, starts_at: '2026-10-06T17:00:00+00:00', ends_at: '2026-10-06T18:00:00+00:00' }),
+          syncedSession({ id: 3, starts_at: '2026-10-08T17:00:00+00:00', ends_at: '2026-10-08T18:00:00+00:00', google_calendar_id: CAL }),
+          syncedSession({ id: 4, status: 'cancelled', starts_at: '2026-10-09T17:00:00+00:00', ends_at: '2026-10-09T18:00:00+00:00' }),
+          syncedSession({ id: 5, status: 'cancelled', google_event_id: null, starts_at: '2026-10-10T17:00:00+00:00', ends_at: '2026-10-10T18:00:00+00:00' }),
+        ],
+      });
+      s.g.fail('insertEvent', new GoogleNotFound());
+      const result = await push(s);
+
+      expect(result).toEqual({ pushed: 0, deleted: 0, failed: 0, stopped: true });
+      expect(s.state.connections[0]).toMatchObject(GONE_FIELDS);
+      expect(s.conn).toMatchObject(GONE_FIELDS);
+      expect(s.called('markUpcomingPending').map((c) => c.args)).toEqual([[{ tutorId: TUTOR, studentId: undefined, now: NOW }]]);
+      expect(s.g.called('insertEvent')).toHaveLength(1); // the run ended, no further rows were tried
+      expect(s.state.sessions.map((r) => r.sync_state)).toEqual(['pending', 'pending', 'pending', 'pending', 'synced']);
+      expect(noErrorRecorded(s)).toBe(true);
+      expect(s.state.connections[0].push_started_at).toBeNull();
+    });
+
+    test('while looking for an event of the row\'s own', async () => {
+      const s = setup({ conn: withChannel, sessions: [session()] });
+      s.g.fail('listEvents', new GoogleNotFound());
+      const result = await push(s);
+
+      expect(result.stopped).toBe(true);
+      expect(s.g.called('insertEvent')).toHaveLength(0);
+      expect(s.state.connections[0]).toMatchObject(GONE_FIELDS);
+      expect(noErrorRecorded(s)).toBe(true);
+    });
+
+    test('the next run makes a new calendar and sends the queued sessions into it', async () => {
+      const s = setup({ conn: withChannel, sessions: [session({ id: 1 }), syncedSession({ id: 3, starts_at: '2026-10-08T17:00:00+00:00', ends_at: '2026-10-08T18:00:00+00:00' })] });
+      s.g.fail('insertEvent', new GoogleNotFound());
+      await push(s);
+      expect(s.g.called('insertCalendar')).toHaveLength(0);
+
+      const result = await push(s);
+      expect(s.g.called('insertCalendar')).toHaveLength(1);
+      expect(result).toEqual({ pushed: 2, deleted: 0, failed: 0, stopped: false });
+      expect(s.g.called('insertEvent').slice(1).map((c) => c.args[0])).toEqual(['new-cal-1', 'new-cal-1']);
+      expect(s.state.sessions.map((r) => [r.google_calendar_id, r.sync_state])).toEqual([['new-cal-1', 'synced'], ['new-cal-1', 'synced']]);
+      expect(s.g.called('deleteEvent').map((c) => c.args)).toEqual([[CAL, 'ev1']]); // the synced row's event in the old calendar, best effort
+    });
+
+    test('while listing changes in a pull: forgotten, queued, the lock released, nothing thrown, no error recorded', async () => {
+      const s = setup({ conn: { ...withChannel, pull_started_at: null }, sessions: [syncedSession()] });
+      s.g.fail('listEvents', new GoogleNotFound());
+      const result = await pull(s);
+
+      expect(result).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 0 });
+      expect(s.state.connections[0]).toMatchObject(GONE_FIELDS);
+      expect(s.state.connections[0].pull_started_at).toBeNull();
+      expect(s.state.connections[0].last_synced_at).toBeNull(); // not a successful pull either
+      expect(s.state.sessions[0].sync_state).toBe('pending');
+      expect(noErrorRecorded(s)).toBe(true);
+    });
+
+    test('a pull with no calendar after that does nothing', async () => {
+      const s = setup({ conn: withChannel });
+      s.g.fail('listEvents', new GoogleNotFound());
+      await pull(s);
+      s.g.calls.length = 0;
+      expect(await pull(s)).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 0 });
+      expect(s.g.calls).toHaveLength(0);
+    });
+
+    test('while setting up the channel (watch): forgotten and queued, nothing thrown', async () => {
+      const s = setup({ conn: { ...withChannel, channel_id: null, channel_resource_id: null, channel_token: null, channel_expires_at: null }, sessions: [session()] });
+      s.g.fail('watchEvents', new GoogleNotFound());
+      const renewed = await ensureChannel(s.conn, s.g, s.repo, { config, now: NOW });
+
+      expect(renewed).toBe(false);
+      expect(s.state.connections[0]).toMatchObject(GONE_FIELDS);
+      expect(s.state.sessions[0].sync_state).toBe('pending');
+      expect(noErrorRecorded(s)).toBe(true);
+    });
+
+    test('a channel being replaced is stopped first, and its fields are cleared whatever the watch says', async () => {
+      const s = setup({ conn: { ...withChannel, channel_expires_at: new Date(NOW.getTime() + HOUR).toISOString() } });
+      s.g.fail('watchEvents', new GoogleNotFound());
+      await ensureChannel(s.conn, s.g, s.repo, { config, now: NOW });
+      expect(s.g.called('stopChannel')).toHaveLength(1);
+      expect(s.state.connections[0].channel_id).toBeNull();
+    });
+
+    test('other errors from the same calls are not taken for a missing calendar', async () => {
+      for (const error of [new GoogleApiError(500), new GoogleRateError(), new GoogleGone()]) {
+        const s = setup({ conn: withChannel, sessions: [session()] });
+        s.g.fail('insertEvent', error);
+        s.g.fail('listEvents', error);
+        await push(s).catch(() => {});
+        expect(s.state.connections[0].calendar_id, error.name).toBe(CAL);
+        expect(s.called('markUpcomingPending'), error.name).toHaveLength(0);
+      }
+      const watch = setup({ conn: { ...withChannel, channel_id: null, channel_expires_at: null } });
+      watch.g.fail('watchEvents', new GoogleApiError(500));
+      await expect(ensureChannel(watch.conn, watch.g, watch.repo, { config, now: NOW })).rejects.toBeInstanceOf(GoogleApiError);
+      expect(watch.state.connections[0].calendar_id).toBe(CAL);
+    });
+
+    test('a missing event (patch or delete) never counts as a missing calendar', async () => {
+      const s = setup({ sessions: [session({ google_event_id: 'gone', google_calendar_id: CAL })] });
+      s.g.fail('patchEvent', new GoogleNotFound());
+      await push(s);
+      expect(s.state.connections[0].calendar_id).toBe(CAL);
+      expect(s.called('markUpcomingPending')).toHaveLength(0);
+    });
   });
 });
 

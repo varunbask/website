@@ -1275,6 +1275,27 @@ describe('maintainAll', () => {
     expect(ctx.repo.conns.get(TUTOR).last_synced_at).toBe(NOW.toISOString());
   });
 
+  test('a VP calendar deleted in Google is forgotten without an error, and the next run makes a new one', async () => {
+    const fetch = fakeFetch();
+    const original = fetch.getMockImplementation();
+    let deleted = true;
+    fetch.mockImplementation(async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      if (deleted && path.startsWith('/calendar/v3/calendars/cal-1/')) return Response.json({ error: { errors: [{ reason: 'notFound' }] } }, { status: 404 });
+      return original(url, init);
+    });
+    const healthyChannel = { channel_id: 'chan-1', channel_resource_id: 'res-1', channel_token: 't', channel_expires_at: new Date(NOW.getTime() + 5 * DAY).toISOString() };
+    const ctx = setup({ repo: fakeRepo({ connections: [tutorConn({ calendar_id: 'cal-1', sync_token: 'tok', ...healthyChannel })] }), fetch });
+
+    expect(await maintain(ctx)).toEqual({ tutors: 1, ok: 1, failed: 0 }); // the pull found no calendar
+    expect(ctx.repo.conns.get(TUTOR)).toMatchObject({ calendar_id: null, sync_token: null, channel_id: null, channel_token: null, last_error: null });
+    expect(ctx.repo.markUpcomingPending).toHaveBeenCalledWith({ tutorId: TUTOR, now: NOW });
+
+    deleted = false;
+    expect(await maintain(ctx)).toEqual({ tutors: 1, ok: 1, failed: 0 });
+    expect(ctx.repo.conns.get(TUTOR)).toMatchObject({ calendar_id: 'cal-new', last_error: null });
+  });
+
   test('stops starting new tutors once the time budget is spent', async () => {
     let t = 0;
     const ctx = setup({ repo: fakeRepo({ connections: tutors(4) }) });
