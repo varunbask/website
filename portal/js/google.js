@@ -12,7 +12,8 @@ import { icon } from './icons.js';
 import { button, busy } from './ui.js';
 import { menu } from './overlays.js';
 import {
-  syncStatusText, inviteText, readGoogleReturn, normalizeStatus, safeErrorText, defaultReturnTo, OFF_STATUS as OFF,
+  syncStatusText, inviteText, readGoogleReturn, normalizeStatus, safeErrorText, defaultReturnTo, syncResultText, googleReturnText,
+  OFF_STATUS as OFF,
 } from './google-model.js';
 
 const NOT_SET_UP = 'Google Calendar is not set up yet.';
@@ -167,18 +168,20 @@ export function cachedPersonalEvents(fromIso, toIso) {
 
 // On a page that just returned from Google (the hash carries google=connected
 // or google=error): reads the status afresh, says how it went, then takes the
-// param out of the address.
-// A page that did not come back from Google is left alone.
+// param out of the address. Returns 'connected' or 'error' for such a page, so
+// the caller knows the server has begun its own sync; null for a page that did
+// not come back from Google, which is left alone.
 export function announceGoogleReturn({ toast } = {}) {
-  const { result, cleanHash } = readGoogleReturn(location.hash);
-  if (!result) return;
+  const { result, reason, cleanHash } = readGoogleReturn(location.hash);
+  if (!result) return null;
   invalidateGoogle(); // the connection changed on the server while the page was away
-  toast?.({ text: result === 'connected' ? 'Google Calendar connected' : 'Google Calendar could not connect. Try again.' });
+  toast?.({ text: googleReturnText(result, reason) });
   try {
     history.replaceState(null, '', location.pathname + location.search + cleanHash);
   } catch {
     // a sandboxed page can refuse history writes; the toast was still shown
   }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,10 +251,12 @@ export function studentInviteControl({ toast } = {}) {
 // The tutor's switch for the calendar toolbar: "Google Calendar" on or off with
 // the sync status beside it and a small menu (Sync now, Disconnect). Off, it
 // connects first. A change refreshes the whole store (invalidateAll, because
-// invalidate(null) leaves a student's cached sessions in place). onStatus(status)
-// hears the status each time it is painted, so the calendar can show or hide
-// personal events. Left hidden when the status cannot be read. Call .refresh()
-// on the element to read the status again.
+// invalidate(null) leaves a student's cached sessions in place). onStatus(status,
+// { serverSynced }) hears the status each time it is painted, so the calendar can
+// show or hide personal events; serverSynced is true when turning sync on just
+// made the server push and pull, so the page need not ask for that again. Left
+// hidden when the status cannot be read. Call .refresh() on the element to read
+// the status again.
 export function tutorGoogleControl({ toast, store, signal, onStatus } = {}) {
   const root = h('div', { class: 'cal-google', hidden: true });
   const statusId = uid('cal-google-status');
@@ -260,9 +265,9 @@ export function tutorGoogleControl({ toast, store, signal, onStatus } = {}) {
 
   const isOn = (s) => Boolean(s?.connected && s.sync_enabled);
 
-  function paint(next) {
+  function paint(next, { serverSynced = false } = {}) {
     status = next;
-    onStatus?.(next);
+    onStatus?.(next, { serverSynced });
     if (next.unavailable) {
       root.hidden = true;
       root.replaceChildren();
@@ -340,9 +345,9 @@ export function tutorGoogleControl({ toast, store, signal, onStatus } = {}) {
       }
       const turnOn = !isOn(status);
       const next = await setGoogleSync(turnOn);
-      paint(next);
+      paint(next, { serverSynced: turnOn });
       store?.invalidateAll();
-      say(toast, turnOn ? 'Google Calendar sync is on' : 'Google Calendar sync is off');
+      say(toast, syncResultText(next, turnOn ? 'Google Calendar sync is on' : 'Google Calendar sync is off'));
     });
   }
 
@@ -352,9 +357,10 @@ export function tutorGoogleControl({ toast, store, signal, onStatus } = {}) {
 
   function sync() {
     return run(async () => {
-      paint(await syncNow());
+      const next = await syncNow();
+      paint(next);
       store?.invalidateAll();
-      say(toast, 'Google Calendar synced');
+      say(toast, syncResultText(next, 'Google Calendar synced'));
     }, { failure: () => root.refresh() });
   }
 

@@ -3,6 +3,7 @@ import {
   syncStatusText, personalBlocks, allDayOn, readGoogleReturn, googleDayUrl, personalClashes,
   personalLabel, personalWhen, personalClashLine, mergePersonalClashes, weekRange, dayRange, inviteText,
   safeGoogleLink, ownGoogleLink, defaultReturnTo, syncNote, SYNC_NOTE, RECONNECT_NOTE, normalizeStatus, safeErrorText, OFF_STATUS,
+  syncResultText, googleReturnText, PAUSED_TOAST, RECONNECT_TOAST,
 } from '../../portal/js/google-model.js';
 import { layoutDay, sessionsByDay } from '../../portal/js/sessions-model.js';
 import { dayKey, zonedIso } from '../../portal/js/dates.js';
@@ -294,6 +295,54 @@ describe('readGoogleReturn', () => {
 
   test('a path with sub-segments', () => {
     expect(readGoogleReturn('#/assignments/todo?google=connected').cleanHash).toBe('#/assignments/todo');
+  });
+});
+
+describe('syncResultText', () => {
+  const ok = 'Google Calendar synced';
+
+  test('is the success words when the status carries no error', () => {
+    expect(syncResultText(status(), ok)).toBe(ok);
+  });
+
+  test('says the sync paused when the last run failed', () => {
+    expect(syncResultText(status({ last_error: 'google_error' }), ok)).toBe('Google Calendar sync paused. Try again later.');
+    expect(PAUSED_TOAST).toBe('Google Calendar sync paused. Try again later.');
+  });
+
+  test('asks for a reconnect when Google refused the grant', () => {
+    expect(syncResultText(status({ last_error: 'reconnect' }), ok)).toBe('Reconnect Google Calendar to keep syncing.');
+    expect(RECONNECT_TOAST).toBe('Reconnect Google Calendar to keep syncing.');
+  });
+
+  test('any other error code counts as paused', () => {
+    expect(syncResultText(status({ last_error: 'something_else' }), ok)).toBe(PAUSED_TOAST);
+  });
+
+  test('an old error does not spoil turning sync off or disconnecting', () => {
+    expect(syncResultText(status({ sync_enabled: false, last_error: 'google_error' }), 'Google Calendar sync is off')).toBe('Google Calendar sync is off');
+    expect(syncResultText({ connected: false, last_error: 'reconnect' }, 'Gone')).toBe('Gone');
+    expect(syncResultText(null, ok)).toBe(ok);
+  });
+});
+
+describe('googleReturnText', () => {
+  test('connected', () => {
+    expect(googleReturnText('connected', null)).toBe('Google Calendar connected');
+  });
+
+  test('the calendar permission was not given', () => {
+    expect(googleReturnText('error', 'scope')).toBe('Allow calendar access to connect Google Calendar.');
+  });
+
+  test('the connection must be started again from the same browser', () => {
+    expect(googleReturnText('error', 'browser')).toBe('Start the connection again from this browser.');
+  });
+
+  test('any other failure, with or without a reason', () => {
+    for (const reason of [null, 'denied', 'failed', 'no_refresh', 'unheard-of']) {
+      expect(googleReturnText('error', reason)).toBe('Google Calendar could not connect. Try again.');
+    }
   });
 });
 

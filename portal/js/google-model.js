@@ -36,6 +36,16 @@ export function syncStatusText(status, now = new Date()) {
   return `Synced ${afterVerb(relativeTime(status.last_synced_at, now).text)}`;
 }
 
+export const PAUSED_TOAST = 'Google Calendar sync paused. Try again later.';
+export const RECONNECT_TOAST = 'Reconnect Google Calendar to keep syncing.';
+
+// The toast after turning sync on or after Sync now: the success words, unless
+// the status the server sent back says the sync is on and its last run failed
+export function syncResultText(status, successText) {
+  if (!status?.connected || !status.sync_enabled || !status.last_error) return successText;
+  return status.last_error === 'reconnect' ? RECONNECT_TOAST : PAUSED_TOAST;
+}
+
 // A status that says nothing is connected
 export const OFF_STATUS = Object.freeze({
   connected: false, purpose: null, google_email: null, sync_enabled: false, last_synced_at: null, last_error: null,
@@ -197,6 +207,14 @@ export function readGoogleReturn(hash) {
   }
   const keep = pairs.filter((p) => p.key !== 'google' && !(google && p.key === 'reason')).map((p) => p.pair);
   return { result, reason, cleanHash: `#${path}${keep.length ? `?${keep.join('&')}` : ''}` };
+}
+
+// The toast for a page that came back from Google (readGoogleReturn's result and reason)
+export function googleReturnText(result, reason) {
+  if (result === 'connected') return 'Google Calendar connected';
+  if (reason === 'scope') return 'Allow calendar access to connect Google Calendar.';
+  if (reason === 'browser') return 'Start the connection again from this browser.';
+  return 'Google Calendar could not connect. Try again.';
 }
 
 // ---------------------------------------------------------------------------

@@ -137,8 +137,9 @@ export function mount(ctx) {
   else if (!staff) lede = 'Your sessions and due dates.';
   ctx.setHeader({ title: 'Calendar', lede });
 
-  // Back from Google's consent screen: say how it went, then tidy the address
-  announceGoogleReturn(ctx);
+  // Back from Google's consent screen: say how it went, then tidy the address. A fresh
+  // connection is pushed by the server already, so this load does not ask for a sync too.
+  if (announceGoogleReturn(ctx) === 'connected') syncedThisLoad = true;
 
   // The name after "with": the tutor on one student's calendar, the student
   // (and for an admin the tutor) on the all-students one
@@ -380,11 +381,13 @@ export function mount(ctx) {
   const personalOn = () => ctx.me.role === 'tutor'
     && Boolean(state.google?.connected && state.google.sync_enabled && state.google.last_error !== 'reconnect');
 
-  // Hears the switch's status each time it is read or changed
-  function onGoogleStatus(status) {
+  // Hears the switch's status each time it is read or changed. Turning sync on makes the
+  // server push and pull, so that load needs no sync of its own.
+  function onGoogleStatus(status, { serverSynced = false } = {}) {
     const before = personalOn();
     state.google = status;
     if (!ctx.alive()) return;
+    if (serverSynced) syncedThisLoad = true;
     if (personalOn()) syncOnce();
     if (before !== personalOn()) {
       state.personal.clear();
