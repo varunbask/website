@@ -9,14 +9,16 @@
 import { timingSafeEqual } from 'node:crypto';
 import { SCOPES, MAX_PERSONAL_DAYS } from './config.js';
 import { encrypt, decrypt } from './crypto.js';
-import { newState, authUrl, exchangeCode, fetchEmail, revoke } from './oauth.js';
+import { newState, newBrowserSecret, hashBrowserSecret, authUrl, exchangeCode, fetchEmail, revoke } from './oauth.js';
 import { personalItem } from './mapping.js';
 import { withGoogle, ensureCalendar, ensureChannel, stopSync, pushPending, pullChanges } from './sync.js';
 
 const json = (status, body, headers) => Response.json(body, { status, headers });
-const redirect = (location) => new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store' } });
+const redirect = (location, headers) => new Response(null, { status: 302, headers: { Location: location, 'Cache-Control': 'no-store', ...headers } });
 
 const STATE_TTL_MS = 10 * 60 * 1000;
+const STATE_COOKIE = 'vp_google_state';
+const STATE_COOKIE_ATTRS = 'HttpOnly; Secure; SameSite=Lax; Path=/api/google';
 const MAX_STUDENT_PUSHES = 5; // tutors pushed to straight after a student connects or disconnects
 const DAY_MS = 24 * 3600 * 1000;
 const PORTAL_HOME = '/portal/';
@@ -130,6 +132,15 @@ async function pushForStudent(studentId, deps) {
   }
 }
 
+// One cookie's value from the request, or null
+function cookieValue(request, name) {
+  for (const part of String(request.headers.get('cookie') ?? '').split(';')) {
+    const at = part.indexOf('=');
+    if (at !== -1 && part.slice(0, at).trim() === name) return part.slice(at + 1).trim();
+  }
+  return null;
+}
+
 function sameSecret(given, expected) {
   const a = Buffer.from(String(given));
   const b = Buffer.from(String(expected));
@@ -155,7 +166,8 @@ async function tutorConnection(repo, caller, { syncOn }) {
 
 // ---------------------------------------------------------------- start
 
-// POST { purpose: 'tutor' | 'student', return_to } -> { url }
+// POST { purpose: 'tutor' | 'student', return_to } -> { url }, with a cookie that holds the browser
+// secret of this sign-in (the state row keeps only its hash; the callback needs both)
 export async function handleStart(request, deps) {
   const { repo, verify, config, now } = deps;
   const caller = await verify(request);
@@ -169,11 +181,13 @@ export async function handleStart(request, deps) {
   if (!isSafeReturnTo(body.return_to)) return json(400, { error: 'return_to must be a portal page.' });
 
   const state = newState();
+  const secret = newBrowserSecret();
   await repo.saveState({
     nonce: state.nonce,
     user_id: caller.id,
     purpose,
     verifier: state.verifier,
+    browser_hash: hashBrowserSecret(secret),
     return_to: body.return_to,
     expires_at: new Date(now().getTime() + STATE_TTL_MS).toISOString(),
   });
@@ -184,7 +198,7 @@ export async function handleStart(request, deps) {
     state: state.nonce,
     challenge: state.challenge,
   });
-  return json(200, { url });
+  return json(200, { url }, { 'Set-Cookie': `${STATE_COOKIE}=${secret}; ${STATE_COOKIE_ATTRS}; Max-Age=${STATE_TTL_MS / 1000}` });
 }
 
 // ---------------------------------------------------------------- callback
@@ -249,16 +263,23 @@ async function connectStudent({ state, tokens, email }, deps) {
 
 // GET ?code&state (or ?error&state) -> 302 to return_to with google=connected or google=error in the hash.
 // The connection is saved before the redirect, so the portal never loads ahead of its row.
+// The state must come with the cookie that start set in the same browser; every answer clears that cookie.
 export async function handleCallback(request, deps) {
+  const clear = { 'Set-Cookie': `${STATE_COOKIE}=; ${STATE_COOKIE_ATTRS}; Max-Age=0` };
   try {
     const { repo, config, now, fetchImpl } = deps;
     const query = new URL(request.url).searchParams;
     const nonce = query.get('state');
     const state = nonce ? await attempt('state', () => repo.takeState(nonce, now())) : null;
-    if (!state) return redirect(PORTAL_HOME);
+    if (!state) return redirect(PORTAL_HOME, clear);
 
     const returnTo = isSafeReturnTo(state.return_to) ? state.return_to : PORTAL_HOME;
-    const back = (result, reason) => redirect(mergeReturn(returnTo, result, reason));
+    const back = (result, reason) => redirect(mergeReturn(returnTo, result, reason), clear);
+
+    // A sign-in someone else began (a link sent to this person) has no cookie here, or another one
+    const secret = cookieValue(request, STATE_COOKIE);
+    if (!secret || !state.browser_hash || !sameSecret(hashBrowserSecret(secret), state.browser_hash)) return back('error', 'browser');
+
     if (query.get('error')) return back('error', query.get('error') === 'access_denied' ? 'denied' : 'failed');
     const code = query.get('code');
     if (!code) return back('error', 'failed');
@@ -284,7 +305,7 @@ export async function handleCallback(request, deps) {
     return response;
   } catch (error) {
     console.error('[google] callback:', error?.name ?? 'Error');
-    return redirect(PORTAL_HOME);
+    return redirect(PORTAL_HOME, clear);
   }
 }
 

@@ -26,12 +26,13 @@ create table public.google_connections (
 );
 
 create table public.google_oauth_states (
-  nonce      text primary key,
-  user_id    uuid not null references public.profiles (id) on delete cascade,
-  purpose    text not null check (purpose in ('tutor', 'student')),
-  verifier   text not null,
-  return_to  text not null check (return_to like '/portal/%' and return_to not like '%//%'),
-  expires_at timestamptz not null
+  nonce        text primary key,
+  user_id      uuid not null references public.profiles (id) on delete cascade,
+  purpose      text not null check (purpose in ('tutor', 'student')),
+  verifier     text not null,
+  browser_hash text not null, -- sha256 (hex) of the secret in the browser's vp_google_state cookie
+  return_to    text not null check (return_to like '/portal/%' and return_to not like '%//%'),
+  expires_at   timestamptz not null
 );
 
 create table public.google_deletions (

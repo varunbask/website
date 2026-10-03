@@ -180,13 +180,20 @@ const post = (body) => new Request('https://site.test/api/google/x', {
   body: body === undefined ? undefined : (typeof body === 'string' ? body : JSON.stringify(body)),
 });
 const get = (path) => new Request(`https://site.test${path}`, { headers: { Authorization: 'Bearer token' } });
-const callbackRequest = (query) => new Request(`https://site.test/api/google/callback?${new URLSearchParams(query)}`);
+// The cookie start would have set in the browser that now comes back from Google
+const BROWSER_SECRET = 'browser-secret-1';
+const browserHash = (secret) => createHash('sha256').update(secret).digest('hex');
+const callbackRequest = (query, { cookie = `vp_google_state=${BROWSER_SECRET}` } = {}) => new Request(
+  `https://site.test/api/google/callback?${new URLSearchParams(query)}`,
+  { headers: cookie ? { Cookie: cookie } : {} },
+);
 
 const stateRow = (over = {}) => ({
   nonce: 'nonce-1',
   user_id: TUTOR,
   purpose: 'tutor',
   verifier: 'verifier-1',
+  browser_hash: browserHash(BROWSER_SECRET),
   return_to: '/portal/staff.html#/calendar?view=week',
   expires_at: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
   ...over,
@@ -326,12 +333,58 @@ describe('handleStart', () => {
       user_id: TUTOR,
       purpose: 'tutor',
       verifier: expect.any(String),
+      browser_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
       return_to: RETURN_TO,
       expires_at: new Date(NOW.getTime() + 10 * 60_000).toISOString(),
     });
     expect(createHash('sha256').update(row.verifier).digest('base64url')).toBe(url.searchParams.get('code_challenge'));
     expect(json.url).not.toContain(row.verifier);
   });
+
+  describe('the browser cookie', () => {
+    const cookieOf = (res) => res.headers.get('set-cookie');
+    const secretOf = (res) => /^vp_google_state=([\w-]+);/.exec(cookieOf(res))?.[1];
+
+    test('is set on the answer: HttpOnly, Secure, Lax, scoped to /api/google, ten minutes', async () => {
+      const { res } = await start();
+      expect(cookieOf(res)).toMatch(/^vp_google_state=[\w-]{43}; /);
+      const attributes = cookieOf(res).split('; ').slice(1);
+      expect(attributes).toEqual(['HttpOnly', 'Secure', 'SameSite=Lax', 'Path=/api/google', 'Max-Age=600']);
+    });
+
+    test('holds 32 random bytes, and the state row keeps only their sha256 (hex)', async () => {
+      const { res, repo } = await start();
+      const secret = secretOf(res);
+      expect(Buffer.from(secret, 'base64url')).toHaveLength(32);
+      expect(repo.saveState.mock.calls[0][0].browser_hash).toBe(createHash('sha256').update(secret).digest('hex'));
+      expect(JSON.stringify(repo.saveState.mock.calls[0][0])).not.toContain(secret);
+    });
+
+    test('is new for every sign-in, and never part of the Google URL or the body', async () => {
+      const a = await start();
+      const b = await start();
+      expect(secretOf(a.res)).not.toBe(secretOf(b.res));
+      expect(a.json.url).not.toContain(secretOf(a.res));
+      expect(JSON.stringify(a.json)).not.toContain(secretOf(a.res));
+    });
+
+    test('a refused request sets no cookie', async () => {
+      for (const options of [{ caller: null }, { caller: { id: STUDENT } }]) {
+        const { res } = await start(undefined, options);
+        expect(cookieOf(res), JSON.stringify(options)).toBeNull();
+      }
+      expect(cookieOf((await start({ purpose: 'tutor', return_to: 'https://evil' })).res)).toBeNull();
+    });
+  });
+});
+
+// The browser keeps the state cookie only if the start call lets it: the default credentials mode stores
+// the Set-Cookie of a same-origin response, and 'omit' would drop it
+test('the portal calls /api/google/start without turning credentials off', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('../../portal/js/google.js', import.meta.url), 'utf8');
+  expect(source).toContain("'/api/google/start'");
+  expect(source).not.toMatch(/credentials/);
 });
 
 // ---------------------------------------------------------------- callback
@@ -376,6 +429,99 @@ describe('handleCallback', () => {
     expect(location).toBe('/portal/staff.html#/calendar?view=week&google=error&reason=denied');
     expect(fetch).not.toHaveBeenCalled();
     expect(repo.upsertConnection).not.toHaveBeenCalled();
+  });
+
+  describe('the browser binding', () => {
+    const CLEARED = 'vp_google_state=; HttpOnly; Secure; SameSite=Lax; Path=/api/google; Max-Age=0';
+    const attempt = async ({ cookie, state = stateRow(), connections = [] } = {}) => {
+      const ctx = setup({ repo: fakeRepo({ states: [state], connections }) });
+      const res = await handleCallback(callbackRequest({ code: 'code-1', state: 'nonce-1' }, { cookie }), ctx.deps);
+      return { res, location: res.headers.get('location'), ...ctx };
+    };
+
+    test('the matching cookie connects, among other cookies too', async () => {
+      for (const cookie of [`vp_google_state=${BROWSER_SECRET}`, `a=1; vp_google_state=${BROWSER_SECRET}; b=2`, `vp_google_state=${BROWSER_SECRET};`]) {
+        const { location, repo } = await attempt({ cookie });
+        expect(location, cookie).toBe('/portal/staff.html#/calendar?view=week&google=connected');
+        expect(repo.upsertConnection).toHaveBeenCalledTimes(1);
+      }
+    });
+
+    test('a different cookie is reason=browser: no code exchange, nothing stored', async () => {
+      const { location, repo, fetch } = await attempt({ cookie: 'vp_google_state=somebody-elses-secret' });
+      expect(location).toBe('/portal/staff.html#/calendar?view=week&google=error&reason=browser');
+      expect(fetch).not.toHaveBeenCalled();
+      expect(repo.upsertConnection).not.toHaveBeenCalled();
+    });
+
+    test('no cookie, an empty one, or another cookie name is reason=browser too', async () => {
+      for (const cookie of [null, '', 'vp_google_state=', 'other=1', `x_vp_google_state=${BROWSER_SECRET}`, `vp_google_state_2=${BROWSER_SECRET}`]) {
+        const { location, repo, fetch } = await attempt({ cookie });
+        expect(location, String(cookie)).toBe('/portal/staff.html#/calendar?view=week&google=error&reason=browser');
+        expect(fetch).not.toHaveBeenCalled();
+        expect(repo.upsertConnection).not.toHaveBeenCalled();
+      }
+    });
+
+    test('a state saved without a browser hash can never be finished', async () => {
+      const { location } = await attempt({ state: stateRow({ browser_hash: undefined }) });
+      expect(location).toContain('reason=browser');
+    });
+
+    test('a student sign-in is bound the same way', async () => {
+      const state = stateRow({ purpose: 'student', user_id: STUDENT, return_to: '/portal/student.html#/overview' });
+      const refused = await attempt({ state, cookie: 'vp_google_state=x' });
+      expect(refused.location).toBe('/portal/student.html#/overview?google=error&reason=browser');
+      expect(refused.repo.upsertConnection).not.toHaveBeenCalled();
+      expect((await attempt({ state })).location).toBe('/portal/student.html#/overview?google=connected');
+    });
+
+    test('Google sending an error back to the wrong browser says browser, not denied', async () => {
+      const ctx = setup({ repo: fakeRepo({ states: [stateRow()] }) });
+      const res = await handleCallback(callbackRequest({ error: 'access_denied', state: 'nonce-1' }, { cookie: 'vp_google_state=x' }), ctx.deps);
+      expect(res.headers.get('location')).toContain('reason=browser');
+    });
+
+    test('a refused sign-in has used up its state, so the right browser cannot finish it afterwards', async () => {
+      const ctx = setup({ repo: fakeRepo({ states: [stateRow()] }) });
+      await handleCallback(callbackRequest({ code: 'c', state: 'nonce-1' }, { cookie: 'vp_google_state=x' }), ctx.deps);
+      const again = await handleCallback(callbackRequest({ code: 'c', state: 'nonce-1' }), ctx.deps);
+      expect(again.headers.get('location')).toBe('/portal/');
+      expect(ctx.repo.upsertConnection).not.toHaveBeenCalled();
+    });
+
+    test('an unknown state still goes to /portal/, whatever the cookie says', async () => {
+      const { location } = await run({ query: { code: 'c', state: 'unknown' } });
+      expect(location).toBe('/portal/');
+    });
+
+    test('every answer clears the cookie: connected, denied, failed, wrong browser, unknown state, unreadable state', async () => {
+      const answers = [
+        (await attempt()).res,
+        (await run({ query: { error: 'access_denied', state: 'nonce-1' } })).res,
+        (await run({ query: { state: 'nonce-1' } })).res,
+        (await attempt({ cookie: 'vp_google_state=x' })).res,
+        (await run({ query: { code: 'c', state: 'unknown' } })).res,
+        (await run({ query: { code: 'c' } })).res,
+        (await run({ fetch: fakeFetch({ exchange: 'fail' }) })).res,
+      ];
+      for (const res of answers) expect(res.headers.get('set-cookie')).toBe(CLEARED);
+
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const broken = setup();
+      broken.repo.takeState.mockRejectedValueOnce(new Error('takeState: down'));
+      const res = await handleCallback(callbackRequest({ code: 'c', state: 'nonce-1' }), broken.deps);
+      expect(res.headers.get('set-cookie')).toBe(CLEARED);
+    });
+
+    test('the cookie value never appears in a redirect or a log', async () => {
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const ctx = setup({ repo: fakeRepo({ states: [stateRow()] }), fetch: fakeFetch({ calendarStatus: 500 }) });
+      const res = await handleCallback(callbackRequest({ code: 'c', state: 'nonce-1' }), ctx.deps);
+      await ctx.settle();
+      expect(res.headers.get('location')).not.toContain(BROWSER_SECRET);
+      expect(JSON.stringify(spy.mock.calls)).not.toContain(BROWSER_SECRET);
+    });
   });
 
   test('a callback with no code comes back as google=error', async () => {

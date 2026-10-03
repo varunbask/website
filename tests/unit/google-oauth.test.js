@@ -1,7 +1,7 @@
 import { describe, test, expect, vi } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
-  newState, authUrl, exchangeCode, refreshAccess, fetchEmail, revoke, GoogleAuthError,
+  newState, newBrowserSecret, hashBrowserSecret, authUrl, exchangeCode, refreshAccess, fetchEmail, revoke, GoogleAuthError,
   AUTH_URL, TOKEN_URL, USERINFO_URL, REVOKE_URL,
 } from '../../api/_lib/google/oauth.js';
 
@@ -30,6 +30,22 @@ describe('newState', () => {
     expect(random).toHaveBeenCalledWith(32);
     expect(nonce).toBe(Buffer.alloc(32, 1).toString('base64url'));
     expect(verifier).toBe(nonce);
+  });
+});
+
+describe('the browser secret', () => {
+  test('is 43 characters of base64url (32 random bytes), fresh each time, and takes an injected random source', () => {
+    expect(newBrowserSecret()).toMatch(/^[\w-]{43}$/);
+    expect(newBrowserSecret()).not.toBe(newBrowserSecret());
+    const random = vi.fn((n) => Buffer.alloc(n, 7));
+    expect(newBrowserSecret(random)).toBe(Buffer.alloc(32, 7).toString('base64url'));
+    expect(random).toHaveBeenCalledWith(32);
+  });
+
+  test('is hashed with sha256 into lowercase hex', () => {
+    expect(hashBrowserSecret('abc')).toBe(createHash('sha256').update('abc').digest('hex'));
+    expect(hashBrowserSecret('abc')).toMatch(/^[0-9a-f]{64}$/);
+    expect(hashBrowserSecret('abc')).not.toBe(hashBrowserSecret('abd'));
   });
 });
 

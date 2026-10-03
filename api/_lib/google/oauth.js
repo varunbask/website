@@ -21,6 +21,12 @@ export function newState(random = randomBytes) {
   };
 }
 
+// Ties a sign-in to the browser that began it: the browser keeps the secret in a
+// cookie and the state table only its hash, so a link someone else started
+// cannot be finished in this browser (and the reverse)
+export const newBrowserSecret = (random = randomBytes) => b64url(random(32));
+export const hashBrowserSecret = (secret) => createHash('sha256').update(String(secret)).digest('hex');
+
 export function authUrl({ clientId, redirectUri, scopes, state, challenge }) {
   const p = new URLSearchParams({
     client_id: clientId,
