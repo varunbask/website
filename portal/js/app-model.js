@@ -151,6 +151,16 @@ export function clockCrossed(tasks, submissions, from, to, sessions = []) {
   return false;
 }
 
+// A name as the People page saves it: runs of spaces become one, the ends are
+// trimmed, and it must be 1 to NAME_MAX characters (profiles.full_name's limit)
+export const NAME_MAX = 120;
+export function normalizeFullName(value) {
+  const name = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!name) return { ok: false, error: 'Enter a name.' };
+  if (name.length > NAME_MAX) return { ok: false, error: `Use ${NAME_MAX} characters or fewer.` };
+  return { ok: true, name };
+}
+
 // The confirm text for a role change. A role change removes the person's
 // tutor and parent links (migration 20261001120200), so say how many go.
 export function roleChangeBody(person, { tutorLinks = [], parentLinks = [] } = {}) {

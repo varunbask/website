@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import {
   normalizeRoute, documentTitle, defaultCrumbs, needsReview, reviewCounts, switcherHref,
-  filterPeople, clockCrossed, isScoped, isNamed, viewTitle, viewLabel, roleChangeBody,
+  filterPeople, clockCrossed, isScoped, isNamed, viewTitle, viewLabel, roleChangeBody, normalizeFullName, NAME_MAX,
 } from '../../portal/js/app-model.js';
 import { parseHash } from '../../portal/js/router.js';
 
@@ -224,5 +224,19 @@ describe('roleChangeBody', () => {
   test('counts both kinds of link for a student', () => {
     expect(roleChangeBody({ id: 's1', role: 'student' }, { tutorLinks, parentLinks }))
       .toMatch(/their 2 tutor and parent links will be removed/);
+  });
+});
+
+describe('normalizeFullName', () => {
+  test('collapses spaces and trims', () => {
+    expect(normalizeFullName('  Varun   Baskaran ')).toEqual({ ok: true, name: 'Varun Baskaran' });
+    expect(normalizeFullName('Varun')).toEqual({ ok: true, name: 'Varun' });
+  });
+
+  test('refuses an empty name and one over the limit', () => {
+    for (const blank of ['', '   ', null, undefined]) expect(normalizeFullName(blank)).toEqual({ ok: false, error: 'Enter a name.' });
+    expect(NAME_MAX).toBe(120);
+    expect(normalizeFullName('a'.repeat(120)).ok).toBe(true);
+    expect(normalizeFullName('a'.repeat(121))).toEqual({ ok: false, error: 'Use 120 characters or fewer.' });
   });
 });
