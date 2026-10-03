@@ -1,17 +1,23 @@
 // Pure calendar logic (spec 5.10): the 42-cell month matrix, day keys for
 // items, keyboard movement, chip capacity, chip and dot kinds, spoken day
-// labels, the agenda groups and the view state read from the hash.
+// labels, the agenda groups and the view state read from the hash. Tutoring
+// sessions join the same views: the week grid helpers, the tutor filter, the
+// month chips and the agenda days all live here too.
 // No DOM. Days are 'YYYY-MM-DD' keys in the business zone (dates.js) and are
 // stepped with UTC calendar math only.
 
-import { WEEK_START, dayKey, parseKey, addDays, weekday, longDate } from './dates.js';
+import { WEEK_START, dayKey, parseKey, addDays, weekday, longDate, businessTime } from './dates.js';
 import { itemStatus } from './status.js';
 import { byDue } from './format.js';
+import {
+  weekStartKey, sessionAria, sortSessions, isCancelled, canEditSession,
+} from './sessions-model.js';
 
-export const CAL_VIEWS = Object.freeze(['month', 'list']);
+export const CAL_VIEWS = Object.freeze(['week', 'month', 'list']);
 export const AGENDA_DAYS = 30;   // list view range, extended 30 days at a time
 export const PANEL_DAYS = 7;     // day panel with no selected day
 export const MAX_DOTS = 3;       // phone month cells
+export const NOTES_DAYS = 7;     // "Needs session notes" looks back this far
 
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -220,6 +226,27 @@ export function dotsFor(dayItems, audience = 'family') {
   return sortDay(dayItems ?? [], audience).slice(0, MAX_DOTS).map((i) => chipKind(i, audience).kind);
 }
 
+// A month cell's entries: the day's sessions first, then its due items. Both
+// share the cell's chip capacity (chipsFor), so "+N more" counts them together.
+// [{ type: 'session', session } | { type: 'due', item }]
+export function dayEntries(daySessions, dayItems) {
+  return [
+    ...(daySessions ?? []).map((session) => ({ type: 'session', session })),
+    ...(dayItems ?? []).map((item) => ({ type: 'due', item })),
+  ];
+}
+
+// Phone cells with sessions: [{ kind, session? }], at most MAX_DOTS. Sessions
+// come first as { kind: 'session', session } (the view tints them by subject);
+// when due items exist too, one dot is kept for the most urgent of them.
+export function dotsForDay(daySessions, dayItems, audience = 'family') {
+  const sessions = daySessions ?? [];
+  const due = dotsFor(dayItems, audience);
+  const room = due.length ? MAX_DOTS - 1 : MAX_DOTS;
+  const shown = sessions.slice(0, room).map((session) => ({ kind: 'session', session }));
+  return [...shown, ...due.slice(0, MAX_DOTS - shown.length).map((kind) => ({ kind }))];
+}
+
 // ---------------------------------------------------------------------------
 // Words
 
@@ -241,19 +268,42 @@ export function shortDay(key, today) {
   return y === parseKey(today).y ? base : `${base}, ${y}`;
 }
 
+// "4 pm", "4:30 pm": a session's start on a month chip, in the business zone
+export function chipTime(iso) {
+  const { hour, minute } = businessTime(iso);
+  return `${hour % 12 || 12}${minute ? `:${pad(minute)}` : ''} ${hour < 12 ? 'am' : 'pm'}`;
+}
+
+// "Algebra worksheet, overdue", "Essay for Maya Chen, AI draft": one due item
+// spoken, for a day button or a link chip
+export function itemAria(item, audience = 'family') {
+  const who = item.studentName ? ` for ${item.studentName}` : '';
+  return `${item.task.title || 'Untitled'}${who}, ${lowerFirst(itemStatus(item, { audience }).label)}`;
+}
+
 // The day button's accessible name:
 // "Wednesday, October 14, today. 2 items: Algebra worksheet, overdue; Read chapter 3, done"
 // "Thursday, October 15. Nothing due."
 // Items may carry studentName (all-students calendar): "Essay for Maya Chen, AI draft".
-export function dayLabel(key, dayItems, today, audience = 'family') {
+// Pass options.sessions (an array, even an empty one) to speak the day's
+// tutoring sessions first, "2 sessions: Algebra with Daniel Ortiz, 4:00 to
+// 5:00 pm; ...", and to say "Nothing scheduled or due." on an empty day.
+// options.whoFor(session) gives the name after "with"; options.now the clock.
+export function dayLabel(key, dayItems, today, audience = 'family', options = {}) {
   const head = key === today ? `${dateWords(key, today)}, today` : dateWords(key, today);
   const list = dayItems ?? [];
-  if (!list.length) return `${head}. Nothing due.`;
-  const parts = list.map((item) => {
-    const who = item.studentName ? ` for ${item.studentName}` : '';
-    return `${item.task.title || 'Untitled'}${who}, ${lowerFirst(itemStatus(item, { audience }).label)}`;
-  });
-  return `${head}. ${list.length} ${list.length === 1 ? 'item' : 'items'}: ${parts.join('; ')}`;
+  const withSessions = Array.isArray(options.sessions);
+  const sessions = withSessions ? options.sessions : [];
+  if (!list.length && !sessions.length) return `${head}. ${withSessions ? 'Nothing scheduled or due.' : 'Nothing due.'}`;
+  const parts = [head];
+  if (sessions.length) {
+    const spoken = sessions.map((s) => sessionAria(s, { who: options.whoFor?.(s) ?? null, now: options.now ?? new Date() }));
+    parts.push(`${sessions.length} ${sessions.length === 1 ? 'session' : 'sessions'}: ${spoken.join('; ')}`);
+  }
+  if (list.length) {
+    parts.push(`${list.length} ${list.length === 1 ? 'item' : 'items'}: ${list.map((item) => itemAria(item, audience)).join('; ')}`);
+  }
+  return parts.join('. ');
 }
 
 // ---------------------------------------------------------------------------
@@ -300,22 +350,190 @@ export function agendaGroups(items, today, { days = AGENDA_DAYS, audience = 'fam
   };
 }
 
+// Sessions in the agenda: agendaGroups' day groups plus the sessions of those
+// days, so a day that holds only sessions still gets a group. Each day is
+// { key, sessions, items }, sessions sorted by time; sessions before today are
+// left out, and ones past the range join `later`.
+export function agendaWithSessions(groups, sessions, today, { days = AGENDA_DAYS } = {}) {
+  const end = addDays(today, days - 1);
+  const sessionDays = new Map();
+  let later = 0;
+  for (const s of sortSessions(sessions)) {
+    const key = dayKey(s.starts_at);
+    if (key < today) continue;
+    if (key > end) {
+      later += 1;
+      continue;
+    }
+    if (!sessionDays.has(key)) sessionDays.set(key, []);
+    sessionDays.get(key).push(s);
+  }
+  const itemDays = new Map(groups.days.map((d) => [d.key, d.items]));
+  const keys = [...new Set([...itemDays.keys(), ...sessionDays.keys()])].sort();
+  return {
+    ...groups,
+    days: keys.map((key) => ({ key, sessions: sessionDays.get(key) ?? [], items: itemDays.get(key) ?? [] })),
+    later: groups.later + later,
+  };
+}
+
+// Sessions the viewer may still write up: over in the last NOTES_DAYS days, not
+// cancelled, no attendance yet, and theirs to change (canEditSession). Oldest first.
+export function needsNotes(sessions, now, me, { days = NOTES_DAYS, links = null } = {}) {
+  const t = now instanceof Date ? now.getTime() : Date.parse(now);
+  const from = t - days * 86_400_000;
+  return sortSessions(sessions).filter((s) => {
+    const ends = Date.parse(s.ends_at);
+    return !isCancelled(s) && !s.attendance && ends <= t && ends > from && canEditSession(s, me, { links });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Week view
+
+// The Sunday that starts the week the calendar shows: the hash's `w` when it is
+// a real day, else the selected day's week, else today's when today is in the
+// month on screen, else the month's first week.
+export function deriveWeek({ week = null, selected = null, month, today }) {
+  if (isDayKey(week)) return weekStartKey(week);
+  if (isDayKey(selected)) return weekStartKey(selected);
+  if (month && monthOf(today) !== month) return weekStartKey(`${month}-01`);
+  return weekStartKey(today);
+}
+
+// The month a week belongs to: the one its Wednesday falls in
+export function monthOfWeek(week) {
+  return monthOf(addDays(week, 3));
+}
+
+// The seven day columns: [{ key, short, long, num, isToday, isWeekend }]
+export function weekDays(week, today) {
+  return Array.from({ length: 7 }, (_, i) => {
+    const key = addDays(week, i);
+    const wd = weekday(key);
+    return {
+      key,
+      short: WEEKDAYS[wd].slice(0, 3),
+      long: WEEKDAYS[wd],
+      num: parseKey(key).d,
+      isToday: key === today,
+      isWeekend: wd === 0 || wd === 6,
+    };
+  });
+}
+
+// "4 pm", "12 pm", "12 am": the hour labels down the week grid's side
+export function hourLabel(hour) {
+  return `${hour % 12 || 12} ${hour % 24 < 12 ? 'am' : 'pm'}`;
+}
+
+// The hours a grid shows, from hourRange's { start, end }: [7, 8, ..., 20]
+export function hourMarks({ start, end }) {
+  return Array.from({ length: Math.max(end - start, 0) }, (_, i) => start + i);
+}
+
+// Where "now" sits as a fraction of the shown hours (business zone), or null
+// when it falls outside them
+export function nowFraction(now, { start, end }) {
+  const { hour, minute } = businessTime(now);
+  const minutes = hour * 60 + minute;
+  if (minutes < start * 60 || minutes >= end * 60) return null;
+  return (minutes - start * 60) / ((end - start) * 60);
+}
+
+// The 'HH:00' an empty-slot click means, from how far down the column (0 to 1)
+// it landed over the shown hours
+export function slotTime(fraction, { start, end }) {
+  const hours = Math.max(end - start, 1);
+  const row = Number.isFinite(fraction) ? Math.min(Math.max(Math.floor(fraction * hours), 0), hours - 1) : 0;
+  return `${pad(start + row)}:00`;
+}
+
+// Sessions that start on a day from startKey through endKey, both included
+export function sessionsInRange(sessions, startKey, endKey) {
+  return (sessions ?? []).filter((s) => {
+    const key = dayKey(s.starts_at);
+    return key >= startKey && key <= endKey;
+  });
+}
+
+// The day keys a view covers, for the legend and the announcement: a week, the
+// month grid's 42 days, or the list's days from today
+export function viewRange(view, { week, month, range = AGENDA_DAYS }, today) {
+  if (view === 'week') return { start: week, end: addDays(week, 6) };
+  if (view === 'month') {
+    const cells = monthMatrix(month);
+    return { start: cells[0].key, end: cells[cells.length - 1].key };
+  }
+  return { start: today, end: addDays(today, range - 1) };
+}
+
+// ---------------------------------------------------------------------------
+// Whose sessions (the all-students calendar)
+
+// { who: 'mine' | 'all', tutor: string | null } from the hash. A tutor starts
+// on their own sessions (who=all shows everyone's); an admin may pick one
+// tutor (tutor=<id>); anyone else sees every session they can read.
+export function resolveSessionFilter(params = {}, role = null) {
+  if (role === 'admin') return { who: 'all', tutor: params.tutor ? String(params.tutor) : null };
+  if (role === 'tutor') return { who: params.who === 'all' ? 'all' : 'mine', tutor: null };
+  return { who: 'all', tutor: null };
+}
+
+export function filterSessions(sessions, filter, me) {
+  const list = sessions ?? [];
+  if (filter?.tutor) return list.filter((s) => String(s.tutor_id) === String(filter.tutor));
+  if (filter?.who === 'mine' && me?.id) return list.filter((s) => String(s.tutor_id) === String(me.id));
+  return list;
+}
+
+// The admin's tutor select: [{ value, label }] by name, from the tutors the
+// links and the sessions mention. names: Map of ids to names (staffNames).
+export function tutorOptions({ links = [], sessions = [], names = new Map() } = {}) {
+  const ids = new Set();
+  for (const l of links) if (l.tutor_id) ids.add(String(l.tutor_id));
+  for (const s of sessions) if (s.tutor_id) ids.add(String(s.tutor_id));
+  return [...ids]
+    .map((id) => ({ value: id, label: String(names.get(id) ?? '').trim() || 'Unknown tutor' }))
+    .sort((a, b) => a.label.localeCompare(b.label) || a.value.localeCompare(b.value));
+}
+
+// The name after "with" for a session. One student's calendar names the tutor.
+// The all-students calendar names the student; short is the one for tight
+// blocks, and otherwise an admin (or a tutor looking at someone else's
+// session) hears the tutor too: "Maya Lin and Daniel Ortiz".
+export function sessionWho(session, {
+  allScope = false, tutorNames = new Map(), studentNames = new Map(), role = null, viewerId = null, short = false,
+} = {}) {
+  const name = (map, id) => String(map.get(String(id)) ?? '').trim() || null;
+  const tutor = name(tutorNames, session.tutor_id);
+  if (!allScope) return tutor;
+  const student = name(studentNames, session.student_id);
+  const showTutor = role === 'admin' || (viewerId !== null && String(session.tutor_id) !== String(viewerId));
+  // "Algebra with Maya Lin, taught by Daniel Ortiz" in a spoken label
+  if (!short && showTutor && tutor && student) return `${student}, taught by ${tutor}`;
+  return student;
+}
+
 // ---------------------------------------------------------------------------
 // View state from the hash
 
-// { view, month, selected } from the calendar params (view, m, d). The stored
-// view (localStorage) counts only when the hash has none; then the width
-// decides: Month at 768px and up (wide), List below.
+// { view, month, selected, week } from the calendar params (view, m, d, w). The
+// stored view (localStorage) counts only when the hash has none; then the width
+// decides: Week at 768px and up (wide), List below. w is any day of the week;
+// it is read as that week's Sunday.
 export function resolveState(params = {}, { today, wide = true, stored = null } = {}) {
-  let view = wide ? 'month' : 'list';
+  let view = wide ? 'week' : 'list';
   if (CAL_VIEWS.includes(params.view)) view = params.view;
   else if (CAL_VIEWS.includes(stored)) view = stored;
   let selected = isDayKey(params.d) ? params.d : null;
+  const weekParam = isDayKey(params.w) ? weekStartKey(params.w) : null;
   let month = monthOf(today);
   if (isMonthKey(params.m)) month = params.m;
   else if (selected) month = monthOf(selected);
+  else if (weekParam) month = monthOfWeek(weekParam);
   // A day outside the visible grid is dropped, so the panel never describes a
   // day the grid does not show
   if (selected && !inGrid(month, selected)) selected = null;
-  return { view, month, selected };
+  return { view, month, selected, week: deriveWeek({ week: weekParam, selected, month, today }) };
 }

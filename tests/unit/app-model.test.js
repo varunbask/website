@@ -186,6 +186,15 @@ describe('clockCrossed', () => {
     const sub = { grade: { released_at: '2026-10-01T12:00:00Z' } };
     expect(clockCrossed([], [sub], at('2026-10-22T11:30:00Z'), at('2026-10-22T12:30:00Z'))).toBe(true);
   });
+
+  test('a session starting, ending or opening its Join window counts', () => {
+    // 4:00 to 5:00 pm Pacific on Oct 14
+    const s = { starts_at: '2026-10-14T23:00:00Z', ends_at: '2026-10-15T00:00:00Z' };
+    expect(clockCrossed([], [], at('2026-10-14T22:40:00Z'), at('2026-10-14T22:50:00Z'), [s])).toBe(true);
+    expect(clockCrossed([], [], at('2026-10-14T22:55:00Z'), at('2026-10-14T23:05:00Z'), [s])).toBe(true);
+    expect(clockCrossed([], [], at('2026-10-14T23:55:00Z'), at('2026-10-15T00:05:00Z'), [s])).toBe(true);
+    expect(clockCrossed([], [], at('2026-10-14T23:10:00Z'), at('2026-10-14T23:40:00Z'), [s])).toBe(false);
+  });
 });
 
 describe('roleChangeBody', () => {

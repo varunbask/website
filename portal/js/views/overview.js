@@ -1,9 +1,14 @@
 // Overview (#/overview), spec 5.2 to 5.4. Three variants, chosen by ctx.page:
-//   student  greeting, Due next, Latest grade, This week, Tasks, From your tutor
-//   parent   "Maya’s week", progress, Overdue, updates, Recently graded, Coming up;
-//            with no linked child, a single welcome empty state
-//   staff    the selected student: progress, Needs review, Coming up, updates
-// Renders only inside ctx.host and checks ctx.alive() after every await.
+//   student  greeting, Due next, Latest grade, Upcoming sessions, Your tutors,
+//            This week, Tasks, From your tutor
+//   parent   "Maya’s week", progress, Overdue, Upcoming sessions, Maya’s tutors,
+//            updates, Recently graded, Coming up; with no linked child, a single
+//            welcome empty state
+//   staff    the selected student: Next session, progress, Needs review, Coming
+//            up, updates
+// Renders only inside ctx.host and checks ctx.alive() after every await. The
+// sessions and tutors cards load on their own: if they fail, they show a quiet
+// error with a retry and the rest of the page still renders.
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
@@ -12,11 +17,16 @@ import {
 } from '../ui.js';
 import { itemStatus } from '../status.js';
 import { dueLabel, dayKey, parseKey, todayKey, dayHeading } from '../dates.js';
+import { sessionTitle, sessionState, toneClass as subjectTone, upcomingSessions } from '../sessions-model.js';
+import {
+  changeNotes, canJoin, placeText, whenText, sessionRowLabel, tutorEntries, tutorsTitle,
+} from '../schedule-summary.js';
 import { buildHash, DRAWER_PARAMS } from '../router.js';
 import { displayName, firstName } from '../format.js';
 import { getSeen, isNewSince } from '../seen.js';
 import { staffNames, updateItem, updateList } from '../updates-feed.js';
 import { taskCheck } from '../task-check.js';
+import { announceGoogleReturn, studentInviteControl } from '../google.js';
 import { queueRow } from '../review-row.js';
 import { progressPanel } from '../progress-panel.js';
 import {
@@ -28,6 +38,7 @@ import {
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const STRIP_CHIPS = 2;
 const ENTER_LIMIT = 8;
+const CHANGE_NOTES = 3;   // moved or cancelled sessions listed above the rows
 
 export function mount(ctx) {
   if (ctx.page === 'staff') return mountStaff(ctx);
@@ -190,11 +201,168 @@ function updatesCard(ctx, { span, title, updates, names, limit, empty, showAudie
   return card;
 }
 
-async function loadAll(ctx, studentId) {
+// The student's data must load; updates, sessions and tutors fall back to null
+// (their cards show an inline error) so one failure never blanks the page.
+// Staff do not need the tutor list (their Next session names the tutor).
+async function loadAll(ctx, studentId, { tutors: wantTutors = true } = {}) {
   const updates = ctx.store.getUpdates(studentId).catch(() => null);
+  const sessions = ctx.store.getSessions(studentId).catch(() => null);
+  const tutors = wantTutors ? ctx.store.getTutors(studentId).catch(() => null) : Promise.resolve(null);
   const names = staffNames().catch(() => new Map());
   const data = await ctx.store.getStudentData(studentId);
-  return { data, updates: await updates, names: (await names) ?? new Map() };
+  const tutorRows = await tutors;
+  // staffNames may be empty (or not name this tutor): the tutor list has names too
+  const known = new Map((await names) ?? []);
+  for (const t of tutorRows ?? []) {
+    if (t.full_name && !known.has(String(t.tutor_id))) known.set(String(t.tutor_id), t.full_name.trim());
+  }
+  return { data, updates: await updates, sessions: await sessions, tutors: tutorRows, names: known };
+}
+
+// ---------------------------------------------------------------------------
+// Tutoring sessions and tutors (spec "Other surfaces")
+
+// A quiet in-card error with a retry, for a card whose data did not load
+function cardError(text, onRetry) {
+  return h('div', { class: 'ovw-card-empty ovw-card-error', role: 'alert' },
+    h('span', { class: 'ovw-card-empty-icon' }, icon('warning-circle')),
+    h('p', {}, text),
+    button({ label: 'Try again', size: 'sm', variant: 'ghost', icon: 'arrow-counter-clockwise', onClick: onRetry }));
+}
+
+// A plain click opens the drawer through ctx.openSession; a modified click
+// (new tab) falls back to the link's own href
+function opensSession(ctx, id) {
+  return (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    ctx.openSession(id);
+  };
+}
+
+// One upcoming session: date block in the subject's colour, subject, when, who,
+// and where. Opens the session. Online and starting within 15 minutes (or
+// already under way) it gets a Join link under the row (a sibling of the row's
+// link, so a link never holds a link); otherwise the row names the place.
+function sessionItem(ctx, s, names) {
+  const now = ctx.now;
+  const { m, d } = parseKey(dayKey(s.starts_at));
+  const who = names.get(String(s.tutor_id)) ?? null;
+  const state = sessionState(s, now);
+  const title = sessionTitle(s);
+  const joinable = canJoin(s, now);
+  const place = joinable ? '' : placeText(s);
+
+  let flag = null;
+  if (state.key === 'now') flag = pill({ label: 'Now', tone: 'accent' });
+  else if (state.key === 'moved') flag = pill({ label: 'Moved', tone: 'warning' });
+
+  const caret = icon('caret-right');
+  caret.classList.add('ovw-sess-caret');
+  const link = h('a', {
+    class: `row ovw-sess ${subjectTone(s.subject)}`,
+    href: openHref(ctx, `s${s.id}`),
+    'aria-label': sessionRowLabel(s, { who, now }),
+    dataset: { focusKey: `row-s${s.id}`, sessionId: String(s.id) },
+    onClick: opensSession(ctx, s.id),
+  },
+  h('span', { class: 'ovw-sess-date', 'aria-hidden': 'true' },
+    h('span', { class: 'ovw-sess-month' }, MONTHS_SHORT[m - 1]),
+    h('span', { class: 'ovw-sess-day' }, String(d))),
+  h('span', { class: 'ovw-sess-main' },
+    h('span', { class: 'ovw-sess-title' }, title),
+    h('span', { class: 'ovw-sess-meta' },
+      h('span', { class: 'ovw-sess-when num' }, whenText(s, todayKey(now))),
+      who ? h('span', { class: 'ovw-sess-who' }, `with ${who}`) : null,
+      place ? h('span', { class: 'ovw-sess-place' }, place) : null)),
+  h('span', { class: 'ovw-sess-aside' }, flag),
+  caret);
+
+  let join = null;
+  if (joinable) {
+    join = button({
+      label: 'Join',
+      size: 'sm',
+      icon: 'arrow-square-out',
+      href: s.meeting_url,
+      ariaLabel: `Join ${title}${who ? ` with ${who}` : ''} online, opens in a new tab`,
+    });
+    join.setAttribute('target', '_blank');
+    join.setAttribute('rel', 'noopener noreferrer');
+  }
+  return h('li', { class: 'ovw-sess-item' }, link, join ? h('div', { class: 'ovw-sess-actions' }, join) : null);
+}
+
+// Moves and cancellations the family has not seen yet, as quiet notes. The
+// calendar marks them seen; the Overview only reads.
+function changeList(notes) {
+  const shown = notes.slice(0, CHANGE_NOTES);
+  const more = notes.length - shown.length;
+  return h('ul', { class: 'ovw-changes', 'aria-label': 'Schedule changes' },
+    shown.map((n) => h('li', { class: `ovw-change tone-${n.kind === 'cancelled' ? 'danger' : 'warning'}` },
+      icon(n.kind === 'cancelled' ? 'x-circle' : 'clock'),
+      h('span', {}, n.text))),
+    more > 0
+      ? h('li', { class: 'ovw-change tone-neutral' },
+        icon('info'),
+        h('span', {}, `And ${more} more ${more === 1 ? 'change' : 'changes'}. Open the calendar to see them.`))
+      : null);
+}
+
+// Families: the next 3 sessions, with notes on what moved or was cancelled
+function sessionsCard(ctx, { span, sessions, names, seen, studentId }) {
+  const titleId = uid('ovw-sess');
+  const card = h('section', { class: `card is-list ${span} ovw-sessions`, 'aria-labelledby': titleId },
+    cardHead('Upcoming sessions', { id: titleId, link: { label: 'Open calendar', href: '#/calendar' } }));
+  if (sessions === null) {
+    card.append(cardError('We couldn’t load sessions.', () => ctx.store.invalidate(studentId)));
+    return card;
+  }
+  const notes = changeNotes(sessions, seen, ctx.now);
+  const next = upcomingSessions(sessions, ctx.now, { limit: 3 });
+  if (notes.length) card.append(changeList(notes));
+  card.append(next.length
+    ? h('ul', { class: 'ovw-sess-list', 'aria-label': 'Upcoming sessions' }, next.map((s) => sessionItem(ctx, s, names)))
+    : cardEmpty('No sessions scheduled.', 'calendar-blank'));
+  return card;
+}
+
+// Staff in a student's scope: one compact card for the next session, any tutor
+function nextSessionCard(ctx, { sessions, names, studentId }) {
+  const titleId = uid('ovw-next');
+  const card = h('section', { class: 'card is-list span-12 ovw-nextsess', 'aria-labelledby': titleId },
+    cardHead('Next session', { id: titleId, link: { label: 'Open calendar', href: '#/calendar' } }));
+  if (sessions === null) {
+    card.append(cardError('We couldn’t load sessions.', () => ctx.store.invalidate(studentId)));
+    return card;
+  }
+  const next = upcomingSessions(sessions, ctx.now, { limit: 1 })[0];
+  card.append(next
+    ? h('ul', { class: 'ovw-sess-list', 'aria-label': 'Next session' }, sessionItem(ctx, next, names))
+    : cardEmpty('No upcoming sessions.', 'calendar-blank'));
+  return card;
+}
+
+// The student's tutors with their subjects, the subject in its own colour
+// invite: a student's "Get Google Calendar invites" control in the card's footer
+function tutorsCard(ctx, { span, title, tutors, names, studentId, invite = false }) {
+  const titleId = uid('ovw-tutors');
+  const card = h('section', { class: `card is-list ${span} ovw-tutors`, 'aria-labelledby': titleId },
+    cardHead(title, { id: titleId }));
+  if (tutors === null) {
+    card.append(cardError('We couldn’t load tutors.', () => ctx.store.invalidate(studentId)));
+    return card;
+  }
+  const list = tutorEntries(tutors, names);
+  card.append(list.length
+    ? h('ul', { class: 'ovw-tutor-list', 'aria-label': title }, list.map((t) => h('li', { class: 'ovw-tutor' },
+      avatar(t.name, { size: 32, staff: true }),
+      h('span', { class: 'ovw-tutor-main' },
+        h('span', { class: 'ovw-tutor-name' }, t.name),
+        t.subject ? h('span', { class: `ovw-subj ${t.tone}` }, t.subject) : null))))
+    : cardEmpty('No tutors linked yet.', 'users-three'));
+  if (invite) card.append(h('div', { class: 'card-foot ovw-tutors-foot' }, studentInviteControl({ toast: ctx.toast })));
+  return card;
 }
 
 // ---------------------------------------------------------------------------
@@ -371,7 +539,9 @@ async function mountStudent(ctx) {
   const first = firstName(student.full_name);
   const lede = pendingLede();
   ctx.setHeader({ title: greeting(ctx.now, first), display: true, lede });
-  const body = loadingGrid(['span-8', 'span-4', 'span-12']);
+  // A student who connected Google from this page lands back here
+  announceGoogleReturn(ctx);
+  const body = loadingGrid(['span-8', 'span-4', 'span-8', 'span-4', 'span-12']);
   ctx.host.append(body);
 
   let loaded;
@@ -386,7 +556,7 @@ async function mountStudent(ctx) {
   }
   if (!ctx.alive()) return;
 
-  const { data, updates, names } = loaded;
+  const { data, updates, sessions, tutors, names } = loaded;
   const now = ctx.now;
   const items = ctx.store.itemsFor(data, { now, audience: ctx.audience, viewerId: ctx.me.id });
   const seen = getSeen('graded', ctx.me.id, student.id);
@@ -403,6 +573,8 @@ async function mountStudent(ctx) {
   const blocks = [
     dueNextSection(ctx, dueNext(items)),
     latestGradeCard(ctx, latest, latestNew),
+    sessionsCard(ctx, { span: 'span-8', sessions, names, seen: getSeen('schedule', ctx.me.id, student.id), studentId: student.id }),
+    tutorsCard(ctx, { span: 'span-4', title: 'Your tutors', tutors, names, studentId: student.id, invite: ctx.me.role === 'student' }),
     weekCard(ctx, weekStrip(items, today), today),
     tasksCard(ctx, openTasks(items, 5)),
     updatesCard(ctx, {
@@ -494,7 +666,7 @@ async function mountParent(ctx) {
   const first = firstName(displayName(student));
   const lede = pendingLede();
   ctx.setHeader({ title: parentTitle(first), display: true, lede });
-  const body = loadingGrid(['span-12', 'span-7', 'span-5']);
+  const body = loadingGrid(['span-12', 'span-8', 'span-4', 'span-7', 'span-5']);
   ctx.host.append(body);
 
   let loaded;
@@ -509,7 +681,7 @@ async function mountParent(ctx) {
   }
   if (!ctx.alive()) return;
 
-  const { data, updates, names } = loaded;
+  const { data, updates, sessions, tutors, names } = loaded;
   const now = ctx.now;
   const items = ctx.store.itemsFor(data, { now, audience: ctx.audience, viewerId: ctx.me.id });
   const counts = weekCounts(items, now);
@@ -532,6 +704,8 @@ async function mountParent(ctx) {
       ? h('div', { class: 'span-12' }, emptyState({ icon: 'check-circle', text: `All caught up. ${first} has nothing due this week.` }))
       : null,
     !calm && overdue.length ? overdueCard(ctx, overdue) : null,
+    sessionsCard(ctx, { span: 'span-8', sessions, names, seen: getSeen('schedule', ctx.me.id, student.id), studentId: student.id }),
+    tutorsCard(ctx, { span: 'span-4', title: tutorsTitle(first), tutors, names, studentId: student.id }),
     updatesCard(ctx, {
       span: 'span-7',
       title: 'From your tutor',
@@ -595,12 +769,12 @@ async function mountStaff(ctx) {
     ],
   });
   header?.classList.add('ovw-staff-head');
-  const body = loadingGrid(['span-12', 'span-8', 'span-4']);
+  const body = loadingGrid(['span-12', 'span-12', 'span-8', 'span-4']);
   ctx.host.append(body);
 
   let loaded;
   try {
-    loaded = await loadAll(ctx, student.id);
+    loaded = await loadAll(ctx, student.id, { tutors: false });
   } catch (error) {
     if (!ctx.alive()) return;
     console.error(error);
@@ -609,12 +783,13 @@ async function mountStaff(ctx) {
   }
   if (!ctx.alive()) return;
 
-  const { data, updates, names } = loaded;
+  const { data, updates, sessions, names } = loaded;
   const now = ctx.now;
   const items = ctx.store.itemsFor(data, { now, audience: ctx.audience, viewerId: ctx.me.id });
   const entries = reviewEntries(data.submissions);
 
   const blocks = [
+    nextSessionCard(ctx, { sessions, names, studentId: student.id }),
     h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, grades: data.submissions.map((s) => s.grade).filter(Boolean), name: first, now })),
     needsReviewCard(ctx, entries, data.tasks, name),
     comingUpCard(ctx, comingUp(items, now), { span: 'span-4', mini: true, overdue: overdueItems(items, { tasks: true }) }),

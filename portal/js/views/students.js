@@ -1,7 +1,9 @@
 // Students (#/students, staff; spec 5.13). One row per student with review
-// load, next due work, last submission and the 30-day average, all read from
-// the staff workspace in the store, so the counts match the nav and switcher.
-// Search filters by name and email in memory; it never goes into the URL.
+// load, next tutoring session, next due work, last submission and the 30-day
+// average, plus the student's tutors with their subjects under the name, all
+// read from the staff workspace in the store, so the counts match the nav and
+// switcher. Search filters by name and email in memory; it never goes into the
+// URL.
 //
 // Pure helpers (nextDue, recentAverage, lastSubmissionAt, studentSummaries,
 // countLabel) are exported for tests and never touch the DOM.
@@ -12,11 +14,14 @@ import { avatar, emptyState, errorCallout, skeletonRows } from '../ui.js';
 import { displayName, byDue, one } from '../format.js';
 import { filterPeople, reviewCounts } from '../app-model.js';
 import { deriveItems } from '../buckets.js';
-import { dueLabel, relativeTime } from '../dates.js';
+import { dueLabel, relativeTime, todayKey } from '../dates.js';
 import { scoreWindow } from '../overview-model.js';
+import { staffNames } from '../updates-feed.js';
+import { nextSessionOf, nextSessionParts, tutorEntries, tutorText } from '../schedule-summary.js';
 
 export const AVERAGE_DAYS = 30;
 const ENTER_LIMIT = 8;
+const TUTOR_CHIPS = 3;   // more tutors than this collapse into "+N"
 
 const ms = (v) => (v instanceof Date ? v.getTime() : Date.parse(v));
 
@@ -50,16 +55,23 @@ export function lastSubmissionAt(submissions) {
 }
 
 // One summary per student, in the workspace order (by name):
-// { student, name, email, review, next, lastAt, avg }
-export function studentSummaries(ws, now = new Date()) {
+// { student, name, email, review, next, nextSession, tutors, lastAt, avg }
+//   nextSession  the student's next upcoming session with any tutor, or null
+//   tutors       [{ id, name, subject, tone }] by name, from ws.links; names is
+//                the staffNames() Map that supplies each tutor's name
+export function studentSummaries(ws, now = new Date(), { names = new Map() } = {}) {
   const tasksBy = new Map();
   const subsBy = new Map();
+  const sessionsBy = new Map();
+  const linksBy = new Map();
   const push = (map, key, v) => {
     if (!map.has(key)) map.set(key, []);
     map.get(key).push(v);
   };
   for (const t of ws?.tasks ?? []) push(tasksBy, t.student_id, t);
   for (const s of ws?.submissions ?? []) push(subsBy, s.student_id, s);
+  for (const s of ws?.sessions ?? []) push(sessionsBy, s.student_id, s);
+  for (const l of ws?.links ?? []) push(linksBy, l.student_id, l);
   const review = reviewCounts(ws?.submissions ?? []);
 
   return (ws?.students ?? []).map((student) => {
@@ -71,6 +83,8 @@ export function studentSummaries(ws, now = new Date()) {
       email: student.email ?? '',
       review: review.get(student.id) ?? 0,
       next: nextDue(items),
+      nextSession: nextSessionOf(sessionsBy.get(student.id) ?? [], now),
+      tutors: tutorEntries(linksBy.get(student.id) ?? [], names),
       lastAt: lastSubmissionAt(subs),
       avg: recentAverage(subs, now),
     };
@@ -90,8 +104,9 @@ export function countLabel(shown, total) {
 // the tab) but starts empty whenever the view is opened again
 let keptSearch = '';
 
-// "Up next", not "Next due": the column leads with overdue work (nextDue)
-const COLUMNS = ['Student', 'To review', 'Up next', 'Last submission', '30-day average'];
+// "Up next", not "Next due": the column leads with overdue work (nextDue).
+// "Next session" is the tutoring schedule.
+const COLUMNS = ['Student', 'To review', 'Next session', 'Up next', 'Last submission', '30-day average'];
 
 export function mount(ctx) {
   const title = 'Students';
@@ -101,12 +116,17 @@ export function mount(ctx) {
   const body = h('div', { class: 'stu-body' });
   ctx.host.append(body);
 
+  // When sessions fail to load, Next session reads "None" for everyone, so say why
+  let sessionsFailed = false;
+
   async function load() {
     body.replaceChildren(skeletonRows(5));
     body.setAttribute('aria-busy', 'true');
     let ws;
+    let names;
     try {
-      ws = await ctx.store.getWorkspace();
+      // staffNames never rejects: without it the tutor chips say "Tutor"
+      [ws, names] = await Promise.all([ctx.store.getWorkspace(), staffNames()]);
     } catch (error) {
       if (!ctx.alive()) return;
       console.error(error);
@@ -121,7 +141,11 @@ export function mount(ctx) {
     }
     if (!ctx.alive()) return;
     body.removeAttribute('aria-busy');
-    const summaries = studentSummaries(ws, ctx.now);
+    // The viewer is a tutor or admin, so their own name is always known
+    const known = new Map(names ?? []);
+    if (ctx.me?.id && !known.has(String(ctx.me.id))) known.set(String(ctx.me.id), displayName(ctx.me));
+    const summaries = studentSummaries(ws, ctx.now, { names: known });
+    sessionsFailed = Boolean(ws.sessionsError);
     render(summaries);
     ctx.announce(`Students, ${countLabel(summaries.length, summaries.length)}`);
   }
@@ -178,6 +202,9 @@ export function mount(ctx) {
     });
 
     body.replaceChildren(
+      sessionsFailed
+        ? errorCallout({ title: 'We couldn’t load sessions.', text: 'The Next session column may be empty. Try again in a moment.', onRetry: () => ctx.store.invalidate(null) })
+        : '',
       h('div', { class: 'stu-toolbar' },
         h('div', { class: 'stu-search' },
           h('label', { class: 'visually-hidden', for: inputId }, 'Find a student'),
@@ -190,7 +217,7 @@ export function mount(ctx) {
   function table(rows, { animate }) {
     const head = h('div', { class: 'stu-head', 'aria-hidden': 'true' },
       COLUMNS.map((label, i) => h('span', { class: `stu-col stu-col-${i + 1}` }, label)),
-      h('span', { class: 'stu-col stu-col-6' }));
+      h('span', { class: 'stu-col stu-col-7' }));
     const list = h('ul', { class: 'stu-list', 'aria-label': 'Students' },
       rows.map((s, i) => {
         const li = h('li', {}, row(s));
@@ -209,11 +236,35 @@ export function mount(ctx) {
       h('span', { class: 'stu-value' }, content));
   }
 
+  // The student's tutors as small chips in their subject's colour
+  function tutorChips(tutors) {
+    if (!tutors.length) return null;
+    const shown = tutors.slice(0, TUTOR_CHIPS);
+    const more = tutors.length - shown.length;
+    return h('span', { class: 'stu-tutors' },
+      shown.map((t) => h('span', { class: `stu-chip ${t.tone}` }, tutorText(t))),
+      more > 0 ? h('span', { class: 'stu-chip is-more' }, `+${more}`) : null);
+  }
+
   function row(s) {
-    const { student, next } = s;
+    const { student, next, nextSession, tutors } = s;
     const said = [s.name];
     if (s.email && s.email !== s.name) said.push(s.email);
+    if (tutors.length) said.push(`tutors ${tutors.map(tutorText).join(', ')}`);
     if (s.review > 0) said.push(`${s.review} to review`);
+
+    let sessionContent;
+    if (nextSession) {
+      const parts = nextSessionParts(nextSession, todayKey(ctx.now));
+      said.push(`next session ${parts.text}`);
+      sessionContent = [
+        h('span', { class: 'stu-next-title num' }, parts.day),
+        h('span', { class: 'stu-next-due num' }, parts.time),
+      ];
+    } else {
+      sessionContent = h('span', { class: 'stu-none' }, 'None');
+      said.push('no upcoming session');
+    }
 
     let nextContent;
     if (next) {
@@ -262,8 +313,10 @@ export function mount(ctx) {
       avatar(s.name, { size: 32 }),
       h('span', { class: 'stu-id' },
         h('span', { class: 'stu-name' }, s.name),
-        s.email && s.email !== s.name ? h('span', { class: 'stu-email' }, s.email) : null)),
+        s.email && s.email !== s.name ? h('span', { class: 'stu-email' }, s.email) : null,
+        tutorChips(tutors))),
     reviewCell,
+    cell('session', 'Next session', sessionContent),
     cell('next', 'Up next', nextContent),
     cell('last', 'Last submission', lastContent),
     cell('avg', '30-day average', avgContent),

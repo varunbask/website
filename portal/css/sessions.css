@@ -1,0 +1,366 @@
+/* U9. Tutoring sessions: the session drawer (details, create and edit form,
+   session notes). Prefix: ses-. Tokens and components come from app.css; no raw hex.
+   Spec: docs/superpowers/specs/2026-10-02-tutoring-schedules.md ("Session drawer").
+
+   Drawer detail
+     div.ses-head (+ .is-cancelled) > p.drawer-kind + div.ses-titlerow.subj-N >
+       span.ses-dot (the subject colour) + h2.drawer-title ; then dl.ses-facts
+       dl.ses-facts > div.ses-fact > dt + dd (span.ses-when-date + span.ses-when-time,
+       span.ses-person > span.avatar + name, span.ses-place + a.btn.ses-join)
+     div.ses-action-error                staff action errors (cancel, delete)
+     section.drawer-section > h3 + ...   Plan, Session notes (div.well.ses-notes)
+     section.ses-calendar > div.ses-actions > .btn ...   Add to calendar, Open in Google Calendar
+       + p.note.ses-sync-note                       "Not synced to Google yet" (the session's own tutor)
+
+   Drawer forms (create, edit, session notes)
+     div.ses-form-wrap > h2.drawer-title + p.ses-form-sub + form.ses-form > div.field ...
+       div.ses-times > two fields (Start, End) ; segmented.ses-durations (quick lengths)
+       div.ses-repeat > label.check + div.field (weeks)
+       div.ses-clash > div.callout.tone-warning.ses-clash-callout[role=status] >
+         ... ul.ses-callout-list
+       div.ses-form-errors > div.callout.tone-danger[role=alert]
+
+   Subject colour: put .subj-0 to .subj-5 (or .subj-none) on an element and read
+   var(--subj-bg), var(--subj-text) and var(--subj-solid) (defined in app.css).
+*/
+
+
+/* The "Happening now" pill (sessionState tone accent) ------------------------- */
+
+.pill.tone-accent {
+  --tone-bg: var(--accent-soft);
+  --tone-text: var(--accent-text);
+  --tone-solid: var(--accent);
+}
+
+
+/* Drawer: head ----------------------------------------------------------------- */
+
+.ses-head {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ses-titlerow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  min-width: 0;
+  margin-top: var(--s-1);
+}
+/* 28px title line: a 12px dot sits 8px down to centre on the first line */
+.ses-dot {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-top: 8px;
+  border-radius: var(--r-pill);
+  background-color: var(--subj-solid, var(--neutral-solid));
+}
+.ses-titlerow > .drawer-title { min-width: 0; }
+.ses-head.is-cancelled .drawer-title {
+  color: var(--text-3);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.ses-head.is-cancelled .ses-dot { opacity: .45; }
+
+.ses-facts {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--s-3);
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.ses-fact { display: contents; }
+.ses-fact > dt {
+  font: 400 13px/24px var(--font-ui);
+  color: var(--text-3);
+}
+.ses-fact > dd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  font: 400 14px/24px var(--font-ui);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.ses-when-date { font-weight: 500; }
+.ses-when-time {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.ses-person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.ses-place { white-space: pre-wrap; }
+.ses-fact > dd > .ses-join { margin-top: var(--s-1); }
+.ses-fact > dd > .ses-place + .ses-join { margin-top: var(--s-2); }
+
+.ses-muted {
+  font: 400 14px/20px var(--font-ui);
+  color: var(--text-3);
+}
+.ses-action-error:empty { display: none; }
+.ses-readonly { margin-top: calc(var(--s-1) * -1); }
+
+
+/* Drawer: plan, notes, calendar ---------------------------------------------- */
+
+.ses-plan,
+.ses-recap { color: var(--text); }
+.ses-notes {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s-3);
+}
+.ses-attendance {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.ses-attendance-label {
+  font: 400 13px/20px var(--font-ui);
+  color: var(--text-3);
+}
+.ses-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+
+
+/* Drawer: create, edit and notes forms --------------------------------------- */
+
+.ses-form-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ses-form-sub {
+  margin-top: var(--s-1);
+  font: var(--t-meta);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.ses-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  margin-top: var(--s-6);
+}
+.ses-date { max-width: 240px; }
+input[type="date"].ses-date,
+input[type="time"].input { font-variant-numeric: tabular-nums; }
+.ses-times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+}
+.ses-times > .field { min-width: 0; }
+.ses-zone-hint { margin-top: calc(var(--s-3) * -1); }
+
+/* Five quick lengths share the row, so each gets less padding */
+.segmented.ses-durations > button { padding: 0 4px; }
+
+.ses-repeat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.ses-weeks-input { max-width: 120px; }
+
+.ses-clash:empty,
+.ses-form-errors:empty { display: none; }
+.ses-callout-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 var(--s-1);
+  padding: 0;
+  list-style: none;
+  font: 400 14px/20px var(--font-ui);
+  color: var(--text-2);
+}
+.ses-callout-list > li {
+  position: relative;
+  padding-left: var(--s-4);
+  overflow-wrap: anywhere;
+}
+.ses-callout-list > li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background-color: currentColor;
+}
+
+
+/* Phones ------------------------------------------------------------------------ */
+
+@media (max-width: 767.98px) {
+  .ses-facts { grid-template-columns: 80px minmax(0, 1fr); }
+  .ses-date { max-width: none; }
+  .ses-weeks-input { max-width: none; }
+  .ses-actions > .btn { flex: 1 1 auto; }
+}
+
+
+/* Forced colors ----------------------------------------------------------------- */
+
+@media (forced-colors: active) {
+  .ses-dot {
+    forced-color-adjust: none;
+    background-color: CanvasText;
+  }
+}
+
+
+/* Lesson materials and homework ---------------------------------------------------
+   section.mat-section > h3 (+ span.mat-count) + ul.mat-list | p.mat-empty,
+     div.mat-error, div.mat-actions (Add files, Add a link), div.mat-link-slot
+     (form.mat-link-form), p.mat-hint
+   li.mat-item > span.mat-icon + a.mat-open (span.mat-title + span.mat-meta)
+     + button.icon-btn.mat-remove
+   a.asg-lesson.subj-N   "Set in the Algebra lesson on Tue, Oct 6" (assignment drawer)
+   p.note.asg-lesson-note   the same, on the create form */
+
+.mat-section > h3 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+}
+.mat-count {
+  font: var(--t-meta);
+  color: var(--text-3);
+}
+.mat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.mat-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  min-height: 56px;
+}
+.mat-item + .mat-item { border-top: 1px solid var(--line); }
+.mat-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.mat-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s-1) 0;
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--r-xs);
+}
+.mat-open:hover .mat-title { text-decoration: underline; text-underline-offset: 3px; }
+.mat-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.mat-title {
+  font: var(--t-ui);
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mat-meta {
+  font: var(--t-meta);
+  color: var(--text-3);
+}
+.mat-remove { flex: none; }
+.mat-empty {
+  margin: 0;
+  font: var(--t-ui);
+  color: var(--text-3);
+}
+.mat-error:not(:empty) { margin-top: var(--s-2); }
+.mat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+.mat-link-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+  margin-top: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.mat-link-buttons {
+  display: flex;
+  gap: var(--s-2);
+}
+.mat-hint {
+  margin: var(--s-2) 0 0;
+  font: var(--t-meta);
+  color: var(--text-4);
+}
+
+/* Homework from a lesson: back to the lesson */
+.asg-lesson {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-top: var(--s-4);
+  padding: var(--s-2) var(--s-3);
+  min-height: 44px;
+  border-radius: var(--r-md);
+  border-left: 3px solid var(--subj-solid, var(--neutral-solid));
+  background: var(--subj-bg, var(--surface-2));
+  color: var(--subj-text, var(--text-2));
+  font: var(--t-ui);
+  font-weight: 500;
+  text-decoration: none;
+}
+.asg-lesson > span { flex: 1; min-width: 0; }
+.asg-lesson:hover > span { text-decoration: underline; text-underline-offset: 3px; }
+.asg-lesson:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.asg-lesson-note { margin: 0 0 var(--s-2); }
+
+@media (pointer: coarse) {
+  .mat-item { min-height: 60px; }
+}
+
+/* Homework rows in the narrow drawer wrap their titles instead of cutting them */
+.ses-homework .row-title {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ses-homework + .ses-actions { margin-top: var(--s-3); }
+
+/* The Google Calendar sync note under the calendar buttons */
+.ses-sync-note { margin-top: var(--s-3); }

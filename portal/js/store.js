@@ -10,9 +10,13 @@ import { sb } from './supabase.js';
 import { one, displayName } from './format.js';
 import { deriveItems } from './buckets.js';
 import { loadUpdates } from './updates-feed.js';
+import { rememberSubjects } from './sessions-model.js';
 
 const students = new Map();   // studentId -> Promise<StudentData>
 const updates = new Map();    // studentId -> Promise<Update[]>
+const sessions = new Map();   // studentId -> Promise<Session[]>
+const tutors = new Map();     // studentId -> Promise<{ tutor_id, full_name, subject }[]>
+const materials = new Map();  // studentId -> Promise<Material[]>
 const children = new Map();   // parentId -> Promise<Profile[]>
 let workspace = null;         // Promise<Workspace> | null
 let pending = null;           // Promise<number> | null
@@ -42,7 +46,7 @@ function normalizeSub(sub) {
 async function loadStudentData(studentId) {
   const [tasks, subs] = await Promise.all([
     sb.from('tasks')
-      .select('id, student_id, kind, title, details, due_at, completed_at, created_at, created_by')
+      .select('id, student_id, kind, title, details, due_at, completed_at, created_at, created_by, session_id')
       .eq('student_id', studentId),
     sb.from('submissions')
       .select('id, task_id, student_id, file_type, note, status, error, attempts, status_changed_at, created_at, grade:grades(score, feedback, reviewed_by, reviewed_at, released_at)')
@@ -81,6 +85,57 @@ export function getUpdates(studentId) {
 }
 
 // ---------------------------------------------------------------------------
+// Sessions (tutoring schedule) and tutors
+
+export const SESSION_FIELDS = 'id, student_id, tutor_id, series_id, subject, starts_at, ends_at, location, meeting_url, notes, status, attendance, recap, moved_from, changed_at, created_at, updated_at, google_event_id, google_link, sync_state';
+
+async function loadSessions(studentId) {
+  // Pages past the 1000-row cap (a weekly series for years adds up)
+  const { data, error } = await selectAll(() => sb.from('sessions').select(SESSION_FIELDS)
+    .eq('student_id', studentId)
+    .order('starts_at', { ascending: true })
+    .order('id', { ascending: true }));
+  if (error) throw error;
+  rememberSubjects((data ?? []).map((x) => x.subject));
+  return data ?? [];
+}
+
+// Every session of one student, all of their tutors included, oldest first
+export function getSessions(studentId) {
+  return remember(sessions, String(studentId), () => loadSessions(studentId));
+}
+
+async function loadTutors(studentId) {
+  const { data, error } = await sb.rpc('student_tutors', { p_student: studentId });
+  if (error) throw error;
+  rememberSubjects((data ?? []).map((x) => x.subject));
+  return data ?? [];
+}
+
+// The student's tutors with their subjects: [{ tutor_id, full_name, subject }]
+export function getTutors(studentId) {
+  return remember(tutors, String(studentId), () => loadTutors(studentId));
+}
+
+// ---------------------------------------------------------------------------
+// Lesson materials and assignment attachments (materials-model.js)
+
+export const MATERIAL_FIELDS = 'id, student_id, session_id, task_id, title, storage_path, file_type, size_bytes, url, created_by, created_at';
+
+async function loadMaterials(studentId) {
+  const { data, error } = await sb.from('materials').select(MATERIAL_FIELDS)
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Every material of one student, on their sessions and their assignments
+export function getMaterials(studentId) {
+  return remember(materials, String(studentId), () => loadMaterials(studentId));
+}
+
+// ---------------------------------------------------------------------------
 // Staff workspace: every student the viewer can see, with their tasks and work
 
 // Supabase caps every response at the project's max-rows (1000 by default),
@@ -100,24 +155,35 @@ async function selectAll(makeQuery) {
 }
 
 async function loadWorkspace() {
-  const [people, tasks, subs] = await Promise.all([
+  const [people, tasks, subs, sess, links] = await Promise.all([
     selectAll(() => sb.from('profiles').select('id, full_name, email').eq('role', 'student').order('id')),
-    selectAll(() => sb.from('tasks').select('id, student_id, kind, title, due_at, completed_at, created_at').order('id')),
+    selectAll(() => sb.from('tasks').select('id, student_id, kind, title, due_at, completed_at, created_at, session_id').order('id')),
     selectAll(() => sb.from('submissions')
       .select('id, task_id, student_id, file_type, status, error, attempts, status_changed_at, created_at, grade:grades(score, reviewed_at, released_at)')
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })),
+    selectAll(() => sb.from('sessions').select(SESSION_FIELDS).order('id')),
+    selectAll(() => sb.from('tutor_students').select('tutor_id, student_id, subject').order('student_id').order('tutor_id')),
   ]);
   for (const result of [people, tasks, subs]) if (result.error) throw result.error;
+  // Sessions are extra: if they fail (or the table is missing), the rest of the
+  // workspace still loads and sessionsError says why the schedule is empty
+  if (sess.error) console.error(sess.error);
+  rememberSubjects([...(sess.data ?? []), ...(links.data ?? [])].map((x) => x.subject));
   return {
     loadedAt: Date.now(),
     students: [...(people.data ?? [])].sort(byName),
     tasks: tasks.data ?? [],
     submissions: (subs.data ?? []).map(normalizeSub),
+    sessions: sess.data ?? [],
+    sessionsError: sess.error ?? null,
+    // tutor_students rows the viewer can read (own for a tutor, all for an
+    // admin); null when they could not load
+    links: links.error ? null : (links.data ?? []),
   };
 }
 
-// { loadedAt, students, tasks, submissions } (staff only)
+// { loadedAt, students, tasks, submissions, sessions, links } (staff only)
 export function getWorkspace() {
   if (!workspace) {
     const promise = loadWorkspace();
@@ -190,6 +256,9 @@ export function invalidate(studentId) {
   if (studentId !== null && studentId !== undefined) {
     students.delete(String(studentId));
     updates.delete(String(studentId));
+    sessions.delete(String(studentId));
+    tutors.delete(String(studentId));
+    materials.delete(String(studentId));
   }
   workspace = null;
   emit([studentId === null || studentId === undefined ? '*' : String(studentId)]);
@@ -206,6 +275,9 @@ export function invalidatePending() {
 export function invalidateAll() {
   students.clear();
   updates.clear();
+  sessions.clear();
+  tutors.clear();
+  materials.clear();
   children.clear();
   workspace = null;
   pending = null;

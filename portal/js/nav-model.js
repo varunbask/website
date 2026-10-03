@@ -9,7 +9,7 @@
 //   badge     { n, text, tone, context } or null; never shown with isNew
 //   railBadge the count bubble for the rail and tab bar when children carry the counts
 // counts: { todo, todoOverdue, inReview, tasksOpen, reviewQueue, pending }
-// fresh:  { graded, updates } booleans for "New" (students and parents only)
+// fresh:  { graded, updates, schedule } booleans for "New" (students and parents only)
 
 const STAFF_ROLES = new Set(['tutor', 'admin']);
 const STUDENT_VIEWS = new Set(['overview', 'assignments', 'tasks', 'calendar', 'updates']);
@@ -62,7 +62,10 @@ function studentItems({ route, counts, fresh, family, staff }) {
       current: view === 'tasks',
       badge: badge(counts.tasksOpen, plural(counts.tasksOpen, 'open task', 'open tasks')),
     }),
-    item('calendar', 'Calendar', 'calendar-blank', '#/calendar', { current: calendarCurrent }),
+    item('calendar', 'Calendar', 'calendar-blank', '#/calendar', {
+      current: calendarCurrent,
+      isNew: family && Boolean(fresh.schedule),
+    }),
     item('updates', 'Updates', 'chat-circle-text', '#/updates', {
       current: view === 'updates',
       isNew: family && Boolean(fresh.updates),

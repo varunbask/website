@@ -5,7 +5,7 @@
 export const FIRST_VISIT_DAYS = 7;
 const DAY = 86_400_000;
 
-// kind is 'graded' or 'updates'
+// kind is 'graded', 'updates' or 'schedule' (moved or cancelled sessions)
 export function seenKey(kind, viewerId, studentId) {
   return `vb-seen-${kind}-${viewerId}-${studentId}`;
 }

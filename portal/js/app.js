@@ -27,7 +27,8 @@
 //     (Assignments), so they hide while those sub-items are visible (spec 3.8);
 //     tabsLabel names the tab nav (default "Sections").
 //   setTopbarActions(nodes), announce(text),
-//   open(taskId, extra), openNew({ kind, due }), go(url, { replace }),
+//   open(taskId, extra), openNew({ kind, due }), openSession(id),
+//   openNewSession({ due, at }), go(url, { replace }),
 //   setParams(params, { replace }), toast, confirm, isRefresh,
 //   refreshNav(), switchScope(id)
 // Views must look up their own elements inside ctx.host (host.querySelector),
@@ -48,6 +49,7 @@ import { initDrawer, showDrawer, hideDrawer, drawerOpen, syncDrawerRow } from '.
 import { navModel } from './nav-model.js';
 import { navCounts } from './buckets.js';
 import { getSeen, hasNewSince } from './seen.js';
+import { recentChanges } from './sessions-model.js';
 import { toast, confirmDialog } from './overlays.js';
 import { errorCallout, skeletonRows, linkTabs } from './ui.js';
 import { displayName } from './format.js';
@@ -571,7 +573,12 @@ export function startApp(config) {
       },
 
       open: (taskId, extra) => router.openDrawer(taskId, extra),
-      openNew: ({ kind, due } = {}) => router.openDrawer('new', { kind, due }),
+      // session: homework set in that lesson (tasks.session_id)
+      openNew: ({ kind, due, session } = {}) => router.openDrawer('new', { kind, due, session }),
+      // Sessions use the same drawer: open=s<id>, or open=new-session with a
+      // prefilled day (due) and start time (at, 'HH:MM')
+      openSession: (id) => router.openDrawer(`s${id}`),
+      openNewSession: ({ due, at } = {}) => router.openDrawer('new-session', { due, at }),
       go: (url, opts) => router.go(url, opts),
       setParams(params, opts = {}) {
         if (!alive()) return;
@@ -642,6 +649,9 @@ export function startApp(config) {
           out.fresh.graded = hasNewSince(graded, getSeen('graded', me.id, student.id), now);
           const updates = await store.getUpdates(student.id);
           out.fresh.updates = hasNewSince((updates ?? []).map((u) => u.created_at), getSeen('updates', me.id, student.id), now);
+          // A moved or cancelled session the family has not seen on the calendar
+          const changed = recentChanges(await store.getSessions(student.id), null, now).map((s) => s.changed_at);
+          out.fresh.schedule = hasNewSince(changed, getSeen('schedule', me.id, student.id), now);
         }
       })().catch(() => {}));
     }
@@ -696,20 +706,23 @@ export function startApp(config) {
     }
     let tasks = [];
     let submissions = [];
+    let sessions = [];
     try {
       if (id && await store.loadedAt(id)) {
         const data = await store.getStudentData(id);
         tasks = data.tasks;
         submissions = data.submissions;
+        sessions = await store.getSessions(id).catch(() => []);
       } else if (staff && await store.loadedAt(null)) {
         const ws = await store.getWorkspace();
         tasks = ws.tasks;
         submissions = ws.submissions;
+        sessions = ws.sessions ?? [];
       }
     } catch {
       return;
     }
-    if (clockCrossed(tasks, submissions, lastRenderAt, Date.now())) {
+    if (clockCrossed(tasks, submissions, lastRenderAt, Date.now(), sessions)) {
       updateNav();
       refreshView();
     }

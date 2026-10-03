@@ -3,7 +3,8 @@
 // page's renderer (renderItemDrawer), which receives a dctx:
 //
 //   dctx = {
-//     taskId,            the open= value: a task id, or 'new' (create)
+//     taskId,            the open= value: a task id, 'new' (create), a session
+//                        's<id>' or 'new-session' (sessions.js)
 //     params,            the route params (focus, kind, due, and view params)
 //     me, role, audience, readOnly, scope, now, store, toast, confirm, go,
 //     reveal(taskId),    after a create: open the new item's group and focus
@@ -44,6 +45,8 @@ let shown = null;         // the entry whose content is in the dialog (differs f
 let opener = null;        // focused before the drawer opened
 let closingByHost = false;
 
+// A create form ('new' or 'new-session') has no row to mark or return to
+const isCreate = (taskId) => String(taskId).startsWith('new');
 const cssEscape = (s) => (globalThis.CSS?.escape ? CSS.escape(String(s)) : String(s).replace(/["\\]/g, '\\$&'));
 
 function makeSlots() {
@@ -133,7 +136,7 @@ export function drawerOpen() {
 // The row whose drawer is open gets aria-current="true" (spec 5.1)
 export function syncDrawerRow() {
   for (const row of document.querySelectorAll('#view a.row[aria-current="true"]')) row.removeAttribute('aria-current');
-  if (!dialog?.open || !current || current.taskId === 'new') return;
+  if (!dialog?.open || !current || isCreate(current.taskId)) return;
   const row = document.querySelector(`#view [data-focus-key="row-${cssEscape(current.taskId)}"]`);
   if (row?.matches('a.row')) row.setAttribute('aria-current', 'true');
 }
@@ -303,7 +306,7 @@ function finishClose({ restore }) {
   // Focus: the row for this item, else what was focused before, else the h1.
   // A row inside a closed <details> (a Done or No due date group) or otherwise
   // hidden cannot take focus, so the next candidate gets it instead of <body>.
-  const row = closed && closed.taskId !== 'new'
+  const row = closed && !isCreate(closed.taskId)
     ? document.querySelector(`#view [data-focus-key="row-${cssEscape(closed.taskId)}"]`)
     : null;
   const candidates = [

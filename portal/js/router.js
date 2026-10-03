@@ -6,7 +6,7 @@
 // the second segment is a sub and the third, if any, an id.
 
 // Params that only open, focus or prefill the drawer; they never change the view
-export const DRAWER_PARAMS = Object.freeze(['open', 'focus', 'kind', 'due']);
+export const DRAWER_PARAMS = Object.freeze(['open', 'focus', 'kind', 'due', 'at', 'session']);
 
 const isBlank = (v) => v === null || v === undefined || v === '';
 
@@ -220,7 +220,7 @@ export function startRouter({ table = {}, onSync } = {}) {
     go(buildHash(withParams(parseHash(location.hash, table), params)), { replace });
   }
 
-  // Opening the drawer pushes: open=<taskId> plus focus, kind or due
+  // Opening the drawer pushes: open=<taskId> plus focus, kind, due, at or session
   function openDrawer(taskId, extra = {}) {
     const base = withoutDrawer(parseHash(location.hash, table));
     const params = {};

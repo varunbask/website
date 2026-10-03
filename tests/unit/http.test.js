@@ -1,4 +1,4 @@
-import { describe, test, expect, vi } from 'vitest';
+import { describe, test, expect, vi, afterEach } from 'vitest';
 import { handleGrade, handleSweep, claimableStates, STUDENT_GRADES_PER_HOUR } from '../../api/_lib/http.js';
 import { completion } from './fixtures.js';
 
@@ -150,5 +150,106 @@ describe('handleSweep', () => {
     const res = await handleSweep(get('Bearer cron-secret'), { repo, env: ENV, now });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ reset: 0, ai_graded: 0, pending: 0, failed: 0, skipped: 0, removed_files: 0 });
+  });
+
+  describe('Google Calendar maintenance', () => {
+    afterEach(() => vi.restoreAllMocks());
+    const GOOGLE_ENV = { ...ENV, GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret', GOOGLE_TOKEN_KEY: 'key' };
+    const GRADING = { reset: 0, ai_graded: 0, pending: 0, failed: 0, skipped: 0, removed_files: 0 };
+    const googleRepo = (tutors = []) => ({
+      listSyncTutors: vi.fn(async () => tutors),
+      updateConnection: vi.fn(async () => {}),
+    });
+
+    test('runs after grading when Google is set up, and adds google to the summary', async () => {
+      const gr = googleRepo();
+      const gradingRepo = { listDue: vi.fn(async () => []), listOrphanFiles: vi.fn(async () => []), removeFiles: vi.fn(async () => {}) };
+      const res = await handleSweep(get('Bearer cron-secret'), { repo: gradingRepo, googleRepo: gr, env: GOOGLE_ENV, now });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ...GRADING, google: { tutors: 0, ok: 0, failed: 0 } });
+      expect(gr.listSyncTutors).toHaveBeenCalledTimes(1);
+      expect(gradingRepo.listOrphanFiles.mock.invocationCallOrder[0]).toBeLessThan(gr.listSyncTutors.mock.invocationCallOrder[0]);
+    });
+
+    test('counts what happened for each tutor with sync on', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const unreadable = { user_id: 't1', purpose: 'tutor', sync_enabled: true, refresh_token_enc: 'not an encrypted token' };
+      const gr = googleRepo([unreadable]);
+      const fetchImpl = vi.fn();
+      const res = await handleSweep(get('Bearer cron-secret'), { repo, googleRepo: gr, env: GOOGLE_ENV, now, fetchImpl });
+      expect((await res.json()).google).toEqual({ tutors: 1, ok: 0, failed: 1 });
+      expect(gr.updateConnection).toHaveBeenCalledWith('t1', { last_error: 'google_error' });
+      expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
+    describe('without the model variables', () => {
+      const NO_LLM = { CRON_SECRET: 'cron-secret' };
+      const GOOGLE_NO_LLM = { ...NO_LLM, GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret', GOOGLE_TOKEN_KEY: 'key' };
+
+      test('still runs the Google upkeep, and only skips grading', async () => {
+        const gr = googleRepo();
+        const gradingRepo = { listDue: vi.fn(async () => []), listOrphanFiles: vi.fn(async () => []), removeFiles: vi.fn(async () => {}) };
+        const res = await handleSweep(get('Bearer cron-secret'), { repo: gradingRepo, googleRepo: gr, env: GOOGLE_NO_LLM, now });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ grading: 'not configured', google: { tutors: 0, ok: 0, failed: 0 } });
+        expect(gr.listSyncTutors).toHaveBeenCalledTimes(1);
+        expect(gradingRepo.listDue).not.toHaveBeenCalled();
+        expect(gradingRepo.listOrphanFiles).not.toHaveBeenCalled();
+      });
+
+      test('one model variable is as good as none', async () => {
+        const gr = googleRepo();
+        for (const env of [{ ...GOOGLE_NO_LLM, LLM_ENDPOINT: 'x' }, { ...GOOGLE_NO_LLM, LLM_KEY: 'y' }]) {
+          const res = await handleSweep(get('Bearer cron-secret'), { repo, googleRepo: gr, env, now });
+          expect(res.status).toBe(200);
+          expect((await res.json()).grading).toBe('not configured');
+        }
+      });
+
+      test('is still a 500 when Google is not set up either: there is nothing to do', async () => {
+        const gr = googleRepo();
+        for (const options of [{ repo, env: NO_LLM }, { repo, googleRepo: gr, env: NO_LLM }]) {
+          const res = await handleSweep(get('Bearer cron-secret'), { ...options, now });
+          expect(res.status).toBe(500);
+          expect(await res.json()).toEqual({ error: 'Grading is not configured.' });
+        }
+        expect(gr.listSyncTutors).not.toHaveBeenCalled();
+      });
+
+      test('a caller without the secret is still refused before anything runs', async () => {
+        const gr = googleRepo();
+        expect((await handleSweep(get('Bearer nope'), { repo, googleRepo: gr, env: GOOGLE_NO_LLM, now })).status).toBe(401);
+        expect(gr.listSyncTutors).not.toHaveBeenCalled();
+      });
+
+      test('a failure in the Google run is reported there, not thrown', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const gr = { listSyncTutors: vi.fn(async () => { throw new Error('listSyncTutors: down'); }) };
+        const res = await handleSweep(get('Bearer cron-secret'), { repo, googleRepo: gr, env: GOOGLE_NO_LLM, now });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ grading: 'not configured', google: { error: 'Google Calendar maintenance failed.' } });
+      });
+    });
+
+    test('makes no Google call, and adds nothing, when Google is not set up', async () => {
+      const gr = googleRepo();
+      const res = await handleSweep(get('Bearer cron-secret'), { repo, googleRepo: gr, env: ENV, now });
+      expect(await res.json()).toEqual(GRADING);
+      expect(gr.listSyncTutors).not.toHaveBeenCalled();
+    });
+
+    test('makes no Google call for a caller without the secret', async () => {
+      const gr = googleRepo();
+      expect((await handleSweep(get('Bearer nope'), { repo, googleRepo: gr, env: GOOGLE_ENV, now })).status).toBe(401);
+      expect(gr.listSyncTutors).not.toHaveBeenCalled();
+    });
+
+    test('a failure in the Google run does not lose the grading summary', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      const gr = { listSyncTutors: vi.fn(async () => { throw new Error('listSyncTutors: down'); }) };
+      const res = await handleSweep(get('Bearer cron-secret'), { repo, googleRepo: gr, env: GOOGLE_ENV, now });
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ...GRADING, google: { error: 'Google Calendar maintenance failed.' } });
+    });
   });
 });

@@ -290,6 +290,15 @@
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --ease-sheet: cubic-bezier(.32, .72, 0, 1);
 
+  /* Subject tones for sessions (sessions-model.js toneClass): soft fill,
+     text on it, and the solid edge bar */
+  --subj-0-bg: #E6F0FB; --subj-0-text: #1D5E9A; --subj-0-solid: #2F78BD;
+  --subj-1-bg: #EFEAFB; --subj-1-text: #5B3FA6; --subj-1-solid: #7A5BD1;
+  --subj-2-bg: #FBF1D9; --subj-2-text: #7A5200; --subj-2-solid: #C08A00;
+  --subj-3-bg: #FBE9EF; --subj-3-text: #9B2C55; --subj-3-solid: #D0487A;
+  --subj-4-bg: #E8F3EA; --subj-4-text: #2D6A3A; --subj-4-solid: #3E9A55;
+  --subj-5-bg: #E1F2F5; --subj-5-text: #1F5F6B; --subj-5-solid: #2B8A9C;
+
   --nav-w: 248px;
   --topbar-h: 52px;
   --sticky-top: 52px;
@@ -355,7 +364,24 @@
   --shadow-sheet: 0 0 0 1px #FFFFFF14;
   --nav-active-shadow: inset 0 0 0 1px #FFFFFF14;
   --pop-border: transparent;
+
+  --subj-0-bg: #1B2B3D; --subj-0-text: #9CC6F0; --subj-0-solid: #5B9BE0;
+  --subj-1-bg: #2A2340; --subj-1-text: #C6B4F5; --subj-1-solid: #9A80E6;
+  --subj-2-bg: #3A2E12; --subj-2-text: #F0CF7A; --subj-2-solid: #D9A62A;
+  --subj-3-bg: #3D1E2A; --subj-3-text: #F2A9C2; --subj-3-solid: #E06A96;
+  --subj-4-bg: #1C3324; --subj-4-text: #9FD8AE; --subj-4-solid: #5BB874;
+  --subj-5-bg: #163238; --subj-5-text: #93D6E1; --subj-5-solid: #45AFC2;
 }
+
+/* A subject tone sets three custom properties that session chips, blocks and
+   legend swatches read */
+.subj-0 { --subj-bg: var(--subj-0-bg); --subj-text: var(--subj-0-text); --subj-solid: var(--subj-0-solid); }
+.subj-1 { --subj-bg: var(--subj-1-bg); --subj-text: var(--subj-1-text); --subj-solid: var(--subj-1-solid); }
+.subj-2 { --subj-bg: var(--subj-2-bg); --subj-text: var(--subj-2-text); --subj-solid: var(--subj-2-solid); }
+.subj-3 { --subj-bg: var(--subj-3-bg); --subj-text: var(--subj-3-text); --subj-solid: var(--subj-3-solid); }
+.subj-4 { --subj-bg: var(--subj-4-bg); --subj-text: var(--subj-4-text); --subj-solid: var(--subj-4-solid); }
+.subj-5 { --subj-bg: var(--subj-5-bg); --subj-text: var(--subj-5-text); --subj-solid: var(--subj-5-solid); }
+.subj-none { --subj-bg: var(--neutral-bg); --subj-text: var(--neutral-text); --subj-solid: var(--neutral-solid); }
 
 
 /* 3. Responsive tokens ---------------------------------------------------- */

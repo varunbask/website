@@ -66,7 +66,7 @@ export function normalizeRoute(route, { table, hasScope = false, audience = 'fam
   // Drawer params: create is staff only; focus, kind and due need open
   const p = route.params ?? {};
   const strayDrawer = DRAWER_PARAMS.some((k) => k !== 'open' && !blank(p[k])) && blank(p.open);
-  if ((p.open === 'new' && audience !== 'staff') || strayDrawer) {
+  if ((String(p.open ?? '').startsWith('new') && audience !== 'staff') || strayDrawer) {
     return buildHash(withoutDrawer(route));
   }
   return null;
@@ -125,7 +125,7 @@ const ms = (v) => (v instanceof Date ? v.getTime() : Date.parse(v));
 
 // Did any due state, bucket or business day change between two clock readings?
 // Used when a tab becomes visible again with cached data (spec 4.4).
-export function clockCrossed(tasks, submissions, from, to) {
+export function clockCrossed(tasks, submissions, from, to, sessions = []) {
   const a = ms(from);
   const b = ms(to);
   if (!(b > a)) return false;
@@ -141,6 +141,12 @@ export function clockCrossed(tasks, submissions, from, to) {
     const released = one(sub.grade)?.released_at;
     // graded work moves to Archived 21 days after release; This week ends at 7
     if (released && (crossed(ms(released) + 21 * DAY) || crossed(ms(released) + 7 * DAY))) return true;
+  }
+  for (const s of sessions ?? []) {
+    // "Now", "Up next" and the Join window change at a session's start and end
+    // (Join opens 15 minutes before)
+    const start = ms(s.starts_at);
+    if (crossed(start) || crossed(start - 15 * 60_000) || crossed(ms(s.ends_at))) return true;
   }
   return false;
 }
