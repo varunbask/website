@@ -27,7 +27,7 @@ import {
 import { sessionForm, sessionNotesForm, callout } from './session-form.js';
 import { materialsSection } from './materials-ui.js';
 import { materialsFor, homeworkDueKey } from './materials-model.js';
-import { getGoogleStatus } from './google.js';
+import { getGoogleStatus, syncSoon } from './google.js';
 import { ownGoogleLink, syncNote } from './google-model.js';
 
 const MISSING = 'This session isn’t available. It may have been cancelled or removed.';
@@ -368,6 +368,8 @@ export function renderSessionDetail(dctx) {
     }
     dctx.store.invalidate(found.studentId);
     dctx.toast({ text: done(result.data.length) });
+    // The session's own tutor pushes the change to Google now
+    if (sameId(found.session.tutor_id, dctx.me?.id)) syncSoon();
   }
 
   // Cancelling keeps the session on the calendar, struck through, so families

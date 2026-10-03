@@ -17,6 +17,14 @@
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
+import { sb } from '../supabase.js';
+import { choiceDialog } from '../overlays.js';
+import { pointerDrag, hitAt } from '../calendar-drag.js';
+import {
+  canDragSession, canDragDue, dropStart, grabOffset, minutesToTime, movedTimes, moveProblem, moveUpdates,
+  moveSummary, moveToast, MOVE_PROBLEMS, dueMoveProblem, dueAtFor, dueToast, DUE_PAST,
+} from '../calendar-drag-model.js';
+import { clashReport, mergeSessions } from '../session-form-model.js';
 import {
   itemRow, rowList, groupHeader, emptyState, errorCallout, skeletonRows,
   segmented, iconButton, button, select as selectControl, pill, initials, visuallyHidden, drawerHref,
@@ -30,13 +38,13 @@ import { markSeen } from '../seen.js';
 import { staffNames } from '../updates-feed.js';
 import {
   clockText, timeRange, sessionTitle, sessionState, sessionAria, sessionsByDay, isCancelled,
-  toneClass, subjectLegend, hourRange, layoutDay, weekTitle,
+  toneClass, subjectLegend, hourRange, layoutDay, weekTitle, durationMinutes, followingInSeries, timeInput,
 } from '../sessions-model.js';
 import {
-  announceGoogleReturn, tutorGoogleControl, studentInviteControl, syncNow, personalEvents, cachedPersonalEvents,
+  announceGoogleReturn, tutorGoogleControl, studentInviteControl, syncNow, syncSoon, personalEvents, cachedPersonalEvents,
 } from '../google.js';
 import {
-  personalBlocks, allDayOn, weekRange, personalLabel, personalWhen, googleDayUrl,
+  personalBlocks, allDayOn, weekRange, personalLabel, personalWhen, googleDayUrl, personalClashes, mergePersonalClashes,
 } from '../google-model.js';
 import {
   AGENDA_DAYS, PANEL_DAYS,
@@ -675,7 +683,7 @@ export function mount(ctx) {
         days.map((day) => {
           const list = dueOf(day.key);
           const allDay = allDayOf(day.key);
-          const cell = h('div', { class: cellClass(day, 'cal-week-due cal-chips') },
+          const cell = h('div', { class: cellClass(day, 'cal-week-due cal-chips'), dataset: { date: day.key } },
             list.map((item) => dueChip(item, { link: true })),
             allDay.map(personalChip));
           if (list.length || allDay.length) {
@@ -767,6 +775,7 @@ export function mount(ctx) {
     el.style.setProperty('--height', String(layout.height));
     el.style.setProperty('--col', String(layout.col));
     el.style.setProperty('--cols', String(layout.cols));
+    if (mayDragSession(s)) dragBlock(el, s);
     return el;
   }
 
@@ -827,6 +836,198 @@ export function mount(ctx) {
     const fraction = nowFraction(clock(), state.hours);
     line.hidden = fraction === null;
     if (fraction !== null) line.style.setProperty('--top', String(fraction));
+  }
+
+  // -------------------------------------------------------------------------
+  // Drag to move (mouse or pen; see calendar-drag.js)
+
+  // Links are known on the all-students calendar; on one student's they are not
+  // loaded, and the database has the last word
+  const dragLinks = () => (state.links?.length ? state.links : null);
+  const mayDragSession = (s) => staff && canDragSession(s, ctx.me, { links: dragLinks(), now: clock(), readOnly: ctx.readOnly });
+  const mayDragDue = (item) => canDragDue(item, { staff, readOnly: ctx.readOnly });
+
+  // A session block in the week grid: a copy follows the pointer across the
+  // day columns, snapped to 15 minutes, with the new time on it
+  function dragBlock(el, s) {
+    el.classList.add('is-draggable');
+    pointerDrag(el, {
+      start: (down) => {
+        const track = el.closest('.cal-week-track');
+        const rect = track?.getBoundingClientRect();
+        if (!track || !state.hours || !(rect.height > 0)) return null;
+        const grab = grabOffset({ fraction: (down.clientY - rect.top) / rect.height, hours: state.hours, session: s });
+        const time = h('span', { class: 'cal-block-time num' });
+        const ghost = h('div', { class: `cal-block cal-drag-ghost ${toneClass(s.subject)}`, 'aria-hidden': 'true' },
+          h('span', { class: 'cal-block-head' }, time),
+          h('span', { class: 'cal-block-title' }, sessionTitle(s)));
+        el.classList.add('is-drag-source');
+        return { ghost, time, grab, duration: durationMinutes(s), track: null, date: null, start: null };
+      },
+      move: (e, d) => {
+        const hit = hitAt(e.clientX, e.clientY, '.cal-week-track');
+        const track = hit && body.contains(hit) ? hit : d.track;
+        if (!track || !state.hours) return;
+        const rect = track.getBoundingClientRect();
+        const minutes = dropStart({ fraction: (e.clientY - rect.top) / rect.height, hours: state.hours, duration: d.duration, grabMinutes: d.grab });
+        d.track = track;
+        d.date = track.dataset.date;
+        d.start = minutesToTime(minutes);
+        if (d.ghost.parentNode !== track) track.append(d.ghost);
+        const span = (state.hours.end - state.hours.start) * 60;
+        d.ghost.style.setProperty('--top', String((minutes - state.hours.start * 60) / span));
+        d.ghost.style.setProperty('--height', String(d.duration / span));
+        d.ghost.style.setProperty('--col', '0');
+        d.ghost.style.setProperty('--cols', '1');
+        const times = movedTimes(s, { date: d.date, start: d.start });
+        d.time.textContent = times ? timeRange(times) : '';
+        d.ghost.classList.toggle('is-invalid', ['past', 'overnight'].includes(moveProblem(s, { date: d.date, start: d.start }, clock())));
+      },
+      drop: (e, d) => {
+        if (d.date) moveSession(s, { date: d.date, start: d.start });
+      },
+      end: (d) => {
+        d?.ghost.remove();
+        el.classList.remove('is-drag-source');
+      },
+    }, { signal: ctx.signal });
+  }
+
+  // A chip dragged to another day: a small copy follows the pointer and the
+  // day under it is outlined (dashed when it cannot take the drop)
+  function dragToDay(el, { cellSelector, label, valid, onDrop }) {
+    el.classList.add('is-draggable');
+    const clear = (cell) => cell?.classList.remove('is-drop-target', 'is-drop-invalid');
+    pointerDrag(el, {
+      start: () => {
+        const ghost = h('div', { class: 'cal-drag-float', 'aria-hidden': 'true' }, label);
+        document.body.append(ghost);
+        el.classList.add('is-drag-source');
+        return { ghost, cell: null, date: null };
+      },
+      move: (e, d) => {
+        d.ghost.style.setProperty('--x', `${e.clientX + 12}px`);
+        d.ghost.style.setProperty('--y', `${e.clientY + 12}px`);
+        const hit = hitAt(e.clientX, e.clientY, cellSelector);
+        const cell = hit && body.contains(hit) ? hit : null;
+        if (cell === d.cell) return;
+        clear(d.cell);
+        d.cell = cell;
+        d.date = cell?.dataset.date ?? null;
+        if (cell) cell.classList.add(valid(d.date) ? 'is-drop-target' : 'is-drop-invalid');
+      },
+      drop: (e, d) => {
+        if (d.date) onDrop(d.date);
+      },
+      end: (d) => {
+        d?.ghost.remove();
+        clear(d?.cell);
+        el.classList.remove('is-drag-source');
+      },
+    }, { signal: ctx.signal });
+  }
+
+  // A dropped session: say where it goes (and what it clashes with), ask
+  // about the rest of a series, then save the new times like the edit form
+  // does. Families see it as moved, and Google gets it on the next sync (now,
+  // for the viewer's own sessions).
+  async function moveSession(s, { date, start }) {
+    const problem = moveProblem(s, { date, start }, clock());
+    if (problem === 'same') return;
+    if (problem) {
+      ctx.toast({ text: MOVE_PROBLEMS[problem] });
+      return;
+    }
+    const times = movedTimes(s, { date, start });
+    let siblings = [];
+    try {
+      siblings = await ctx.store.getSessions(s.student_id);
+    } catch (error) {
+      console.error(error); // the move still works; the clash check just knows less
+    }
+    if (!ctx.alive()) return;
+    const rows = s.series_id ? followingInSeries(mergeSessions(siblings, [s]), s) : [s];
+    const series = rows.length > 1;
+
+    let report = clashReport({
+      planned: [{ id: s.id, ...times }],
+      studentId: s.student_id,
+      tutorId: s.tutor_id,
+      list: mergeSessions(siblings, state.sessions.filter((x) => String(x.tutor_id) === String(s.tutor_id))),
+      ignoreIds: [s.id],
+      tutorNames: state.tutorNames,
+      studentNames: state.studentNames,
+    });
+    if (String(s.tutor_id) === String(ctx.me.id) && personalOn()) {
+      report = mergePersonalClashes(report, personalClashes(times, personalWeek()?.byDay.get(date) ?? []));
+    }
+
+    const summary = moveSummary(s, times, { who: shortWho(s) });
+    const choice = await choiceDialog({
+      title: 'Move this session?',
+      body: series ? `${summary} This and following moves the ${rows.length - 1} later sessions in the series by the same amount.` : summary,
+      warning: report?.title ? { title: report.title, lines: report.lines } : null,
+      choices: series
+        ? [{ value: 'following', label: 'This and following' }, { value: 'this', label: 'This session', primary: true }]
+        : [{ value: 'this', label: 'Move', primary: true }],
+    });
+    if (!choice) return;
+
+    const updates = moveUpdates({ session: s, rows, apply: choice, date, start });
+    let done = 0;
+    let failed = false;
+    for (const u of updates) {
+      const result = await sb.from('sessions').update(u.fields).eq('id', u.id).select('id');
+      if (result.error || !result.data?.length) {
+        if (result.error) console.error(result.error);
+        failed = true;
+        break;
+      }
+      done += 1;
+    }
+    if (done > 0) {
+      ctx.store.invalidate(s.student_id);
+      if (String(s.tutor_id) === String(ctx.me.id)) syncSoon();
+    }
+    if (failed) {
+      ctx.toast({ text: done > 0
+        ? `${done} of ${updates.length} sessions moved. Refresh the page and try the rest again.`
+        : 'We couldn’t move that session. Refresh the page and try again.' });
+      return;
+    }
+    if (done) ctx.toast({ text: moveToast(done) });
+  }
+
+  // A dropped due date saves at once (nothing is announced to families), with Undo
+  async function moveDue(item, date) {
+    const problem = dueMoveProblem(item, date, todayKey(clock()));
+    if (problem === 'same') return;
+    if (problem) {
+      ctx.toast({ text: DUE_PAST });
+      return;
+    }
+    const before = item.task.due_at ?? null;
+    if (!(await setDue(item, dueAtFor(date)))) return;
+    ctx.toast({
+      text: dueToast(date),
+      action: {
+        label: 'Undo',
+        run: async () => {
+          if (await setDue(item, before)) ctx.toast({ text: 'Due date put back' });
+        },
+      },
+    });
+  }
+
+  async function setDue(item, dueAt) {
+    const result = await sb.from('tasks').update({ due_at: dueAt }).eq('id', item.task.id).select('id');
+    if (result.error || !result.data?.length) {
+      if (result.error) console.error(result.error);
+      ctx.toast({ text: 'We couldn’t move that due date. Refresh the page and try again.' });
+      return false;
+    }
+    ctx.store.invalidate(item.task.student_id);
+    return true;
   }
 
   // Below 768px the week is a list of its days instead of a grid
@@ -964,18 +1165,27 @@ export function mount(ctx) {
     }
     // The score (floated right), initials and icon sit inline in the title,
     // so a wrapped title's later lines get the chip's full width
-    return h(link ? 'a' : 'span', props,
+    const el = h(link ? 'a' : 'span', props,
       h('span', { class: 'cal-chip-title' },
         showScore ? h('span', { class: 'cal-chip-score' }, String(score)) : null,
         item.studentName ? h('span', { class: 'cal-chip-who' }, initials(item.studentName)) : null,
         icon(iconName, { size: 12 }),
         name));
+    if (mayDragDue(item)) {
+      dragToDay(el, {
+        cellSelector: link ? '.cal-week-due' : '.cal-day',
+        label: name,
+        valid: (date) => dueMoveProblem(item, date, todayKey(clock())) !== 'past',
+        onDrop: (date) => moveDue(item, date),
+      });
+    }
+    return el;
   }
 
   // A session on a month cell: start time and subject in the subject's tone,
   // struck through when cancelled
   function sessionChip(s) {
-    return h('span', {
+    const el = h('span', {
       class: ['cal-chip', 'cal-chip-session', toneClass(s.subject), isCancelled(s) ? 'is-cancelled' : null].filter(Boolean).join(' '),
       title: sessionAria(s, { who: spokenWho(s), now: ctx.now }),
       dataset: { sessionId: String(s.id) },
@@ -983,6 +1193,17 @@ export function mount(ctx) {
     h('span', { class: 'cal-chip-title' },
       h('span', { class: 'cal-chip-time num' }, chipTime(s.starts_at)),
       sessionTitle(s)));
+    if (mayDragSession(s)) {
+      // A day in the month keeps the session's time
+      const start = timeInput(s.starts_at);
+      dragToDay(el, {
+        cellSelector: '.cal-day',
+        label: `${chipTime(s.starts_at)} ${sessionTitle(s)}`,
+        valid: (date) => !['past', 'overnight'].includes(moveProblem(s, { date, start }, clock())),
+        onDrop: (date) => moveSession(s, { date, start }),
+      });
+    }
+    return el;
   }
 
   function dotRow(daySessions, dayItems) {
