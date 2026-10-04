@@ -21,16 +21,29 @@ export const MAX_LINK_CHARS = 2000;
 export const emptyDoc = () => ({ v: DOC_VERSION, blocks: [] });
 
 // Only web and mail links survive; anything else (script or data links) is dropped
+// (a web link with a user name in it, https://site@elsewhere, is dropped too,
+// since it hides where it goes)
 export function safeHref(href) {
   const value = String(href ?? '').trim();
   if (!value || value.length > MAX_LINK_CHARS || /\s/.test(value)) return null;
-  if (/^mailto:[^@\s]+@[^@\s]+$/i.test(value)) return value;
+  let url;
   try {
-    const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+    url = new URL(value);
   } catch {
     return null;
   }
+  if (url.protocol === 'mailto:') {
+    let address = '';
+    try {
+      address = decodeURIComponent(url.pathname);
+    } catch {
+      return null;
+    }
+    return /^[^@\s"'<>()]+@[^@\s"'<>()]+\.[^@\s"'<>()]+$/.test(address) ? `mailto:${address}` : null;
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+  if (url.username || url.password) return null;
+  return url.href;
 }
 
 // Text without control characters (tabs become spaces; line breaks are {br})
@@ -104,14 +117,18 @@ export const isEmptyDoc = (doc) => !normalizeDoc(doc).blocks.length;
 // Headings and quotes keep a marker, list items their bullet or number, and
 // x² is written x^2 (H₂O as H_2O) so the math still reads.
 
+// A link keeps its address after its text, so the grader sees where it goes
 function inlineText(inlines) {
-  return inlines.map((n) => {
+  return inlines.map((n, i) => {
     if (n.br) return '\n';
     const marks = n.m ?? [];
     const wrap = (sign) => (n.x.length > 1 ? `${sign}(${n.x})` : `${sign}${n.x}`);
-    if (marks.includes('sup')) return wrap('^');
-    if (marks.includes('sub')) return wrap('_');
-    return n.x;
+    let text = n.x;
+    if (marks.includes('sup')) text = wrap('^');
+    else if (marks.includes('sub')) text = wrap('_');
+    const endsLink = n.a && inlines[i + 1]?.a !== n.a;
+    const address = n.a?.replace(/^mailto:/, '');
+    return endsLink && address !== n.x.trim() ? `${text} (${address})` : text;
   }).join('');
 }
 

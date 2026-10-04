@@ -40,23 +40,29 @@ create policy "students read their own drafts" on public.submission_drafts
 create policy "students write drafts for their assignments" on public.submission_drafts
   for insert to authenticated
   with check (student_id = (select auth.uid())
+              and (select private.my_role()) = 'student'
               and exists (select 1 from public.tasks t
-                           where t.id = task_id and t.student_id = (select auth.uid()) and t.kind = 'assignment'));
+                           where t.id = submission_drafts.task_id and t.student_id = (select auth.uid()) and t.kind = 'assignment'));
 create policy "students change their own drafts" on public.submission_drafts
   for update to authenticated
   using (student_id = (select auth.uid()))
   with check (student_id = (select auth.uid())
+              and (select private.my_role()) = 'student'
               and exists (select 1 from public.tasks t
-                           where t.id = task_id and t.student_id = (select auth.uid()) and t.kind = 'assignment'));
+                           where t.id = submission_drafts.task_id and t.student_id = (select auth.uid()) and t.kind = 'assignment'));
 create policy "students remove their own drafts" on public.submission_drafts
   for delete to authenticated using (student_id = (select auth.uid()));
 
--- Every save moves updated_at (the editor shows "Draft saved" from it)
+-- Every save moves updated_at (when it was last saved). A draft stays with
+-- its assignment: the upsert sends task_id again, but it may not change.
 create function private.draft_touch()
 returns trigger
 language plpgsql set search_path = ''
 as $$
 begin
+  if new.task_id is distinct from old.task_id or new.student_id is distinct from old.student_id then
+    raise exception 'A draft cannot move to another assignment' using errcode = '42501';
+  end if;
   new.updated_at := now();
   return new;
 end;

@@ -35,6 +35,18 @@ describe.skipIf(!hasService)('answer drafts and formatted answers', () => {
     expect(data).toEqual([{ task_id: assignment, body: 'My answer, longer' }]);
   });
 
+  test('a draft stays with its assignment, and only assignments take drafts', async () => {
+    const other = await w.admin.from('tasks')
+      .insert({ student_id: P.studentA.id, created_by: P.tutorA.id, kind: 'assignment', title: 'Other draft check' })
+      .select('id').single();
+    const moved = await P.studentA.client.from('submission_drafts').update({ task_id: other.data.id }).eq('task_id', assignment).select('task_id');
+    expect(moved.error).not.toBeNull();
+    const chore = await w.admin.from('tasks')
+      .insert({ student_id: P.studentA.id, created_by: P.tutorA.id, kind: 'task', title: 'Chore' })
+      .select('id').single();
+    expect((await save(P.studentA.client, chore.data.id)).error?.code).toBe('42501');
+  });
+
   test('nobody else reads or writes it', async () => {
     for (const who of ['tutorA', 'parentA', 'studentB', 'admin']) {
       const seen = await P[who].client.from('submission_drafts').select('task_id').eq('task_id', assignment);

@@ -79,6 +79,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   const attempt = item.attempts + 1;
   const studentId = task.student_id ?? dctx.me?.id;
   const headingId = uid('submit-heading');
+  let sending = false;
 
   // Dropzone: a label around a visually hidden (still focusable) file input
   const input = h('input', {
@@ -97,6 +98,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   // loads from the student's account; until it arrives the card says so.
   let doc = normalizeDoc(null);
   let draftState = 'loading'; // 'loading' | 'ready' | 'failed'
+  let unsaved = false;        // the last save of the draft did not go through
   const preview = h('div', { class: 'asg-answer-preview doc-view read' });
   const answerMeta = h('span', { class: 'asg-answer-meta' });
   const answerBtn = button({ label: 'Write your answer', variant: 'secondary', icon: 'pencil-simple', onClick: () => openEditor() });
@@ -109,17 +111,23 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     control: answer,
   });
 
+  // Until the saved draft is in, the answer cannot be opened (it would start
+  // blank and save over the draft); if it could not load, the button tries again
   function paintAnswer() {
     const empty = isEmptyDoc(doc);
     answer.classList.toggle('is-empty', empty);
-    preview.replaceChildren(...(empty
-      ? [h('p', { class: 'asg-answer-placeholder' }, draftState === 'loading' ? 'Loading your draft…' : 'Nothing written yet.')]
-      : docNodes(doc)));
-    answerBtn.querySelector('.btn-label')?.replaceChildren(empty ? 'Write your answer' : 'Edit your answer');
+    let placeholder = 'Nothing written yet.';
+    if (draftState === 'loading') placeholder = 'Loading your draft…';
+    if (draftState === 'failed') placeholder = 'Your saved draft could not be loaded.';
+    preview.replaceChildren(...(empty ? [h('p', { class: 'asg-answer-placeholder' }, placeholder)] : docNodes(doc)));
+    let label = empty ? 'Write your answer' : 'Edit your answer';
+    if (draftState === 'failed') label = 'Load your draft again';
+    answerBtn.querySelector('.btn-label')?.replaceChildren(label);
+    answerBtn.disabled = draftState === 'loading' || sending;
     const words = wordCount(doc);
-    answerMeta.textContent = empty
-      ? (draftState === 'failed' ? 'Your saved draft could not be loaded.' : '')
-      : `${words.toLocaleString('en-US')} ${words === 1 ? 'word' : 'words'}, draft saved to your account`;
+    if (unsaved) answerMeta.textContent = 'Not saved to your account yet. It will try again.';
+    else answerMeta.textContent = empty ? '' : `${words.toLocaleString('en-US')} ${words === 1 ? 'word' : 'words'}, draft saved to your account`;
+    answerMeta.classList.toggle('is-warning', unsaved);
   }
 
   // The draft: one row per student and assignment. An empty answer removes it.
@@ -134,32 +142,70 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     if (result.error) throw result.error;
   }
 
-  paintAnswer();
-  Promise.resolve(sb.from('submission_drafts').select('body_doc').eq('task_id', task.id).maybeSingle())
-    .then((result) => {
+  // The draft as saved on the account; resolves true when it was read
+  async function loadDraft() {
+    try {
+      const result = await sb.from('submission_drafts').select('body_doc').eq('task_id', task.id).maybeSingle();
       if (result.error) throw result.error;
-      // Something written already (the editor was opened before the draft came) wins
-      if (isEmptyDoc(doc) && result.data?.body_doc) doc = normalizeDoc(result.data.body_doc);
+      // Work not saved yet (a failed save) stays; otherwise the account's copy wins
+      if (!unsaved) doc = normalizeDoc(result.data?.body_doc ?? null);
       draftState = 'ready';
-    })
-    .catch((err) => {
+      return true;
+    } catch (err) {
       console.error('Draft did not load', err);
       draftState = 'failed';
-    })
-    .finally(paintAnswer);
+      return false;
+    } finally {
+      paintAnswer();
+    }
+  }
 
-  function openEditor() {
+  // A save that did not go through tries again a few times, while this
+  // section is still on the page
+  let retryTimer = null;
+  function retrySave(tries = 0) {
+    clearTimeout(retryTimer);
+    if (!unsaved || tries >= 5) return;
+    retryTimer = setTimeout(async () => {
+      if (!section.isConnected) return;
+      try {
+        await saveDraft(doc);
+        unsaved = false;
+        paintAnswer();
+      } catch {
+        retrySave(tries + 1);
+      }
+    }, 5000 * (tries + 1));
+  }
+
+  paintAnswer();
+  loadDraft();
+
+  // Opening reads the draft again first, so an answer written on another
+  // device since this page loaded is the one that opens
+  async function openEditor() {
     if (sending) return;
+    if (draftState === 'failed' || !unsaved) {
+      const ok = await busy(answerBtn, 'Opening…', loadDraft);
+      paintAnswer(); // busy() put the old label back
+      if (!ok || dctx.alive?.() === false) return;
+    }
     openAnswerEditor({
       title: task.title || 'Your answer',
       doc,
       save: saveDraft,
       canSubmit: true,
-      onImage: (image) => attachImage(image, { fromEditor: true }),
+      signal: dctx.signal,
+      onFile: (file) => attachFile(file, { fromEditor: true }),
       onClose: (next) => {
         doc = normalizeDoc(next);
         if (doc.blocks.length) setError('');
         paintAnswer();
+      },
+      onSaved: (ok) => {
+        unsaved = !ok;
+        paintAnswer();
+        retrySave();
       },
       onSubmit: () => form.requestSubmit(),
     });
@@ -259,7 +305,6 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   // Dropped and chosen files take the same path: assign, then fire change.
   // The dropzone lights up; a drop anywhere on the section counts, so a near
   // miss (or a drop on the chosen file row) never opens the file in the tab.
-  let sending = false;
   let depth = 0;
   const over = (on) => dropzone.classList.toggle('is-over', on);
   const hasFiles = (e) => [...(e.dataTransfer?.types ?? [])].includes('Files');
@@ -294,28 +339,44 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   });
 
   // A pasted image (a screenshot) becomes the attached file, here or in the
-  // editor (which hands it over and says so)
-  function attachImage(image, { fromEditor = false } = {}) {
-    if (sending) return;
-    const named = image.name && image.name !== 'image.png'
-      ? image
-      : new File([image], `Screenshot.${image.type === 'image/png' ? 'png' : 'jpg'}`, { type: image.type });
+  // editor, which hands over any file pasted or dropped in. The editor is a
+  // dialog in front of this section, so what happened is said in a toast too.
+  // Returns true when the file is attached.
+  function attachFile(file, { fromEditor = false } = {}) {
+    if (sending) return false;
+    const shot = file.type === 'image/png' || file.type === 'image/jpeg';
+    const named = !shot || (file.name && file.name !== 'image.png')
+      ? file
+      : new File([file], `Screenshot.${file.type === 'image/png' ? 'png' : 'jpg'}`, { type: file.type });
+    const problem = validateUpload(named);
+    if (problem) {
+      setError(problem);
+      if (fromEditor) toast({ text: problem });
+      return false;
+    }
     try {
       const dt = new DataTransfer();
       dt.items.add(named);
       input.files = dt.files;
     } catch {
-      setError('That screenshot could not be added. Save it and choose it with the file picker instead.');
-      return;
+      const text = 'That file could not be added. Save it and choose it with the file picker instead.';
+      setError(text);
+      if (fromEditor) toast({ text });
+      return false;
     }
     input.dispatchEvent(new Event('change', { bubbles: true }));
-    if (fromEditor) toast({ text: 'Images can’t go inside the answer, so it was attached as your file.' });
+    if (fromEditor) {
+      toast({ text: shot
+        ? 'Images can’t go inside the answer, so it was attached as your file.'
+        : `${named.name || 'The file'} was attached to your work.` });
+    }
+    return true;
   }
   section.addEventListener('paste', (e) => {
     const image = [...(e.clipboardData?.files ?? [])].find((f) => f.type === 'image/png' || f.type === 'image/jpeg');
     if (!image) return;
     e.preventDefault();
-    attachImage(image);
+    attachFile(image);
   });
 
   const setSending = (on) => {

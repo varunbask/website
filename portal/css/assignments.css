@@ -631,12 +631,13 @@
   background: var(--surface);
 }
 .doc-meta { display: flex; flex-wrap: wrap; gap: var(--s-3); font: 400 13px/18px var(--font-ui); color: var(--text-3); }
-.doc-limit { color: var(--danger-text); }
+.doc-limit { color: var(--text-3); }
 .doc-actions { display: flex; gap: var(--s-2); }
 
 @media (max-width: 767.98px) {
   .doc-head, .doc-toolbar, .doc-panel, .doc-foot { padding-inline: var(--s-4); }
-  .doc-status { display: none; }
+  .doc-eyebrow { display: none; }
+  .doc-status { font-size: 12px; }
   .doc-scroll { padding: 0; }
   .doc-page { min-height: 100%; padding: 20px; border-radius: 0; box-shadow: none; }
   .doc-page.is-empty::before { top: 20px; right: 20px; left: 20px; }
@@ -649,3 +650,6 @@
 @media (max-width: 767.98px) {
   .doc-editor > .toasts { bottom: calc(env(safe-area-inset-bottom) + 132px); }
 }
+.asg-answer-meta.is-warning { color: var(--warning-text); }
+.asg-sub-answer > .doc-view { margin-top: var(--s-2); }
+.doc-limit.is-over { color: var(--danger-text); }

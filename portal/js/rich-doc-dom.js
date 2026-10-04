@@ -5,7 +5,7 @@
 // images, and only the text and the formatting below survive.
 
 import { h } from './dom.js';
-import { normalizeDoc, DOC_VERSION } from './rich-doc.js';
+import { normalizeDoc, docToText, DOC_VERSION } from './rich-doc.js';
 
 const SKIP = new Set(['SCRIPT', 'STYLE', 'TEMPLATE', 'HEAD', 'META', 'LINK', 'TITLE', 'NOSCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH', 'IMG', 'VIDEO', 'AUDIO', 'CANVAS', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
 const BLOCKS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'LI', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'ASIDE', 'MAIN', 'NAV', 'FIGURE', 'FIGCAPTION', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH', 'DL', 'DT', 'DD', 'ADDRESS', 'HR']);
@@ -18,25 +18,41 @@ function blockType(tag, inherited) {
   return inherited === 'quote' ? 'quote' : 'p';
 }
 
+// An element's name in capitals, also for SVG and MathML (whose tagName keeps
+// its case)
+const nameOf = (el) => String(el.localName || el.tagName || '').toUpperCase();
+
+// The style attribute as { property: value }, read from the attribute itself:
+// under the portal's CSP a parsed document ignores style attributes, so
+// el.style is always empty
+function styleOf(el) {
+  const out = {};
+  for (const part of String(el.getAttribute?.('style') ?? '').split(';')) {
+    const at = part.indexOf(':');
+    if (at < 1) continue;
+    out[part.slice(0, at).trim().toLowerCase()] = part.slice(at + 1).trim().toLowerCase();
+  }
+  return out;
+}
+
 // The marks an element adds (or, through its style, takes away: Google Docs
 // pastes everything inside <b style="font-weight:normal">)
 function marksFor(el, marks) {
   const next = new Set(marks);
-  const tagMark = TAG_MARKS[el.tagName];
+  const tagMark = TAG_MARKS[nameOf(el)];
   if (tagMark) next.add(tagMark);
-  const style = el.style;
-  if (style) {
-    const weight = style.fontWeight;
-    if (weight === 'bold' || weight === 'bolder' || Number(weight) >= 600) next.add('b');
-    else if (weight === 'normal' || weight === 'lighter' || (Number(weight) > 0 && Number(weight) < 600)) next.delete('b');
-    if (style.fontStyle === 'italic' || style.fontStyle === 'oblique') next.add('i');
-    else if (style.fontStyle === 'normal') next.delete('i');
-    const line = `${style.textDecorationLine || ''} ${style.textDecoration || ''}`;
-    if (line.includes('underline')) next.add('u');
-    if (line.includes('line-through')) next.add('s');
-    if (style.verticalAlign === 'super') next.add('sup');
-    if (style.verticalAlign === 'sub') next.add('sub');
-  }
+  const style = styleOf(el);
+  const weight = style['font-weight'];
+  if (weight === 'bold' || weight === 'bolder' || Number(weight) >= 600) next.add('b');
+  else if (weight === 'normal' || weight === 'lighter' || (Number(weight) > 0 && Number(weight) < 600)) next.delete('b');
+  const fontStyle = style['font-style'];
+  if (fontStyle === 'italic' || fontStyle === 'oblique') next.add('i');
+  else if (fontStyle === 'normal') next.delete('i');
+  const line = `${style['text-decoration-line'] ?? ''} ${style['text-decoration'] ?? ''}`;
+  if (line.includes('underline')) next.add('u');
+  if (line.includes('line-through')) next.add('s');
+  if (style['vertical-align'] === 'super') next.add('sup');
+  if (style['vertical-align'] === 'sub') next.add('sub');
   return next;
 }
 
@@ -55,44 +71,52 @@ export function domToDoc(root) {
   // Inline content into `sink` (an array of inlines)
   function inline(node, marks, href, sink, pre) {
     if (node.nodeType === 3) {
-      let x = node.nodeValue ?? '';
-      x = pre ? x : x.replace(/[ \t\n\r\f]+/g, ' ');
-      x = x.replace(/ /g, ' ');
-      if (x) sink.push({ x, m: [...marks], a: href ?? undefined });
+      const raw = String(node.nodeValue ?? '').replace(/\u00a0/g, ' ');
+      const parts = pre ? raw.replace(/\r\n?/g, '\n').split('\n') : [raw.replace(/[ \t\n\r\f]+/g, ' ')];
+      parts.forEach((x, i) => {
+        if (i) sink.push({ br: true });
+        if (x) sink.push({ x, m: [...marks], a: href ?? undefined });
+      });
       return;
     }
-    if (node.nodeType !== 1 || SKIP.has(node.tagName)) return;
-    if (node.tagName === 'BR') {
+    if (node.nodeType !== 1 || SKIP.has(nameOf(node))) return;
+    if (nameOf(node) === 'BR') {
       sink.push({ br: true });
       return;
     }
     const nextMarks = marksFor(node, marks);
-    const nextHref = node.tagName === 'A' && node.getAttribute('href') ? node.getAttribute('href') : href;
-    for (const child of node.childNodes) inline(child, nextMarks, nextHref, sink, pre || node.tagName === 'PRE');
+    const nextHref = nameOf(node) === 'A' && node.getAttribute('href') ? node.getAttribute('href') : href;
+    for (const child of node.childNodes) inline(child, nextMarks, nextHref, sink, pre || nameOf(node) === 'PRE');
   }
 
   // A list: its items, with nested lists folded in as more items
   function list(el, into) {
     for (const child of el.children) {
-      if (child.tagName === 'LI') {
+      const name = nameOf(child);
+      if (name === 'LI') {
         const item = [];
         for (const part of child.childNodes) {
-          if (part.nodeType === 1 && (part.tagName === 'UL' || part.tagName === 'OL')) {
+          const partName = part.nodeType === 1 ? nameOf(part) : '';
+          if (partName === 'UL' || partName === 'OL') {
             into.items.push(item.splice(0));
             list(part, into);
           } else {
+            // Two paragraphs in one item stay apart
+            if (BLOCKS.has(partName) && item.some((n) => !n.br)) item.push({ br: true });
             inline(part, new Set(), null, item, false);
           }
         }
         into.items.push(item);
-      } else if (child.tagName === 'UL' || child.tagName === 'OL') {
+      } else if (name === 'UL' || name === 'OL') {
         list(child, into);
       }
     }
   }
 
-  const hasBlocks = (el) => [...el.children].some((c) => BLOCKS.has(c.tagName) || c.tagName === 'UL' || c.tagName === 'OL'
-    || (!SKIP.has(c.tagName) && c.children.length && hasBlocks(c)));
+  const hasBlocks = (el) => [...el.children].some((c) => {
+    const name = nameOf(c);
+    return BLOCKS.has(name) || name === 'UL' || name === 'OL' || (!SKIP.has(name) && c.children.length && hasBlocks(c));
+  });
 
   // marks and href come down from inline wrappers around blocks (Google Docs
   // wraps a whole paste in one <b>)
@@ -101,8 +125,8 @@ export function domToDoc(root) {
       inline(node, marks, href, open(inherited).c, false);
       return;
     }
-    if (node.nodeType !== 1 || SKIP.has(node.tagName)) return;
-    const tag = node.tagName;
+    if (node.nodeType !== 1 || SKIP.has(nameOf(node))) return;
+    const tag = nameOf(node);
     if (tag === 'UL' || tag === 'OL') {
       flush();
       const into = { t: tag === 'OL' ? 'ol' : 'ul', items: [] };
@@ -165,7 +189,7 @@ function inlineNodes(inlines, { links }) {
     for (const mark of [...(n.m ?? [])].reverse()) el = h(MARK_TAGS[mark], {}, el);
     if (n.a) {
       el = links === 'open'
-        ? h('a', { href: n.a, target: '_blank', rel: 'noopener noreferrer nofollow' }, el)
+        ? h('a', { href: n.a, title: n.a, target: '_blank', rel: 'noopener noreferrer nofollow' }, el)
         : h('a', { href: n.a }, el);
     }
     return el;
@@ -182,9 +206,12 @@ export function docNodes(raw, { links = 'open' } = {}) {
 }
 
 // A submitted answer as shown to tutors and families: the formatted document
-// when there is one, otherwise the plain text as typed (older answers)
+// when there is one, otherwise the plain text as typed (older answers). The
+// document is shown only when its text is the text that was graded, so a
+// tutor always sees what the grader read.
 export function answerView(sub, { className = null } = {}) {
-  const nodes = sub?.body_doc ? docNodes(sub.body_doc) : [];
+  const matches = sub?.body_doc && docToText(sub.body_doc).trim() === String(sub.body ?? '').trim();
+  const nodes = matches ? docNodes(sub.body_doc) : [];
   if (nodes.length) return h('div', { class: ['doc-view', 'read', className].filter(Boolean).join(' ') }, nodes);
   return h('p', { class: ['read', 'is-pre', className].filter(Boolean).join(' ') }, sub?.body ?? '');
 }

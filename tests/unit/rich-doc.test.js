@@ -108,3 +108,22 @@ describe('HTML for pasting', () => {
     expect(docToHtml(doc(p({ x: 'a' }), p(), p({ x: 'b' })))).toBe('<p>a</p><p><br></p><p>b</p>');
   });
 });
+
+describe('review fixes', () => {
+  test('mail links are checked through the URL parser; user names in web links are refused', () => {
+    expect(safeHref('mailto:a@b.co"onclick="alert(1)')).toBeNull();
+    expect(safeHref('mailto:a@b.co?body=<script>')).toBe('mailto:a@b.co');
+    expect(safeHref('mailto:nobody')).toBeNull();
+    expect(safeHref('https://trusted.example@evil.example/')).toBeNull();
+    expect(safeHref('https://user:pw@example.com/')).toBeNull();
+  });
+
+  test('link addresses are kept in the plain text', () => {
+    expect(docToText(doc(p({ x: 'my notes', a: 'https://example.com/n' }), p({ x: 'https://example.com/', a: 'https://example.com/' }))))
+      .toBe('my notes (https://example.com/n)\n\nhttps://example.com/');
+    expect(docToText(doc(p({ x: 'mail', a: 'mailto:t@example.com' })))).toBe('mail (t@example.com)');
+    // a link split by formatting still gets its address once, at its end
+    expect(docToText(doc(p({ x: 'big', m: ['b'], a: 'https://e.com/' }, { x: ' notes', a: 'https://e.com/' }))))
+      .toBe('big notes (https://e.com/)');
+  });
+});
