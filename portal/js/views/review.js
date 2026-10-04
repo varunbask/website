@@ -16,11 +16,12 @@ import { startGrading } from '../grading.js';
 import { filePreview } from '../file-preview.js';
 import { workIcon } from '../labels.js';
 import { gradeEditor } from '../grade-editor.js';
+import { answerView } from '../rich-doc-dom.js';
 import {
   normalizeFilter, queueOrder, neighbors, attemptInfo, reviewHref, stampLabel,
 } from '../review-model.js';
 
-const FIELDS = 'id, task_id, student_id, body, storage_path, file_type, note, status, error, attempts, '
+const FIELDS = 'id, task_id, student_id, body, body_doc, storage_path, file_type, note, status, error, attempts, '
   + 'status_changed_at, created_at, student:profiles(full_name, email), task:tasks(title, details, due_at), '
   + 'grade:grades(score, feedback, reviewed_by, reviewed_at, released_at)';
 
@@ -197,7 +198,7 @@ export async function mount(ctx) {
   if (typeof sub.body === 'string' && sub.body.trim()) {
     main.append(h('section', { class: 'rvw-block rvw-answer', 'aria-label': 'Typed answer' },
       h('h2', { class: 'rvw-block-title' }, `${first}’s answer`, h('span', { class: 'rvw-file-attempt' }, `attempt ${info.n}`)),
-      h('p', { class: 'read is-pre rvw-answer-text' }, sub.body)));
+      answerView(sub, { className: 'rvw-answer-text' })));
   }
   if (sub.storage_path) main.append(filePreview(sub, { signal: ctx.signal, attempt: info.n }));
 

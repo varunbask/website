@@ -7,10 +7,13 @@
 //                it redraws (invalidate) and shows the success message. Without
 //                it, the store is invalidated and a toast says the work is in.
 //
-// The answer is typed text first; a file (PDF, photo or text file) is
-// optional, and either one alone is enough. The section carries
-// data-task-id, data-attempts and data-sending so the drawer can keep it
-// (with the typed answer, the chosen file and the note) across refresh paints.
+// The answer is written first, in the document editor (answer-editor.js),
+// with formatting; a file (PDF, photo or text file) is optional, and either
+// one alone is enough. What the student writes is kept as a draft on their
+// account (submission_drafts) as they type, so it is there on any device
+// until they submit. The section carries data-task-id, data-attempts and
+// data-sending so the drawer can keep it (with the answer, the chosen file
+// and the note) across refresh paints.
 // Files dropped anywhere on the section, or an image pasted into it (a
 // screenshot), take the dropzone's path.
 //
@@ -26,14 +29,19 @@ import { startGrading } from './grading.js';
 import { sb } from './supabase.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
 import { toast } from './overlays.js';
+import { openAnswerEditor, MAX_ANSWER_CHARS } from './answer-editor.js';
+import { normalizeDoc, docToText, wordCount, isEmptyDoc } from './rich-doc.js';
+import { docNodes } from './rich-doc-dom.js';
+
+export { MAX_ANSWER_CHARS };
 
 const SUCCESS = 'Work submitted. Your tutor will review it soon.';
 // The work is saved even when grading could not start (rate limit, network);
 // the daily sweep grades it, so the student must not spend another attempt.
 const GRADING_LATER = 'Your work is saved, but grading could not start yet. It will be graded within a day, so you don’t need to submit again.';
 const AT_LIMIT = `You’ve used all ${MAX_SUBMISSIONS} attempts for this assignment. Message your tutor if you need to send another answer.`;
-const NOTHING = 'Type your answer, or attach a file.';
-export const MAX_ANSWER_CHARS = 20000;
+const NOTHING = 'Write your answer, or attach a file.';
+const TOO_LONG = `Your answer is too long to submit. Keep it under ${MAX_ANSWER_CHARS.toLocaleString('en-US')} characters, or attach the rest as a file.`;
 const FAILED = 'Your work could not be submitted. Try again, or email it to your tutor.';
 
 // "340 KB", "2.4 MB"
@@ -85,19 +93,77 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     h('span', { class: 'asg-drop-title' }, 'Attach a file, drop it here, or paste a screenshot'),
     h('span', { class: 'asg-drop-hint' }, 'Optional. PDF, photo (JPG or PNG) or text file, up to 20 MB.'));
 
-  // The answer: typed text is the main way to respond
-  const answer = h('textarea', {
-    class: 'input textarea asg-answer-input',
-    name: 'answer',
-    rows: '8',
-    maxlength: String(MAX_ANSWER_CHARS),
-    placeholder: 'Type your answer here. Show your work for each question.',
-  });
+  // The answer: written in the editor, shown here as a preview. The draft
+  // loads from the student's account; until it arrives the card says so.
+  let doc = normalizeDoc(null);
+  let draftState = 'loading'; // 'loading' | 'ready' | 'failed'
+  const preview = h('div', { class: 'asg-answer-preview doc-view read' });
+  const answerMeta = h('span', { class: 'asg-answer-meta' });
+  const answerBtn = button({ label: 'Write your answer', variant: 'secondary', icon: 'pencil-simple', onClick: () => openEditor() });
+  const answer = h('div', { class: 'asg-answer is-empty' },
+    preview,
+    h('div', { class: 'asg-answer-foot' }, answerBtn, answerMeta));
   const answerField = field({
     label: 'Your answer',
-    hint: 'You can also attach a file below, like a photo of handwritten work.',
+    hint: 'Format it like a document: headings, lists, x², math symbols. You can also attach a file below, like a photo of handwritten work.',
     control: answer,
   });
+
+  function paintAnswer() {
+    const empty = isEmptyDoc(doc);
+    answer.classList.toggle('is-empty', empty);
+    preview.replaceChildren(...(empty
+      ? [h('p', { class: 'asg-answer-placeholder' }, draftState === 'loading' ? 'Loading your draft…' : 'Nothing written yet.')]
+      : docNodes(doc)));
+    answerBtn.querySelector('.btn-label')?.replaceChildren(empty ? 'Write your answer' : 'Edit your answer');
+    const words = wordCount(doc);
+    answerMeta.textContent = empty
+      ? (draftState === 'failed' ? 'Your saved draft could not be loaded.' : '')
+      : `${words.toLocaleString('en-US')} ${words === 1 ? 'word' : 'words'}, draft saved to your account`;
+  }
+
+  // The draft: one row per student and assignment. An empty answer removes it.
+  async function saveDraft(next) {
+    const text = docToText(next);
+    const result = isEmptyDoc(next)
+      ? await sb.from('submission_drafts').delete().eq('task_id', task.id)
+      : await sb.from('submission_drafts').upsert(
+        { task_id: task.id, body_doc: next, body: text.slice(0, MAX_ANSWER_CHARS * 2) },
+        { onConflict: 'student_id,task_id' },
+      );
+    if (result.error) throw result.error;
+  }
+
+  paintAnswer();
+  Promise.resolve(sb.from('submission_drafts').select('body_doc').eq('task_id', task.id).maybeSingle())
+    .then((result) => {
+      if (result.error) throw result.error;
+      // Something written already (the editor was opened before the draft came) wins
+      if (isEmptyDoc(doc) && result.data?.body_doc) doc = normalizeDoc(result.data.body_doc);
+      draftState = 'ready';
+    })
+    .catch((err) => {
+      console.error('Draft did not load', err);
+      draftState = 'failed';
+    })
+    .finally(paintAnswer);
+
+  function openEditor() {
+    if (sending) return;
+    openAnswerEditor({
+      title: task.title || 'Your answer',
+      doc,
+      save: saveDraft,
+      canSubmit: true,
+      onImage: (image) => attachImage(image, { fromEditor: true }),
+      onClose: (next) => {
+        doc = normalizeDoc(next);
+        if (doc.blocks.length) setError('');
+        paintAnswer();
+      },
+      onSubmit: () => form.requestSubmit(),
+    });
+  }
 
   // The chosen file, shown in place of the dropzone
   const fileIconSlot = h('span', { class: 'asg-file-icon' });
@@ -171,10 +237,6 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     dropzone.hidden = true;
   }
 
-  answer.addEventListener('input', () => {
-    if (answer.value.trim()) setError('');
-  });
-
   input.addEventListener('change', () => {
     const file = input.files?.[0] ?? null;
     if (!file) {
@@ -231,13 +293,10 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     input.dispatchEvent(new Event('change', { bubbles: true }));
   });
 
-  // A pasted image (a screenshot) becomes the attached file. Pasted text
-  // goes into the answer box as usual.
-  section.addEventListener('paste', (e) => {
+  // A pasted image (a screenshot) becomes the attached file, here or in the
+  // editor (which hands it over and says so)
+  function attachImage(image, { fromEditor = false } = {}) {
     if (sending) return;
-    const image = [...(e.clipboardData?.files ?? [])].find((f) => f.type === 'image/png' || f.type === 'image/jpeg');
-    if (!image) return;
-    e.preventDefault();
     const named = image.name && image.name !== 'image.png'
       ? image
       : new File([image], `Screenshot.${image.type === 'image/png' ? 'png' : 'jpg'}`, { type: image.type });
@@ -250,6 +309,13 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
       return;
     }
     input.dispatchEvent(new Event('change', { bubbles: true }));
+    if (fromEditor) toast({ text: 'Images can’t go inside the answer, so it was attached as your file.' });
+  }
+  section.addEventListener('paste', (e) => {
+    const image = [...(e.clipboardData?.files ?? [])].find((f) => f.type === 'image/png' || f.type === 'image/jpeg');
+    if (!image) return;
+    e.preventDefault();
+    attachImage(image);
   });
 
   const setSending = (on) => {
@@ -260,10 +326,15 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     event.preventDefault();
     if (sending) return;
     const file = input.files?.[0] ?? null;
-    const text = answer.value.trim();
+    const text = docToText(doc).trim();
     if (!text && !file) {
       setError(NOTHING);
-      answer.focus();
+      answerBtn.focus();
+      return;
+    }
+    if (text.length > MAX_ANSWER_CHARS) {
+      setError(TOO_LONG);
+      answerBtn.focus();
       return;
     }
     const problem = file ? validateUpload(file) : null;
@@ -275,13 +346,14 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     setSending(true);
     section.classList.add('is-busy');
     input.disabled = true;
-    answer.readOnly = true;
+    answerBtn.disabled = true;
     note.readOnly = true;
     removeBtn.disabled = true;
     try {
       await busy(submit, file ? 'Uploading…' : 'Submitting…', async () => {
         try {
-          const row = { task_id: task.id, body: text || null, note: note.value.trim() || null };
+          // The plain text is what grading reads; the document keeps the formatting
+          const row = { task_id: task.id, body: text || null, body_doc: text ? doc : null, note: note.value.trim() || null };
           if (file) {
             const { body, type } = await prepareUpload(file);
             const path = storagePath(studentId, type);
@@ -312,7 +384,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
       setSending(false);
       section.classList.remove('is-busy');
       input.disabled = false;
-      answer.readOnly = false;
+      answerBtn.disabled = false;
       note.readOnly = false;
       removeBtn.disabled = false;
     }
