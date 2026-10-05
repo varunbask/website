@@ -11,7 +11,7 @@ const SPEC_NAMES = [
   'hourglass-medium', 'x-circle', 'check-circle', 'check', 'archive', 'minus-circle', 'file-text',
   'file-pdf', 'image-square', 'eye', 'eye-slash', 'envelope-simple', 'trend-up', 'trend-down', 'info',
   // Lesson materials and homework (schedules spec)
-  'presentation', 'paperclip', 'link-simple', 'book-open-text',
+  'presentation', 'paperclip', 'link-simple', 'book-open-text', 'corners-out', 'repeat',
 ];
 
 test('ICON_NAMES lists exactly the icons in the spec', () => {

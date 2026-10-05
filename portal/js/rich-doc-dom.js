@@ -5,7 +5,7 @@
 // images, and only the text and the formatting below survive.
 
 import { h } from './dom.js';
-import { normalizeDoc, docToText, DOC_VERSION } from './rich-doc.js';
+import { normalizeDoc, docToText, wordCount, DOC_VERSION } from './rich-doc.js';
 
 const SKIP = new Set(['SCRIPT', 'STYLE', 'TEMPLATE', 'HEAD', 'META', 'LINK', 'TITLE', 'NOSCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'SVG', 'MATH', 'IMG', 'VIDEO', 'AUDIO', 'CANVAS', 'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA']);
 const BLOCKS = new Set(['P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'LI', 'SECTION', 'ARTICLE', 'HEADER', 'FOOTER', 'ASIDE', 'MAIN', 'NAV', 'FIGURE', 'FIGCAPTION', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TD', 'TH', 'DL', 'DT', 'DD', 'ADDRESS', 'HR']);
@@ -205,13 +205,26 @@ export function docNodes(raw, { links = 'open' } = {}) {
   });
 }
 
-// A submitted answer as shown to tutors and families: the formatted document
-// when there is one, otherwise the plain text as typed (older answers). The
-// document is shown only when its text is the text that was graded, so a
-// tutor always sees what the grader read.
-export function answerView(sub, { className = null } = {}) {
+// A submitted answer's content: the formatted document when there is one,
+// otherwise the plain text as typed (older answers). The document is used
+// only when its text is the text that was graded, so a tutor always sees what
+// the grader read.
+//   -> { formatted: true, nodes } | { formatted: false, text }
+export function answerContent(sub) {
   const matches = sub?.body_doc && docToText(sub.body_doc).trim() === String(sub.body ?? '').trim();
   const nodes = matches ? docNodes(sub.body_doc) : [];
-  if (nodes.length) return h('div', { class: ['doc-view', 'read', className].filter(Boolean).join(' ') }, nodes);
-  return h('p', { class: ['read', 'is-pre', className].filter(Boolean).join(' ') }, sub?.body ?? '');
+  return nodes.length ? { formatted: true, nodes } : { formatted: false, text: String(sub?.body ?? '') };
+}
+
+// Words in a submitted answer, counted the way the editor counts them
+export function answerWords(sub) {
+  const content = answerContent(sub);
+  return content.formatted ? wordCount(sub.body_doc) : content.text.split(/\s+/).filter(Boolean).length;
+}
+
+// A submitted answer as shown to tutors and families
+export function answerView(sub, { className = null } = {}) {
+  const content = answerContent(sub);
+  if (content.formatted) return h('div', { class: ['doc-view', 'read', className].filter(Boolean).join(' ') }, content.nodes);
+  return h('p', { class: ['read', 'is-pre', className].filter(Boolean).join(' ') }, content.text);
 }

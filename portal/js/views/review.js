@@ -16,7 +16,7 @@ import { startGrading } from '../grading.js';
 import { filePreview } from '../file-preview.js';
 import { workIcon } from '../labels.js';
 import { gradeEditor } from '../grade-editor.js';
-import { answerView } from '../rich-doc-dom.js';
+import { docPreview } from '../doc-preview.js';
 import {
   normalizeFilter, queueOrder, neighbors, attemptInfo, reviewHref, stampLabel,
 } from '../review-model.js';
@@ -196,9 +196,7 @@ export async function mount(ctx) {
   // Left column: typed answer, file, note, instructions, other attempts
   const main = h('div', { class: 'rvw-main' });
   if (typeof sub.body === 'string' && sub.body.trim()) {
-    main.append(h('section', { class: 'rvw-block rvw-answer', 'aria-label': 'Typed answer' },
-      h('h2', { class: 'rvw-block-title' }, `${first}’s answer`, h('span', { class: 'rvw-file-attempt' }, `attempt ${info.n}`)),
-      answerView(sub, { className: 'rvw-answer-text' })));
+    main.append(docPreview(sub, { attempt: info.n, title, author: first, signal: ctx.signal }));
   }
   if (sub.storage_path) main.append(filePreview(sub, { signal: ctx.signal, attempt: info.n }));
 
