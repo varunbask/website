@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { hashToken } from './testimonials.js';
 import { sendMail, escapeHtml, siteOf, DEFAULT_TO } from './referral-mail.js';
 
@@ -11,6 +11,10 @@ import { sendMail, escapeHtml, siteOf, DEFAULT_TO } from './referral-mail.js';
 //   { action: 'create', full_name, role }        admin: a student or parent with no sign-in -> { id }
 //   { action: 'email', t, to }                   admin: email the personal link to `to`
 //   { action: 'join', t, email, password }       the person: choose an email and password (once)
+//   { action: 'use_signup', signup_id, profile_id }
+//                                                admin: someone signed up who was already added without
+//                                                a login; remove the sign-up and email them a link to
+//                                                that account instead
 //
 // The admin's browser makes the link (random token, SHA-256 stored in
 // portal_invites, the link shown once), as with review links. Joining moves
@@ -138,7 +142,8 @@ export async function handlePeople(request, {
     const problem = inviteProblem(invite, now());
     if (problem) return json(problem === 'invalid' ? 404 : 410, { error: problem });
     const children = invite.profile.role === 'parent' ? await repo.childrenOf(invite.profile_id) : [];
-    return json(200, { ok: true, name: invite.profile.full_name, role: invite.profile.role, children });
+    // The address the link was emailed to fills the join form's email
+    return json(200, { ok: true, name: invite.profile.full_name, role: invite.profile.role, children, email: invite.emailed_to ?? null });
   }
   if (request.method !== 'POST') return json(405, { error: 'method' });
 
@@ -179,6 +184,32 @@ export async function handlePeople(request, {
     return json(200, { ok: true });
   }
 
+  if (data.action === 'use_signup') {
+    const caller = await verifyAdmin(request);
+    if (!caller) return json(401, { error: 'unauthorized' });
+    if (!env.RESEND_API_KEY) return json(503, { error: 'email_not_configured' });
+    const [signup, person] = await Promise.all([repo.getProfile(data.signup_id), repo.getProfile(data.profile_id)]);
+    if (!signup || signup.role !== 'pending') return json(409, { error: 'not_pending' });
+    if (!person || !person.no_login || !ROLES.includes(person.role)) return json(409, { error: 'not_no_login' });
+    const found = await auth.getUserById(signup.id);
+    const to = normalizeEmail(found.data?.user?.email);
+    if (found.error || !to) return json(409, { error: 'no_email' });
+    // The sign-up holds their address; remove it first so the link can move the account to it
+    const removed = await auth.deleteUser(signup.id);
+    if (removed?.error) throw new Error(`deleteUser: ${removed.error.message ?? 'failed'}`);
+    const token = randomBytes(32).toString('base64url');
+    const invite = await repo.createInvite(person.id, hashToken(token), caller.id);
+    const children = person.role === 'parent' ? await repo.childrenOf(person.id) : [];
+    const mail = buildInviteEmail({ name: person.full_name, role: person.role, children, link: inviteLink(token, env), to });
+    try {
+      if ((await send(mail, { env, fetchImpl })) === 'skipped') throw new Error('skipped');
+    } catch {
+      return json(502, { error: 'email_failed' });
+    }
+    await repo.markEmailed(invite.id, to, new Date(now()).toISOString());
+    return json(200, { ok: true, to });
+  }
+
   if (data.action === 'join') {
     if (!tokenShape(data.t)) return json(404, { error: 'invalid' });
     const invite = await repo.findInvite(hashToken(data.t));
@@ -217,7 +248,7 @@ export function createPeopleRepo(db) {
     async findInvite(tokenHash) {
       // portal_invites points at profiles twice (profile_id, created_by): name the one to embed
       return check(await db.from('portal_invites')
-        .select('id, profile_id, expires_at, used_at, profile:profiles!portal_invites_profile_id_fkey(full_name, role, no_login)')
+        .select('id, profile_id, expires_at, used_at, emailed_to, profile:profiles!portal_invites_profile_id_fkey(full_name, role, no_login)')
         .eq('token_hash', tokenHash).maybeSingle(), 'findInvite');
     },
     async childrenOf(parentId) {
@@ -245,6 +276,14 @@ export function createPeopleRepo(db) {
     },
     async finishJoin(id, email) {
       check(await db.from('profiles').update({ email, no_login: false }).eq('id', id), 'finishJoin');
+    },
+    async getProfile(id) {
+      if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return null;
+      return check(await db.from('profiles').select('id, full_name, role, no_login').eq('id', id).maybeSingle(), 'getProfile');
+    },
+    async createInvite(profileId, tokenHash, createdBy) {
+      return check(await db.from('portal_invites').insert({ profile_id: profileId, token_hash: tokenHash, created_by: createdBy })
+        .select('id').single(), 'createInvite');
     },
     async getRole(userId) {
       return check(await db.from('profiles').select('role').eq('id', userId).maybeSingle(), 'getRole')?.role ?? null;

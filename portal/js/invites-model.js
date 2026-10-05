@@ -140,3 +140,29 @@ export function planFamilies(rows, { people = [], parentLinks = [] } = {}) {
   }
   return { add: [...add.values()], found: [...found.values()], links: [...links.values()], problems };
 }
+
+// ---------------------------------------------------------------------------
+// A sign-up waiting for approval that may be someone already added without a
+// login (their lessons and bills are on that account, so the sign-up would be
+// a second, empty one). Only students and parents of the role they asked for
+// (any of the two when they asked for none); the same full name, or the same
+// first name when one of the two names is only a first name ("Amy" and
+// "Amy Chen"). Two different surnames never match.
+// -> [{ person, exact }], exact matches first
+export function signupMatches(signup, people = []) {
+  const wanted = signup?.requested_role;
+  if (wanted && !['student', 'parent'].includes(wanted)) return [];
+  const name = lower(signup?.full_name);
+  if (!name) return [];
+  const words = name.split(' ');
+  const out = [];
+  for (const p of people) {
+    if (!p.no_login || !['student', 'parent'].includes(p.role) || (wanted && p.role !== wanted) || p.id === signup.id) continue;
+    const other = lower(p.full_name);
+    if (!other) continue;
+    const otherWords = other.split(' ');
+    if (other === name) out.push({ person: p, exact: true });
+    else if (otherWords[0] === words[0] && (words.length === 1 || otherWords.length === 1)) out.push({ person: p, exact: false });
+  }
+  return out.sort((a, b) => Number(b.exact) - Number(a.exact) || lower(a.person.full_name).localeCompare(lower(b.person.full_name))).slice(0, 3);
+}

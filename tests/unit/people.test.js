@@ -12,7 +12,10 @@ const NOW = Date.parse('2026-10-05T19:00:00Z');
 const TOKEN = 'A'.repeat(43);
 const ENV = { SITE_URL: 'https://www.varunbaskaran.com', RESEND_API_KEY: 're_test' };
 
-function fakes({ invite = undefined, children = ['Maya Lin'], updateError = null, admin = true } = {}) {
+const SIGNUP = '11111111-1111-4111-8111-111111111111';
+const NOLOGIN = '22222222-2222-4222-8222-222222222222';
+
+function fakes({ invite = undefined, children = ['Maya Lin'], updateError = null, admin = true, profiles = null } = {}) {
   const state = {
     invite: invite === undefined
       ? { id: 7, profile_id: 'p1', expires_at: '2026-11-01T00:00:00Z', used_at: null, profile: { full_name: 'Grace Lin', role: 'parent', no_login: true } }
@@ -33,15 +36,21 @@ function fakes({ invite = undefined, children = ['Maya Lin'], updateError = null
     releaseInvite: vi.fn(async () => { state.invite.used_at = null; }),
     markEmailed: vi.fn(async (id, to, at) => { state.emailed = { id, to, at }; }),
     markNoLogin: vi.fn(async (id, role, name) => { state.profiles[id] = { role, name, no_login: true }; }),
+    getProfile: vi.fn(async (id) => (profiles ?? {
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Lin', role: 'pending', no_login: false },
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace', role: 'parent', no_login: true },
+    })[id] ?? null),
+    createInvite: vi.fn(async (profileId, tokenHash, createdBy) => { state.created = { profileId, tokenHash, createdBy }; return { id: 99 }; }),
     finishJoin: vi.fn(async (id, email) => { state.profiles[id] = { ...(state.profiles[id] ?? {}), email, no_login: false }; }),
   };
   const auth = {
     createUser: vi.fn(async (attrs) => { state.users.new = attrs; return { data: { user: { id: 'new-id' } }, error: null }; }),
     updateUserById: vi.fn(async (id, attrs) => (updateError ? { data: null, error: updateError } : (state.users[id] = attrs, { data: { user: { id } }, error: null }))),
-    deleteUser: vi.fn(async () => ({ error: null })),
+    deleteUser: vi.fn(async (id) => { state.deleted = id; return { error: null }; }),
+    getUserById: vi.fn(async (id) => ({ data: { user: { id, email: 'Grace.Lin@Example.com' } }, error: null })),
   };
   const send = vi.fn(async (mail) => { state.sent.push(mail); return 'sent'; });
-  const deps = { repo, auth, verifyAdmin: vi.fn(async () => (admin ? { id: 'admin' } : null)), env: ENV, now: () => NOW, send };
+  const deps = { repo, auth, verifyAdmin: vi.fn(async () => (admin ? { id: 'admin-id' } : null)), env: ENV, now: () => NOW, send };
   return { state, repo, auth, send, deps };
 }
 
@@ -110,7 +119,7 @@ describe('GET: the join page asks about a link', () => {
     const { deps } = fakes();
     const res = await handlePeople(get(TOKEN), deps);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, name: 'Grace Lin', role: 'parent', children: ['Maya Lin'] });
+    expect(await res.json()).toEqual({ ok: true, name: 'Grace Lin', role: 'parent', children: ['Maya Lin'], email: null });
   });
 
   test('bad, unknown, used and expired links', async () => {
@@ -230,6 +239,68 @@ describe('join: the parent claims the account', () => {
     expect((await handlePeople(post({ action: 'nope' }), fakes().deps)).status).toBe(400);
     expect((await handlePeople(new Request('https://x.test/api/people', { method: 'POST', body: '{' }), fakes().deps)).status).toBe(400);
     expect((await handlePeople(new Request('https://x.test/api/people', { method: 'DELETE' }), fakes().deps)).status).toBe(405);
+  });
+});
+
+test('the join page gets the address the link was emailed to, to fill the form', async () => {
+  const f = fakes();
+  f.state.invite.emailed_to = 'grace.lin@example.com';
+  expect((await (await handlePeople(get(TOKEN), f.deps)).json()).email).toBe('grace.lin@example.com');
+});
+
+describe('use_signup: someone signed up who was already added without a login', () => {
+  const body = { action: 'use_signup', signup_id: SIGNUP, profile_id: NOLOGIN };
+
+  test('removes the sign-up, then emails them a fresh link to the account that has their lessons', async () => {
+    const f = fakes();
+    const res = await handlePeople(post(body), f.deps);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, to: 'grace.lin@example.com' });
+    expect(f.state.deleted).toBe(SIGNUP);
+    expect(f.auth.deleteUser.mock.invocationCallOrder[0]).toBeLessThan(f.repo.createInvite.mock.invocationCallOrder[0]);
+    expect(f.state.created).toMatchObject({ profileId: NOLOGIN, createdBy: 'admin-id' });
+    expect(f.state.created.tokenHash).toMatch(/^[0-9a-f]{64}$/);
+    const [mail] = f.state.sent;
+    expect(mail.to).toBe('grace.lin@example.com');
+    const token = /#t=([A-Za-z0-9_-]{43})/.exec(mail.text)[1];
+    expect(hashToken(token)).toBe(f.state.created.tokenHash);
+    expect(mail.text).toContain('Maya’s lessons');
+    expect(f.state.emailed).toMatchObject({ id: 99, to: 'grace.lin@example.com' });
+  });
+
+  test('admins only, and nothing changes when email is not set up', async () => {
+    const f = fakes({ admin: false });
+    expect((await handlePeople(post(body), f.deps)).status).toBe(401);
+    const g = fakes();
+    expect((await handlePeople(post(body), { ...g.deps, env: { SITE_URL: ENV.SITE_URL } })).status).toBe(503);
+    for (const x of [f, g]) expect(x.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test('refuses when the sign-up was already approved, or the account already signs in', async () => {
+    const approved = fakes({ profiles: {
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Lin', role: 'parent', no_login: false },
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace', role: 'parent', no_login: true },
+    } });
+    expect(await (await handlePeople(post(body), approved.deps)).json()).toEqual({ error: 'not_pending' });
+    const joined = fakes({ profiles: {
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Lin', role: 'pending', no_login: false },
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace', role: 'parent', no_login: false },
+    } });
+    expect(await (await handlePeople(post(body), joined.deps)).json()).toEqual({ error: 'not_no_login' });
+    const tutor = fakes({ profiles: {
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Lin', role: 'pending', no_login: false },
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace', role: 'tutor', no_login: true },
+    } });
+    expect((await handlePeople(post(body), tutor.deps)).status).toBe(409);
+    for (const x of [approved, joined, tutor]) expect(x.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test('an email that fails after the sign-up is removed says so', async () => {
+    const f = fakes();
+    f.deps.send = vi.fn(async () => { throw new Error('resend 500'); });
+    expect((await handlePeople(post(body), f.deps)).status).toBe(502);
+    expect(f.state.deleted).toBe(SIGNUP);
+    expect(f.state.emailed).toBeNull();
   });
 });
 
