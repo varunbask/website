@@ -69,3 +69,74 @@ export function inviteState(invites, now = Date.now()) {
   if (Date.parse(latest.expires_at) < now) return { key: 'expired', invite: latest };
   return { key: 'open', invite: latest };
 }
+
+// ---------------------------------------------------------------------------
+// Add from a list: the old scheduler's lines, "Amy (Ryan): Math $45",
+// "Mason (Sunny)" or just "Amy". Anything after ":" (the rates) is ignored here.
+
+export const NAME_MAX = 120;
+const normName = (s) => String(s ?? '').trim().replace(/\s+/g, ' ');
+const lower = (s) => normName(s).toLowerCase();
+
+// -> { rows: [{ line, student, parent }], errors: [{ line, error }] }
+export function parseFamilyLines(text) {
+  const rows = [];
+  const errors = [];
+  for (const raw of String(text ?? '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const m = /^([^():]+?)\s*(?:\(([^()]*)\))?\s*(?::.*)?$/.exec(line);
+    const student = normName(m?.[1]);
+    const parent = normName(m?.[2]) || null;
+    if (!m || !student) {
+      errors.push({ line, error: 'Write it as Student (Parent)' });
+      continue;
+    }
+    if (student.length > NAME_MAX || (parent && parent.length > NAME_MAX)) {
+      errors.push({ line, error: `Names can be at most ${NAME_MAX} characters` });
+      continue;
+    }
+    rows.push({ line, student, parent });
+  }
+  return { rows, errors };
+}
+
+// Who to add, who is already in the portal and which parent links to make.
+// An account is reused only on an exact full-name match with the same role; a
+// first-name-only match ("Grace" when "Grace Lin" exists) is flagged instead,
+// so a child is never linked to the wrong family's parent.
+//   people: [{ id, full_name, role }]  parentLinks: [{ parent_id, student_id }]
+// -> { add: [{ key, name, role }], found: [{ key, name, role, id }],
+//      links: [{ parent, student }] (keys), problems: [{ line, reason }] }
+export function planFamilies(rows, { people = [], parentLinks = [] } = {}) {
+  const resolve = (name, role) => {
+    const same = people.filter((p) => p.role === role && lower(p.full_name) === lower(name));
+    if (same.length === 1) return { key: `id:${same[0].id}`, name: normName(same[0].full_name), role, id: String(same[0].id) };
+    if (same.length > 1) return { reason: `There are ${same.length} ${role}s named ${name} in the portal; link this one by hand` };
+    const nameFirst = lower(name).split(' ')[0];
+    const near = people.filter((p) => p.role === role && lower(p.full_name).split(' ')[0] === nameFirst);
+    if (near.length) return { reason: `Is this ${near.map((p) => normName(p.full_name)).join(' or ')}? Write the full name to use that account` };
+    return { key: `new:${role}:${lower(name)}`, name, role };
+  };
+  const add = new Map();
+  const found = new Map();
+  const links = new Map();
+  const problems = [];
+  for (const row of rows) {
+    const student = resolve(row.student, 'student');
+    const parent = row.parent ? resolve(row.parent, 'parent') : null;
+    const reason = student.reason ?? parent?.reason;
+    if (reason) {
+      problems.push({ line: row.line, reason });
+      continue;
+    }
+    for (const who of [student, parent].filter(Boolean)) {
+      if (who.id) found.set(who.key, who);
+      else if (!add.has(who.key)) add.set(who.key, { key: who.key, name: who.name, role: who.role });
+    }
+    if (!parent) continue;
+    const linked = parent.id && student.id && parentLinks.some((l) => String(l.parent_id) === parent.id && String(l.student_id) === student.id);
+    if (!linked) links.set(`${parent.key}|${student.key}`, { parent: parent.key, student: student.key });
+  }
+  return { add: [...add.values()], found: [...found.values()], links: [...links.values()], problems };
+}

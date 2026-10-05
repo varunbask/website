@@ -26,7 +26,7 @@
 import { sb } from '../supabase.js';
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
-import { newInviteToken, inviteLink, inviteMessage, inviteState } from '../invites-model.js';
+import { newInviteToken, inviteLink, inviteMessage, inviteState, parseFamilyLines, planFamilies } from '../invites-model.js';
 import {
   avatar, button, iconButton, busy, pill, select, emptyState, errorCallout, skeletonRows,
   segmented, setSegmented, groupHeader, badgeText, visuallyHidden,
@@ -520,11 +520,21 @@ export function mount(ctx) {
     const form = h('form', { class: 'ppl-add-person', hidden: true },
       h('p', { class: 'ppl-add-person-help' }, 'For a student or parent who has no account yet. You can link, schedule and bill them now, and send them an invite to set up their sign-in later.'),
       h('div', { class: 'ppl-add-person-row' }, nameInput, kind, add));
+    const list = addFromList();
     const open = button({
       label: 'Add without a login', size: 'sm', variant: 'secondary', icon: 'plus', focusKey: 'ppl-add-open',
       onClick: () => {
         form.hidden = !form.hidden;
+        list.hidden = true;
         if (!form.hidden) nameInput.focus();
+      },
+    });
+    const openList = button({
+      label: 'Paste a list', size: 'sm', variant: 'ghost', icon: 'clipboard-text', focusKey: 'ppl-list-open',
+      onClick: () => {
+        list.hidden = !list.hidden;
+        form.hidden = true;
+        if (!list.hidden) list.querySelector('textarea').focus();
       },
     });
     form.addEventListener('submit', (e) => {
@@ -548,7 +558,94 @@ export function mount(ctx) {
         syncCounts();
       });
     });
-    return h('div', { class: 'ppl-add-wrap' }, open, form);
+    return h('div', { class: 'ppl-add-wrap' }, h('div', { class: 'ppl-add-buttons' }, open, openList), form, list);
+  }
+
+  // Many families at once, from the old scheduler's lines ("Amy (Ryan): Math $45"):
+  // adds the students and parents who are not in the portal yet, without a
+  // login, and links each student to their parent. Nothing is saved until Add.
+  function addFromList() {
+    const text = h('textarea', {
+      class: 'input textarea ppl-list-text', rows: '6', 'aria-label': 'Families, one student per line',
+      placeholder: 'Amy (Ryan)\nMason (Sunny)\nBill (Sunny): Programming $15',
+    });
+    const out = h('div', { class: 'ppl-list-plan' });
+    const progress = h('p', { class: 'ppl-list-progress', role: 'status' });
+    let plan = null;
+    const names = (rows) => rows.map((p) => p.name).join(', ');
+    const section = (title, body, warning = false) => [
+      h('h4', { class: `ppl-list-title${warning ? ' is-warning' : ''}` }, title),
+      body,
+    ];
+    const go = button({ label: 'Add', variant: 'primary', size: 'sm', icon: 'plus', focusKey: 'ppl-list-add' });
+    const preview = button({
+      label: 'Preview', size: 'sm', focusKey: 'ppl-list-preview',
+      onClick: () => {
+        const parsed = parseFamilyLines(text.value);
+        plan = planFamilies(parsed.rows, { people: data.people, parentLinks: data.parentLinks });
+        const students = plan.add.filter((p) => p.role === 'student');
+        const parents = plan.add.filter((p) => p.role === 'parent');
+        const issues = [...parsed.errors.map((e) => `${e.line}: ${e.error}`), ...plan.problems.map((p) => `${p.line}: ${p.reason}`)];
+        const total = plan.add.length + plan.links.length;
+        go.querySelector('.btn-label').textContent = `Add ${plan.add.length} ${plan.add.length === 1 ? 'person' : 'people'}`
+          + (plan.links.length ? ` and ${plan.links.length} ${plan.links.length === 1 ? 'link' : 'links'}` : '');
+        out.replaceChildren(
+          ...(students.length ? section(`New students (${students.length})`, h('p', {}, names(students))) : []),
+          ...(parents.length ? section(`New parents (${parents.length})`, h('p', {}, names(parents))) : []),
+          ...(plan.found.length ? section(`Already in the portal (${plan.found.length})`, h('p', {}, names(plan.found))) : []),
+          ...(plan.links.length ? section(`Parent links to make (${plan.links.length})`, h('p', {}, 'Each student to the parent in brackets. The first parent linked to a student pays.')) : []),
+          ...(issues.length ? section(`Needs attention, skipped (${issues.length})`, h('ul', {}, issues.map((t) => h('li', {}, t))), true) : []),
+          total ? go : h('p', { class: 'ppl-list-none' }, 'Nothing new to add.'),
+        );
+      },
+    });
+    go.addEventListener('click', () => busy(go, 'Adding…', async () => {
+      if (!plan) return;
+      const ids = new Map(plan.found.map((p) => [p.key, p.id]));
+      let made = 0;
+      let failed = 0;
+      for (const person of plan.add) {
+        progress.textContent = `Adding ${made + failed + 1} of ${plan.add.length}…`;
+        const { status, body } = await peopleApi({ action: 'create', full_name: person.name, role: person.role });
+        if (!ctx.alive()) return;
+        if (status === 201 && body.id) {
+          ids.set(person.key, body.id);
+          made += 1;
+        } else {
+          failed += 1;
+          if (status === 401 || status === 0) break;
+        }
+      }
+      let linked = 0;
+      for (const l of plan.links) {
+        const parentId = ids.get(l.parent);
+        const studentId = ids.get(l.student);
+        if (!parentId || !studentId) continue;
+        progress.textContent = `Linking ${linked + 1} of ${plan.links.length}…`;
+        const { error } = await sb.from('parent_students').insert({ parent_id: parentId, student_id: studentId });
+        if (!ctx.alive()) return;
+        if (error) failed += 1;
+        else linked += 1;
+      }
+      progress.textContent = '';
+      plan = null;
+      out.replaceChildren();
+      const done = `Added ${made} ${made === 1 ? 'person' : 'people'} without a login and ${linked} parent ${linked === 1 ? 'link' : 'links'}.`;
+      if (failed) {
+        say(`${done} ${failed} didn’t save. Paste the same list again to add the rest; anyone already added is kept.`, 'error');
+      } else {
+        text.value = '';
+        say(`${done} Press Invite on a parent’s row when the family is ready to sign in.`, 'success');
+      }
+      await render({ fallback: 'ppl-list-open' });
+      syncCounts();
+    }));
+    return h('div', { class: 'ppl-add-person ppl-add-list', hidden: true },
+      h('p', { class: 'ppl-add-person-help' }, 'One student per line, with their parent in brackets, as the old scheduler lists them: Amy (Ryan). Rates after a colon are ignored here (paste them on Account > Rates). People already in the portal under the same full name are reused, not added twice.'),
+      text,
+      h('div', { class: 'ppl-add-person-row' }, preview),
+      progress,
+      out);
   }
 
   // The latest invite of a person without a sign-in, and making a new one

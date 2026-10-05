@@ -1,6 +1,8 @@
 import { describe, test, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   newInviteToken, inviteLink, inviteMessage, namesText, readToken, joinCopy, joinProblem, joinError, inviteState,
+  parseFamilyLines, planFamilies,
 } from '../../portal/js/invites-model.js';
 
 describe('invite links', () => {
@@ -58,5 +60,55 @@ describe('a person’s latest invite', () => {
     expect(inviteState([b, a], NOW)).toEqual({ key: 'open', invite: a });
     expect(inviteState([b], NOW).key).toBe('expired');
     expect(inviteState([{ ...a, used_at: '2026-10-02T00:00:00Z' }], NOW).key).toBe('used');
+  });
+});
+
+describe('adding families from a list', () => {
+  const REFERENCE = readFileSync(new URL('../../docs/account-view/reference-rates.txt', import.meta.url), 'utf8');
+
+  test('reads the scheduler lines, with or without a parent and rates', () => {
+    const { rows, errors } = parseFamilyLines('Amy (Ryan): Math $45\n  Mason  (Sunny) \nLeo\n\n(Ryan)\nRachel (Mrs. Manyala): Math $60');
+    expect(rows.map((r) => [r.student, r.parent])).toEqual([['Amy', 'Ryan'], ['Mason', 'Sunny'], ['Leo', null], ['Rachel', 'Mrs. Manyala']]);
+    expect(errors).toEqual([{ line: '(Ryan)', error: 'Write it as Student (Parent)' }]);
+    expect(parseFamilyLines(`${'x'.repeat(121)} (Ryan)`).errors).toHaveLength(1);
+  });
+
+  test('the whole old scheduler into an empty portal: 27 students, 19 parents, 27 links', () => {
+    const { rows, errors } = parseFamilyLines(REFERENCE);
+    expect(errors).toEqual([]);
+    const plan = planFamilies(rows, { people: [] });
+    expect(plan.problems).toEqual([]);
+    expect(plan.add.filter((p) => p.role === 'student')).toHaveLength(27);
+    expect(plan.add.filter((p) => p.role === 'parent')).toHaveLength(19);
+    expect(plan.links).toHaveLength(27);
+    // Sunny's three children share one parent
+    const sunny = plan.add.find((p) => p.name === 'Sunny');
+    expect(plan.links.filter((l) => l.parent === sunny.key)).toHaveLength(3);
+    // Jayden and Jayden Lieu are two students
+    expect(plan.add.filter((p) => p.name.startsWith('Jayden')).map((p) => p.name)).toEqual(['Jayden', 'Jayden Lieu']);
+  });
+
+  test('reuses an exact name, skips links that exist, and never guesses from a first name', () => {
+    const people = [
+      { id: 's1', full_name: 'Amy', role: 'student' },
+      { id: 'p1', full_name: 'ryan', role: 'parent' },
+      { id: 'p2', full_name: 'Grace Lin', role: 'parent' },
+      { id: 's2', full_name: 'Kevin', role: 'student' },
+      { id: 's3', full_name: 'Kevin', role: 'student' },
+      { id: 't1', full_name: 'Sunny', role: 'tutor' },
+    ];
+    const { rows } = parseFamilyLines('Amy (Ryan)\nCamila (Grace)\nKevin (Alan)\nMason (Sunny)\nGordon (Grace Lin)');
+    const plan = planFamilies(rows, { people, parentLinks: [{ parent_id: 'p1', student_id: 's1' }] });
+    expect(plan.found.map((p) => p.id).sort()).toEqual(['p1', 'p2', 's1']);
+    expect(plan.problems).toEqual([
+      { line: 'Camila (Grace)', reason: 'Is this Grace Lin? Write the full name to use that account' },
+      { line: 'Kevin (Alan)', reason: 'There are 2 students named Kevin in the portal; link this one by hand' },
+    ]);
+    // Camila is not added because her line needs attention; a tutor named Sunny is not a parent
+    expect(plan.add.map((p) => `${p.role} ${p.name}`)).toEqual(['student Mason', 'parent Sunny', 'student Gordon']);
+    expect(plan.links).toEqual([
+      { parent: 'new:parent:sunny', student: 'new:student:mason' },
+      { parent: 'id:p2', student: 'new:student:gordon' },
+    ]);
   });
 });
