@@ -568,6 +568,10 @@
 }
 .ppl-chip:has(> .ppl-chip-remove:hover) { border-color: var(--control); }
 .ppl-chip-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+/* Which parent gets the bill (Account page), shown when a student has two or more parents */
+.ppl-pays { flex: none; }
+.pill.ppl-pays { height: 20px; }
+.btn.ppl-pays { height: 24px; padding: 0 var(--s-2); }
 .ppl-chip > .ppl-chip-remove {
   width: 24px;
   height: 24px;

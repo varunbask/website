@@ -7,7 +7,7 @@ import { SUPABASE_URL } from '../../portal/js/config.js';
 // Integration checks for the redesigned portal shell (spec 11.3 step 2).
 const PORTAL = fileURLToPath(new URL('../../portal', import.meta.url));
 const GEIST_URL = 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap';
-const APP_PAGES = ['student.html', 'parent.html', 'staff.html', 'people.html'];
+const APP_PAGES = ['student.html', 'parent.html', 'staff.html', 'people.html', 'account.html'];
 
 function files(dir) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) =>

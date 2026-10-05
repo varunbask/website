@@ -141,6 +141,12 @@ describe('lists', () => {
     expect(followingInSeries([c, other, a, b], b)).toEqual([b, c]);
     const single = session('2026-10-21', '16:00', '17:00');
     expect(followingInSeries([single], single)).toEqual([single]);
+    // with now, later sessions that already started are left out; the session itself stays
+    const afterB = new Date(Date.parse(b.starts_at) + 60_000);
+    expect(followingInSeries([a, b, c], a, { now: afterB })).toEqual([a, c]);
+    expect(followingInSeries([a, b, c], b, { now: afterB })).toEqual([b, c]);
+    const afterC = new Date(Date.parse(c.starts_at) + 60_000);
+    expect(followingInSeries([a, b, c], b, { now: afterC })).toEqual([b]);
   });
 });
 

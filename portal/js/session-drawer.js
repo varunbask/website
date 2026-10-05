@@ -29,6 +29,7 @@ import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, homeworkDueKey } from './materials-model.js';
 import { getGoogleStatus, syncSoon } from './google.js';
 import { ownGoogleLink, syncNote } from './google-model.js';
+import { buildContext, billingFact, inPaidPeriod } from './billing-model.js';
 
 const MISSING = 'This session isn’t available. It may have been cancelled or removed.';
 const sameId = (a, b) => String(a) === String(b);
@@ -184,11 +185,13 @@ async function loadExtras(dctx, found) {
   // sync status (it never rejects; an unreadable one just means no note)
   const waiting = canHaveSessions(dctx.me?.role) && sameId(session.tutor_id, dctx.me.id)
     && (session.sync_state === 'pending' || session.sync_state === 'error');
-  const [materials, data, google, rule] = await Promise.all([
+  const [materials, data, google, rule, billing] = await Promise.all([
     store.getMaterials(found.studentId).catch((error) => { console.error(error); return null; }),
     store.getStudentData(found.studentId).catch((error) => { console.error(error); return null; }),
     waiting ? getGoogleStatus() : null,
     session.series_id ? loadRule(session.series_id) : null,
+    // The admin sees what the session is worth (Account page); nobody else loads billing
+    dctx.me?.role === 'admin' && store.getBilling ? priced(store) : null,
   ]);
   const items = data
     ? store.itemsFor(data, { now: new Date(), audience: dctx.audience, viewerId: dctx.me?.id })
@@ -200,7 +203,18 @@ async function loadExtras(dctx, found) {
     homework: items,
     google,
     rule,
+    billing,
   };
+}
+
+// The calendar priced for the Account page, or null (billing not set up yet, or it failed)
+async function priced(store) {
+  try {
+    const d = await store.getBilling();
+    return buildContext({ sessions: d.sessions, links: d.links, rules: d.rules, billing: d.billing, now: new Date(), adminIds: d.adminIds });
+  } catch {
+    return null;
+  }
 }
 
 // The weekly rule of a series (only series made since repeats became open
@@ -213,7 +227,7 @@ async function loadRule(seriesId) {
 
 // Whether a session has later ones in its series, so actions ask which
 function hasFollowing(found) {
-  return Boolean(found.session.series_id) && followingInSeries(found.sessions, found.session).length > 1;
+  return Boolean(found.session.series_id) && followingInSeries(found.sessions, found.session, { now: new Date() }).length > 1;
 }
 
 // Google Calendar's question for a repeating session: 'this', 'following' or null
@@ -386,7 +400,9 @@ export function renderSessionDetail(dctx) {
     }
     if (result.error) {
       console.error(result.error);
-      if (dctx.alive()) showActionError(failed);
+      // The billing guard says why (a session that happened, a paid period)
+      const guard = result.error.code === 'VP002';
+      if (dctx.alive()) showActionError(guard ? `${String(result.error.message).replace(/\.?$/, '.')}` : failed);
       return;
     }
     if (!result.data?.length) {
@@ -420,22 +436,35 @@ export function renderSessionDetail(dctx) {
       if (!scope || !dctx.alive()) return;
     }
     const targets = scope === 'following'
-      ? followingInSeries(found.sessions, found.session).filter((s) => !isCancelled(s))
+      ? followingInSeries(found.sessions, found.session, { now: new Date() }).filter((s) => !isCancelled(s))
       : [found.session];
     if (!targets.length) {
       dctx.toast({ text: 'Those sessions are already cancelled' });
       return;
     }
+    // Money already moved for this session's month or pay period: say so first
+    if (inPaidPeriod(found.billing, found.session)) {
+      const ok = await dctx.confirm({
+        title: 'Cancel a session that was paid for?',
+        body: 'The family or tutor has already been paid for this month or pay period. The Account page will show the difference so you can settle it.',
+        confirmLabel: 'Cancel session',
+        cancelLabel: 'Keep it',
+        tone: 'danger',
+      });
+      if (!ok || !dctx.alive()) return;
+    }
     const patch = { status: 'cancelled' };
     return write({
       run: async () => {
-        if (scope === 'following') {
+        // The sessions first; the repeat ends only once they are cancelled
+        const result = await (targets.length === 1
+          ? sb.from('sessions').update(patch).eq('id', targets[0].id).select('id')
+          : sb.from('sessions').update(patch).in('id', targets.map((s) => s.id)).select('id'));
+        if (scope === 'following' && !result.error && result.data?.length) {
           const problem = await endSeries(found.session);
           if (problem) return { error: { message: problem } };
         }
-        return targets.length === 1
-        ? sb.from('sessions').update(patch).eq('id', targets[0].id).select('id')
-          : sb.from('sessions').update(patch).in('id', targets.map((s) => s.id)).select('id');
+        return result;
       },
       failed: 'We couldn’t cancel that session. Try again.',
       done: (n) => sessionsToast(n, 'cancelled'),
@@ -473,10 +502,12 @@ export function renderSessionDetail(dctx) {
       });
       if (!ok || !dctx.alive()) return;
     }
-    const targets = scope === 'following' ? followingInSeries(found.sessions, found.session) : [found.session];
+    // "This and following" from a session that already happened: that one and the ones still to come
+    const targets = scope === 'following' ? followingInSeries(found.sessions, found.session, { now: new Date() }) : [found.session];
     const n = targets.length;
     await write({
       run: async () => {
+        // end_session_series needs the session row, so the repeat ends first
         if (scope === 'following') {
           const problem = await endSeries(found.session);
           if (problem) return { error: { message: problem } };
@@ -499,7 +530,7 @@ export function renderSessionDetail(dctx) {
   function calendar(series) {
     const found = state.found;
     if (!found) return;
-    const list = series ? followingInSeries(found.sessions, found.session) : [found.session];
+    const list = series ? followingInSeries(found.sessions, found.session, { now: new Date() }) : [found.session];
     downloadIcs(list, { names: state.names, fileName: icsFileName(found.session, { series }), host: dctx.body });
     dctx.toast({ text: 'Calendar file downloaded' });
   }
@@ -523,7 +554,7 @@ function buildDetail(dctx, found, { now, names, actions }) {
   const started = Date.parse(session.starts_at) <= now.getTime();
   const tutorName = names?.get?.(String(session.tutor_id)) || null;
   const title = sessionTitle(session);
-  const following = followingInSeries(sessions, session);
+  const following = followingInSeries(sessions, session, { now });
   const inSeries = Boolean(session.series_id) && following.length > 1;
 
   // Bar: state pill; the staff menu
@@ -580,6 +611,8 @@ function buildDetail(dctx, found, { now, names, actions }) {
 
   const series = seriesLeftText(sessions, session, found.rule);
   if (series) fact('Series', series);
+  const money = billingFact(found.billing, session, dctx.me?.role);
+  if (money) fact('Billing', h('a', { href: '/portal/account.html#/dashboard' }, money));
 
   const head = h('div', { class: cancelled ? 'ses-head is-cancelled' : 'ses-head' },
     h('p', { class: 'drawer-kind' }, 'Tutoring session'),

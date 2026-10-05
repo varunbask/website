@@ -15,6 +15,9 @@ const PUSH_BATCH = 50;
 const INSTANCES_BACK_MS = 56 * DAY_MS;
 const INSTANCES_AHEAD_MS = 182 * DAY_MS;
 const TIME_KEYS = new Set(['starts_at', 'ends_at']);
+// A session that ended this long ago, or has attendance, is what families are
+// billed and tutors paid for: a change in Google no longer cancels or moves it
+const SETTLED_MS = DAY_MS;
 
 const https = (url) => (typeof url === 'string' && /^https:\/\//.test(url) ? url : null);
 
@@ -336,9 +339,11 @@ async function cancelSeries(ctx, recurringId) {
 
 // A series edited in Google: the rows of it in the window whose events Google no longer lists
 // (the edit gave its instances new ids) are cancelled, so each week keeps one row
+// Only from now on: a session that already happened stays, whatever Google did to its event
 async function cancelStaleInstances(ctx, masterId, instances, window) {
+  const from = new Date(Math.max(Date.parse(window.from), ctx.now.getTime())).toISOString();
   ctx.result.cancelled += await ctx.repo.cancelMissingInstances(
-    ctx.conn.user_id, masterId, instances.map((i) => i.id), window.from, window.to, ctx.now,
+    ctx.conn.user_id, masterId, instances.map((i) => i.id), from, window.to, ctx.now,
   );
 }
 
@@ -378,8 +383,10 @@ async function applyEvent(ctx, e, recurringId) {
     if (row.google_etag && e.etag === row.google_etag) return skip();
     // Changed in the portal after the event: the next push wins
     if (resolveConflict(row, e) === 'portal') return skip();
+    const settled = Boolean(row.attendance) || Date.parse(row.ends_at) < ctx.now.getTime() - SETTLED_MS;
 
     if (fields.status === 'cancelled') {
+      if (settled) return skip();
       if (row.status === 'cancelled') return skip();
       if (!(await writeIfUnchanged(repo, row, { status: 'cancelled', sync_state: 'synced', google_synced_at: stamp }))) return skip();
       result.cancelled += 1;
@@ -388,6 +395,7 @@ async function applyEvent(ctx, e, recurringId) {
 
     const next = {
       ...fields,
+      ...(settled ? { starts_at: row.starts_at, ends_at: row.ends_at, status: row.status } : {}),
       google_event_id: e.id,
       google_calendar_id: conn.calendar_id,
       google_recurring_id: recurringId,
@@ -408,6 +416,10 @@ async function applyEvent(ctx, e, recurringId) {
   // An event the portal wrote belongs to its session; if that session is gone
   // (deleted, or another tutor's) the event is never turned into a new one
   if (e.extendedProperties?.private?.vpSessionId) return skip();
+
+  // A past instance of a series edited in Google keeps its old row (those are no
+  // longer cancelled); adding one more would put the week on the calendar twice
+  if (recurringId && Date.parse(fields.ends_at) < ctx.now.getTime() - SETTLED_MS) return skip();
 
   ctx.students ??= await repo.linkedStudents(conn.user_id);
   const student = matchStudent(e, ctx.students);

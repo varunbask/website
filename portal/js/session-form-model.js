@@ -325,6 +325,8 @@ export function repeatChoices(date) {
 // What to tell a tutor when a write fails. Row security (42501) means the
 // tutor is not linked to the student; a check violation (23514) is a bad time.
 export function saveErrorText(error) {
+  // The billing guard (sessions_guard) explains itself
+  if (error?.code === 'VP002') return `${String(error.message ?? '').replace(/\.?$/, '.')}`;
   if (error?.code === '42501') return 'You can only schedule sessions for students you tutor.';
   if (error?.code === '23514') return 'Check the times and details, then try again.';
   return 'Check your connection and try again.';

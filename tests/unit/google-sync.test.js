@@ -931,6 +931,25 @@ describe('pullChanges', () => {
     expect(s.called('updateSession').map((c) => c.args)).toEqual([[1, { status: 'cancelled', sync_state: 'synced', google_synced_at: STAMP }, READ]]);
   });
 
+  test('a session that already happened is not cancelled or moved from Google (bills and pay depend on it)', async () => {
+    const past = { starts_at: '2026-09-28T17:00:00+00:00', ends_at: '2026-09-28T18:00:00+00:00' };
+    const s = setup({ sessions: [syncedSession(past)] });
+    s.g.seed(CAL, { id: 'ev1', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' });
+    expect(await pull(s)).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+    expect(s.state.sessions[0].status).toBe('scheduled');
+
+    const moved = setup({ sessions: [syncedSession({ ...past, subject: 'Algebra' })] });
+    moved.g.seed(CAL, event({ summary: 'Geometry (Maya Lee)', extendedProperties: { private: { vpSessionId: '1' } } }));
+    await pull(moved);
+    expect(moved.state.sessions[0]).toMatchObject({ starts_at: past.starts_at, ends_at: past.ends_at, subject: 'Geometry', status: 'scheduled' });
+  });
+
+  test('a session with attendance is not cancelled from Google, even within a day', async () => {
+    const s = setup({ sessions: [syncedSession({ starts_at: '2026-10-02T09:00:00+00:00', ends_at: '2026-10-02T10:00:00+00:00', attendance: 'present' })] });
+    s.g.seed(CAL, { id: 'ev1', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' });
+    expect(await pull(s)).toEqual({ updated: 0, inserted: 0, cancelled: 0, skipped: 1 });
+  });
+
   test('a cancelled event for an unknown session, or an already cancelled one, changes nothing', async () => {
     const s = setup({ sessions: [syncedSession({ id: 2, google_event_id: 'ev2', status: 'cancelled' })] });
     s.g.seed(CAL, { id: 'nothing', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' });
@@ -1555,7 +1574,8 @@ describe('a series edited in Google', () => {
     s.g.seedInstances('M1', [instance('M1_a', 'M1', 0), { id: 'M1_gone', recurringEventId: 'M1', status: 'cancelled', updated: '2026-10-02T11:30:00.000Z' }]);
     await pull(s);
 
-    expect(s.called('cancelMissingInstances').map((c) => c.args)).toEqual([[TUTOR, 'M1', ['M1_a', 'M1_gone'], WINDOW.from, WINDOW.to, NOW]]);
+    // instances are read from eight weeks back, but only rows from now on can be cancelled
+    expect(s.called('cancelMissingInstances').map((c) => c.args)).toEqual([[TUTOR, 'M1', ['M1_a', 'M1_gone'], STAMP, WINDOW.to, NOW]]);
     expect(s.g.called('listInstances')[0].args[2]).toMatchObject({ timeMin: WINDOW.from, timeMax: WINDOW.to });
   });
 
@@ -1577,6 +1597,16 @@ describe('a series edited in Google', () => {
 
     expect(result.cancelled).toBe(0);
     expect(s.state.sessions.map((r) => r.status)).toEqual(['scheduled', 'scheduled', 'scheduled', 'scheduled', 'scheduled', 'cancelled', 'scheduled']);
+  });
+
+  test('a past instance with a new id (after an edit in Google) is not added again', async () => {
+    const pastWeek = { starts_at: '2026-09-21T17:00:00+00:00', ends_at: '2026-09-21T18:00:00+00:00' };
+    const s = setup({ sessions: [syncedSession({ id: 1, google_event_id: 'M1_old', google_recurring_id: 'M1', ...pastWeek })] });
+    s.g.seed(CAL, master('M1'));
+    s.g.seedInstances('M1', [event({ id: 'M1_new', recurringEventId: 'M1', ...mayaInvited, start: { dateTime: '2026-09-21T17:00:00Z' }, end: { dateTime: '2026-09-21T18:00:00Z' }, etag: undefined })]);
+    await pull(s);
+    expect(s.state.sessions.filter((r) => r.status !== 'cancelled')).toHaveLength(1);
+    expect(s.state.sessions[0].google_event_id).toBe('M1_old');
   });
 
   test('a series whose instances are all gone from the window cancels the rows it had there', async () => {

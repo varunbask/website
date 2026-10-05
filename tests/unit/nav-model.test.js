@@ -148,19 +148,36 @@ describe('tutor', () => {
 });
 
 describe('admin', () => {
-  test('adds an Admin group with People and the pending count', () => {
+  test('adds an Admin group with People (and the pending count) and Account', () => {
     const m = navModel({ role: 'admin', page: 'staff', scope: null, route: route('today'), counts: COUNTS });
     expect(m.groups.map((g) => g.key)).toEqual(['workspace', 'student', 'admin']);
+    expect(keys(m.groups.at(-1).items)).toEqual(['people', 'account']);
     expect(find(m, 'people')).toMatchObject({ label: 'People', icon: 'identification-badge', href: '/portal/people.html#/pending', current: false });
     expect(find(m, 'people').badge).toEqual({ n: 3, text: '3', tone: 'neutral', context: '3 people waiting' });
+    expect(find(m, 'account')).toMatchObject({ label: 'Account', icon: 'currency-dollar', href: '/portal/account.html#/dashboard', current: false, badge: null });
     expect(keys(m.tabbar)).toEqual(['today', 'review', 'students', 'people', 'more']);
-    expect(keys(m.more)).toEqual(['calendar-all']);
+    expect(keys(m.more)).toEqual(['calendar-all', 'account']);
   });
 
-  test('student mode adds People to More', () => {
+  test('tutors never get Account', () => {
+    const m = navModel({ role: 'tutor', page: 'staff', scope: MAYA, route: route('overview'), counts: COUNTS });
+    expect(find(m, 'account')).toBeUndefined();
+    expect(keys(m.more)).not.toContain('account');
+  });
+
+  test('student mode adds People and Account to More', () => {
     const m = navModel({ role: 'admin', page: 'staff', scope: MAYA, route: route('overview'), counts: COUNTS });
     expect(keys(m.tabbar)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'more']);
-    expect(keys(m.more)).toEqual(['updates', 'today', 'review', 'students', 'people']);
+    expect(keys(m.more)).toEqual(['updates', 'today', 'review', 'students', 'people', 'account']);
+  });
+
+  test('on account.html: no Student group, Account is current, links go back to the staff page', () => {
+    const m = navModel({ role: 'admin', page: 'account', scope: MAYA, route: route('dashboard'), counts: COUNTS });
+    expect(m.groups.map((g) => g.key)).toEqual(['workspace', 'admin']);
+    expect(find(m, 'students').href).toBe('/portal/staff.html#/students');
+    expect(current(m)).toEqual(['account']);
+    expect(m.mode).toBe('workspace');
+    expect(m.tabbar.find((t) => t.key === 'more').current).toBe(true);
   });
 
   test('on people.html: no Student group, links go back to the staff page', () => {

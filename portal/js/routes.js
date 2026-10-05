@@ -10,6 +10,11 @@ import * as reviewQueue from './views/review-queue.js';
 import * as review from './views/review.js';
 import * as students from './views/students.js';
 import * as people from './views/people.js';
+import * as accountDashboard from './views/account-dashboard.js';
+import * as accountFamilies from './views/account-families.js';
+import * as accountPayroll from './views/account-payroll.js';
+import * as accountRates from './views/account-rates.js';
+import * as accountPrint from './views/account-print.js';
 import * as referrals from './views/referrals.js';
 import * as reviews from './views/reviews.js';
 import { normalizeFilter } from './review-model.js';
@@ -94,5 +99,24 @@ export function peopleRoutes() {
       title: fixed('Reviews'),
       crumbs: () => [{ label: 'People', href: '#/pending' }, { label: 'Reviews' }],
     },
+  };
+}
+
+// account.html (admin): billing and payroll, priced from the calendar
+export function accountRoutes() {
+  const entry = (view, label) => ({
+    mount: (ctx) => view.mount(ctx),
+    title: fixed(label),
+    crumbs: () => [{ label: 'Account', href: '#/dashboard' }, { label }],
+    wide: true,
+  });
+  return {
+    dashboard: entry(accountDashboard, 'Dashboard'),
+    families: entry(accountFamilies, 'Families'),
+    payroll: entry(accountPayroll, 'Payroll'),
+    rates: entry(accountRates, 'Rates'),
+    // Printable statement (#/statement/<parent id>?month=) and pay slip (#/payslip/<tutor id>?period=)
+    statement: { ...entry(accountPrint, 'Statement'), id: true, hideTabbar: () => true, back: () => ({ label: 'Back to families', href: '#/families' }) },
+    payslip: { ...entry(accountPrint, 'Pay slip'), id: true, hideTabbar: () => true, back: () => ({ label: 'Back to payroll', href: '#/payroll' }) },
   };
 }
