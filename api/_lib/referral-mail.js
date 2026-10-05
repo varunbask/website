@@ -9,8 +9,8 @@ export const DEFAULT_FROM = 'VP Education Group <referrals@varunbaskaran.com>';
 const DEFAULT_SITE = 'https://www.varunbaskaran.com';
 const LANGUAGE_NAMES = { en: 'English', zh: 'Chinese', es: 'Spanish', fr: 'French', ko: 'Korean' };
 
-const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const siteOf = (env) => String(env.SITE_URL || DEFAULT_SITE).replace(/\/+$/, '');
+export const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export const siteOf = (env) => String(env.SITE_URL || DEFAULT_SITE).replace(/\/+$/, '');
 
 export function reviewLinks(id, { env = process.env, now = Date.now() } = {}) {
   const base = `${siteOf(env)}/api/referral-review`;
@@ -64,17 +64,17 @@ export function buildReferralEmail(row, id, { env = process.env, now = Date.now(
   return { subject, text, html, replyTo: row.family_email || row.referrer_email };
 }
 
-// -> 'sent' | 'skipped'; throws when Resend refuses it
-export async function sendReferralEmail(row, id, { env = process.env, fetchImpl = fetch, now = Date.now() } = {}) {
+// Sends one email to the business inbox through Resend.
+// -> 'sent' | 'skipped' (no key); throws when Resend refuses it
+export async function sendMail(mail, { env = process.env, fetchImpl = fetch } = {}) {
   if (!env.RESEND_API_KEY) return 'skipped';
-  const mail = buildReferralEmail(row, id, { env, now });
   const response = await fetchImpl('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: env.REFERRAL_EMAIL_FROM || DEFAULT_FROM,
       to: [env.REFERRAL_EMAIL_TO || DEFAULT_TO],
-      reply_to: mail.replyTo,
+      ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
       subject: mail.subject,
       html: mail.html,
       text: mail.text,
@@ -83,4 +83,8 @@ export async function sendReferralEmail(row, id, { env = process.env, fetchImpl 
   });
   if (!response.ok) throw new Error(`Resend answered ${response.status}`);
   return 'sent';
+}
+
+export async function sendReferralEmail(row, id, { env = process.env, fetchImpl = fetch, now = Date.now() } = {}) {
+  return sendMail(buildReferralEmail(row, id, { env, now }), { env, fetchImpl });
 }

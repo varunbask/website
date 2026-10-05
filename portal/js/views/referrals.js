@@ -23,7 +23,8 @@ export function mount(ctx) {
   const tabs = h('nav', { class: 'tabs', 'aria-label': 'People' },
     h('a', { class: 'tab', href: '#/pending' }, 'Waiting for approval'),
     h('a', { class: 'tab', href: '#/everyone' }, 'Everyone'),
-    h('a', { class: 'tab', href: '#/referrals', 'aria-current': 'page' }, 'Referrals'));
+    h('a', { class: 'tab', href: '#/referrals', 'aria-current': 'page' }, 'Referrals'),
+    h('a', { class: 'tab', href: '#/reviews' }, 'Reviews'));
   ctx.setHeader({ title: 'People', tabs });
 
   const root = h('div', { class: 'ppl-root ref-root' });

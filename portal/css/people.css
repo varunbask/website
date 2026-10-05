@@ -685,3 +685,36 @@
 .ref-pills { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .ref-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .ref-card.is-decided { opacity: 0.85; }
+
+/* People: Reviews ------------------------------------------------------------ */
+
+.rv-create { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-6); }
+.rv-help { font: 400 14px/20px var(--font-ui); color: var(--text-2); max-width: 70ch; }
+.rv-create-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-3); }
+.rv-name-field { flex: 1 1 220px; max-width: 320px; }
+.rv-result:empty { display: none; }
+.rv-made { display: flex; flex-direction: column; gap: var(--s-2); }
+.rv-made-title { font: 600 14px/20px var(--font-ui); color: var(--text); }
+.rv-link { font-family: var(--font-mono); font-size: 13px; }
+.rv-made-note { font: var(--t-meta); color: var(--text-3); }
+.rv-quote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-versions > summary { cursor: pointer; font: 500 13px/20px var(--font-ui); color: var(--text-2); }
+.rv-versions dl { margin: var(--s-2) 0 0; display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--s-2) var(--s-3); }
+.rv-versions dt { font: var(--t-meta); color: var(--text-3); }
+.rv-versions dd { margin: 0; font: 400 14px/20px var(--font-ui); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rv-links { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.rv-link-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+.rv-link-name { font: 500 14px/20px var(--font-ui); color: var(--text); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rv-link-kind { color: var(--text-3); font-weight: 400; }
+.rv-link-when { font: var(--t-meta); color: var(--text-3); }
+@media (max-width: 640px) {
+  .rv-link-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .rv-link-when { display: none; }
+}
