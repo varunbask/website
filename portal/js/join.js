@@ -78,7 +78,13 @@ async function start() {
   if (!token) return problem('invalid');
   let res;
   try {
-    res = await fetch(`/api/people?t=${encodeURIComponent(token)}`, { cache: 'no-store' });
+    // POST, so the token never sits in a request URL (or a log)
+    res = await fetch('/api/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'lookup', t: token }),
+      cache: 'no-store',
+    });
   } catch {
     return problem('offline');
   }
