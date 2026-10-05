@@ -722,3 +722,26 @@
   .rv-link-row { grid-template-columns: minmax(0, 1fr) auto; }
   .rv-link-when { display: none; }
 }
+
+/* People without a sign-in (Add without a login) and their invite links
+   div.ppl-add-wrap > .btn + form.ppl-add-person > p + div.ppl-add-person-row
+   li.ppl-person > div.ppl-invite > div.ppl-invite-row (pill, note, button) + div.ppl-invite-panel */
+.ppl-add-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); width: 100%; }
+.ppl-add-person {
+  display: flex; flex-direction: column; gap: var(--s-2); width: 100%;
+  padding: var(--s-3) var(--s-4); border: 1px solid var(--line); border-radius: var(--r-md); background-color: var(--surface);
+}
+.ppl-add-person-help { font: var(--t-meta); color: var(--text-3); }
+.ppl-add-person-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.ppl-add-person-row > .input { flex: 1 1 14rem; min-width: 0; }
+.ppl-invite { display: flex; flex-direction: column; gap: var(--s-2); margin-top: var(--s-2); }
+.ppl-invite-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.ppl-invite-note { font: var(--t-meta); color: var(--text-3); }
+.ppl-invite-panel {
+  display: flex; flex-direction: column; gap: var(--s-2);
+  padding: var(--s-3) var(--s-4); border-radius: var(--r-md); background-color: var(--surface-2);
+}
+.ppl-invite-help { font: var(--t-meta); color: var(--text-2); }
+.ppl-invite-link { font-family: var(--font-mono); font-size: 13px; }
+.ppl-invite-actions, .ppl-invite-email { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.ppl-invite-email > .input { flex: 1 1 14rem; min-width: 0; }

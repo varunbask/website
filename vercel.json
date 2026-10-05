@@ -8,6 +8,9 @@
   "crons": [
     { "path": "/api/cron/sweep", "schedule": "0 13 * * *" }
   ],
+  "rewrites": [
+    { "source": "/api/referral-review", "destination": "/api/referral" }
+  ],
   "headers": [
     {
       "source": "/((?!portal).*)",

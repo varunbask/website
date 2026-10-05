@@ -14,12 +14,19 @@
 // is never [hidden]: a live region that is in the accessibility tree before
 // its first change is announced reliably; while empty, CSS collapses its slot.
 //
+// People without a sign-in (profiles.no_login): the admin adds a student or
+// parent by name (Add without a login, through /api/people), links and
+// schedules them like anyone else, and later sends a personal Invite link
+// (only its SHA-256 is stored in portal_invites) so they can set their own
+// email and password on portal/join.html.
+//
 // Pure helpers (normalizeRole, roleCounts, linkedTo, peopleIn, byCreated,
 // approveText) are exported for tests; they never touch the DOM.
 
 import { sb } from '../supabase.js';
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
+import { newInviteToken, inviteLink, inviteMessage, inviteState } from '../invites-model.js';
 import {
   avatar, button, iconButton, busy, pill, select, emptyState, errorCallout, skeletonRows,
   segmented, setSegmented, groupHeader, badgeText, visuallyHidden,
@@ -112,11 +119,26 @@ async function loadParentLinks() {
   return sb.from('parent_students').select('parent_id, student_id');
 }
 
+// profiles.no_login and portal_invites come with the invites migration; the
+// page still loads without them
+async function loadProfiles() {
+  const fields = 'id, email, full_name, role, requested_role, signup_note, created_at';
+  const withFlag = await sb.from('profiles').select(`${fields}, no_login`);
+  if (!withFlag.error) return withFlag;
+  return sb.from('profiles').select(fields);
+}
+
+async function loadInvites() {
+  const res = await sb.from('portal_invites').select('id, profile_id, created_at, expires_at, used_at, emailed_to, emailed_at');
+  return res.error ? { data: [] } : res;
+}
+
 async function load() {
-  const [people, tutorLinks, parentLinks] = await Promise.all([
-    sb.from('profiles').select('id, email, full_name, role, requested_role, signup_note, created_at'),
+  const [people, tutorLinks, parentLinks, invites] = await Promise.all([
+    loadProfiles(),
     sb.from('tutor_students').select('tutor_id, student_id, subject'),
     loadParentLinks(),
+    loadInvites(),
   ]);
   for (const result of [people, tutorLinks, parentLinks]) if (result.error) throw result.error;
   const list = people.data ?? [];
@@ -125,7 +147,28 @@ async function load() {
     byId: new Map(list.map((p) => [p.id, p])),
     tutorLinks: tutorLinks.data ?? [],
     parentLinks: parentLinks.data ?? [],
+    invites: invites.data ?? [],
   };
+}
+
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// POST /api/people as the signed-in admin -> { status, body }
+async function peopleApi(payload) {
+  const { data: { session } } = await sb.auth.getSession();
+  try {
+    const res = await fetch('/api/people', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session?.access_token ?? ''}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  } catch {
+    return { status: 0, body: {} };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -448,13 +491,145 @@ export function mount(ctx) {
 
     const list = h('div', { class: 'ppl-everyone' });
     const status = h('p', { class: 'visually-hidden', role: 'status' });
+    const adder = addWithoutLogin();
     const toolbar = h('div', { class: 'ppl-toolbar' },
       h('div', { class: 'ppl-search' },
         h('label', { class: 'visually-hidden', for: inputId }, 'Find a person'),
         h('span', { class: 'input-icon' }, icon('magnifying-glass'), input)),
-      h('div', { class: 'ppl-filter-wrap' }, seg));
+      h('div', { class: 'ppl-filter-wrap' }, seg),
+      adder);
     everyone = { input, seg, list, status, countSpans, toolbar };
     root.replaceChildren(toolbar, status, list);
+  }
+
+  // A student or parent who has no account yet: a real portal account with no
+  // way to sign in, so they can be linked, scheduled and billed; Invite later
+  function addWithoutLogin() {
+    const nameInput = h('input', {
+      class: 'input', type: 'text', maxlength: '120', autocomplete: 'off', placeholder: 'Full name',
+      'aria-label': 'Full name of the person to add', dataset: { focusKey: 'ppl-add-name' },
+    });
+    let newRole = 'student';
+    const kind = segmented({
+      label: 'Add as',
+      value: newRole,
+      options: [{ value: 'student', label: 'Student' }, { value: 'parent', label: 'Parent' }],
+      onChange: (v) => { newRole = v; },
+    });
+    const add = button({ label: 'Add', type: 'submit', variant: 'primary', size: 'sm', icon: 'plus', focusKey: 'ppl-add-submit' });
+    const form = h('form', { class: 'ppl-add-person', hidden: true },
+      h('p', { class: 'ppl-add-person-help' }, 'For a student or parent who has no account yet. You can link, schedule and bill them now, and send them an invite to set up their sign-in later.'),
+      h('div', { class: 'ppl-add-person-row' }, nameInput, kind, add));
+    const open = button({
+      label: 'Add without a login', size: 'sm', variant: 'secondary', icon: 'plus', focusKey: 'ppl-add-open',
+      onClick: () => {
+        form.hidden = !form.hidden;
+        if (!form.hidden) nameInput.focus();
+      },
+    });
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = nameInput.value.trim().replace(/\s+/g, ' ');
+      if (!name) {
+        nameInput.focus();
+        return;
+      }
+      busy(add, 'Adding…', async () => {
+        const { status, body } = await peopleApi({ action: 'create', full_name: name, role: newRole });
+        if (!ctx.alive()) return;
+        if (status !== 201) {
+          say(`That didn’t save: ${status === 0 ? 'check your connection and try again.' : status === 401 ? 'sign in again as an admin.' : 'please try again.'}`, 'error');
+          return;
+        }
+        nameInput.value = '';
+        form.hidden = true;
+        say(`Added ${name} as a ${newRole} without a login. Link them below, then use Invite when they are ready to sign in.`, 'success');
+        await render({ key: `invite-${body.id}`, fallback: 'ppl-add-open' });
+        syncCounts();
+      });
+    });
+    return h('div', { class: 'ppl-add-wrap' }, open, form);
+  }
+
+  // The latest invite of a person without a sign-in, and making a new one
+  function inviteControls(person) {
+    if (!person.no_login || !['student', 'parent'].includes(person.role)) return null;
+    const name = displayName(person);
+    const state = inviteState(data.invites.filter((i) => i.profile_id === person.id), Date.now());
+    const panel = h('div', { class: 'ppl-invite-panel', hidden: true });
+    const when = (iso) => relativeTime(iso, ctx.now).text.toLowerCase();
+    const note = state.key === 'open'
+      ? `Invited ${when(state.invite.created_at)}${state.invite.emailed_to ? `, emailed to ${state.invite.emailed_to}` : ''}`
+      : state.key === 'expired' ? 'Invite expired' : null;
+    const make = button({
+      label: state.key === 'open' ? 'New invite link' : 'Invite',
+      size: 'sm',
+      variant: state.key === 'open' ? 'ghost' : 'secondary',
+      icon: 'envelope-simple',
+      focusKey: `invite-${person.id}`,
+      onClick: () => busy(make, 'Making a link…', async () => {
+        const token = newInviteToken();
+        const token_hash = await sha256Hex(token);
+        const { data: rows, error } = await sb.from('portal_invites').insert({ profile_id: person.id, token_hash }).select('id');
+        if (!ctx.alive()) return;
+        if (error || !rows?.length) {
+          say('That didn’t save: the invite could not be made. Refresh the page and try again.', 'error');
+          return;
+        }
+        showLink(panel, person, token);
+      }),
+    });
+    make.setAttribute('aria-label', `${state.key === 'open' ? 'New invite link' : 'Invite'} for ${name}`);
+    return h('div', { class: 'ppl-invite' },
+      h('div', { class: 'ppl-invite-row' }, pill({ label: 'No sign-in yet', tone: 'warning', icon: 'clock' }), note ? h('span', { class: 'ppl-invite-note' }, note) : null, make),
+      panel);
+  }
+
+  // The link is shown once (only its hash is kept): copy it, or email it from here
+  function showLink(panel, person, token) {
+    const name = displayName(person);
+    const link = inviteLink(token, location.origin);
+    const children = person.role === 'parent' ? studentsOf(person.id, data.parentLinks, 'parent_id', data.byId).map(displayName) : [];
+    const message = inviteMessage(name, link, { role: person.role, children });
+    const copy = (text, label, done) => button({
+      label, size: 'sm', icon: 'copy',
+      onClick: async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          say(done, 'success');
+        } catch {
+          say('Your browser blocked copying. Select the link and copy it yourself.', 'error');
+        }
+      },
+    });
+    const to = h('input', { class: 'input', type: 'email', autocomplete: 'off', placeholder: 'their@email.com', 'aria-label': `Email to send ${name}’s invite to` });
+    const send = button({ label: 'Email it', size: 'sm', variant: 'primary', icon: 'envelope-simple' });
+    send.addEventListener('click', () => busy(send, 'Sending…', async () => {
+      const address = to.value.trim();
+      if (!address.includes('@')) {
+        to.focus();
+        return;
+      }
+      const { status } = await peopleApi({ action: 'email', t: token, to: address });
+      if (!ctx.alive()) return;
+      if (status === 200) {
+        say(`Invite emailed to ${address}. ${name} can set up their sign-in from the link.`, 'success');
+        await render({ key: `invite-${person.id}` });
+        return;
+      }
+      say(`That didn’t send: ${status === 422 ? 'check the email address.' : status === 503 ? 'email is not set up; copy the link instead.' : 'please try again, or copy the link instead.'}`, 'error');
+    }));
+    const field = h('input', { class: 'input ppl-invite-link', type: 'text', readonly: true, value: link, 'aria-label': `Invite link for ${name}` });
+    field.addEventListener('focus', () => field.select());
+    panel.replaceChildren(
+      h('p', { class: 'ppl-invite-help' }, `${name}’s personal link. It works once, for 30 days, and is shown only now.`),
+      field,
+      h('div', { class: 'ppl-invite-actions' },
+        copy(link, 'Copy link', 'Link copied.'),
+        copy(message, 'Copy message with link', 'Message copied. Paste it into a text.')),
+      h('div', { class: 'ppl-invite-email' }, to, send));
+    panel.hidden = false;
+    field.focus();
   }
 
   function updateSegmentCounts(counts) {
@@ -812,9 +987,10 @@ export function mount(ctx) {
         avatar(name, { size: 32 }),
         h('div', { class: 'ppl-id' },
           nameField(person, name, self),
-          person.email && person.email !== name ? h('span', { class: 'ppl-email' }, person.email) : null,
+          person.email && person.email !== name && !person.no_login ? h('span', { class: 'ppl-email' }, person.email) : null,
           detail),
         h('div', { class: 'ppl-controls' }, workspace, roleSelect(person))),
+      inviteControls(person),
       isStudent
         ? h('div', { class: 'ppl-links' },
           linkGroup(person, 'tutor', linkedTo(person.id, data.tutorLinks, 'tutor_id', data.byId), tutors),
