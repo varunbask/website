@@ -5,9 +5,11 @@ import { sendMail, escapeHtml, siteOf, DEFAULT_TO } from './referral-mail.js';
 // People without a sign-in, and the personal links that let them claim their
 // account (supabase/migrations/20261012120000_portal_invites.sql).
 //
-// GET  /api/people?t=TOKEN                       the join page: is this link usable?
-//                                                -> { name, role, children }
 // POST /api/people
+//   { action: 'lookup', t }                      the join page: is this link usable?
+//                                                -> { name, role, children, email }
+//                                                (POST keeps the token out of request logs;
+//                                                GET ?t= still answers for pages already open)
 //   { action: 'create', full_name, role }        admin: a student or parent with no sign-in -> { id }
 //   { action: 'email', t, to }                   admin: email the personal link to `to`
 //   { action: 'join', t, email, password }       the person: choose an email and password (once)
@@ -56,6 +58,21 @@ export function normalizeName(value) {
 
 export function inviteLink(token, env = process.env) {
   return `${siteOf(env)}/portal/join.html#t=${token}`;
+}
+
+// The rule People uses to flag a sign-up that may be someone added without a
+// login (portal/js/invites-model.js signupMatches): the same full name, or the
+// same first name when one of the two is only a first name, and the role they
+// asked for. The server checks it again before removing a sign-up.
+export function signupMayBe(signup, person) {
+  const lower = (s) => String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  if (signup?.requested_role && signup.requested_role !== person?.role) return false;
+  const a = lower(signup?.full_name);
+  const b = lower(person?.full_name);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [aw, bw] = [a.split(' '), b.split(' ')];
+  return aw[0] === bw[0] && (aw.length === 1 || bw.length === 1);
 }
 
 // Why a link cannot be used, or null
@@ -135,8 +152,7 @@ function emailTaken(error) {
 export async function handlePeople(request, {
   repo, auth, verifyAdmin, env = process.env, now = () => Date.now(), fetchImpl = fetch, send = sendMail,
 }) {
-  if (request.method === 'GET') {
-    const token = new URL(request.url).searchParams.get('t');
+  const lookup = async (token) => {
     if (!tokenShape(token)) return json(404, { error: 'invalid' });
     const invite = await repo.findInvite(hashToken(token));
     const problem = inviteProblem(invite, now());
@@ -144,12 +160,15 @@ export async function handlePeople(request, {
     const children = invite.profile.role === 'parent' ? await repo.childrenOf(invite.profile_id) : [];
     // The address the link was emailed to fills the join form's email
     return json(200, { ok: true, name: invite.profile.full_name, role: invite.profile.role, children, email: invite.emailed_to ?? null });
-  }
+  };
+  if (request.method === 'GET') return lookup(new URL(request.url).searchParams.get('t'));
   if (request.method !== 'POST') return json(405, { error: 'method' });
 
   const { data, tooLarge } = await readJson(request);
   if (tooLarge) return json(413, { error: 'too_large' });
   if (!data) return json(400, { error: 'invalid' });
+
+  if (data.action === 'lookup') return lookup(data.t);
 
   if (data.action === 'create') {
     if (!(await verifyAdmin(request))) return json(401, { error: 'unauthorized' });
@@ -191,9 +210,15 @@ export async function handlePeople(request, {
     const [signup, person] = await Promise.all([repo.getProfile(data.signup_id), repo.getProfile(data.profile_id)]);
     if (!signup || signup.role !== 'pending') return json(409, { error: 'not_pending' });
     if (!person || !person.no_login || !ROLES.includes(person.role)) return json(409, { error: 'not_no_login' });
+    // The pair is checked here too, so a stale or edited request cannot pair anyone else
+    if (!signupMayBe(signup, person)) return json(409, { error: 'no_match' });
+    // A sign-up still waiting has nothing linked to it; anything linked means it is not a bare sign-up
+    if (await repo.hasLinks(signup.id)) return json(409, { error: 'has_links' });
     const found = await auth.getUserById(signup.id);
     const to = normalizeEmail(found.data?.user?.email);
     if (found.error || !to) return json(409, { error: 'no_email' });
+    // Still waiting right before it goes (not approved in another tab meanwhile)
+    if ((await repo.getProfile(signup.id))?.role !== 'pending') return json(409, { error: 'not_pending' });
     // The sign-up holds their address; remove it first so the link can move the account to it
     const removed = await auth.deleteUser(signup.id);
     if (removed?.error) throw new Error(`deleteUser: ${removed.error.message ?? 'failed'}`);
@@ -279,7 +304,22 @@ export function createPeopleRepo(db) {
     },
     async getProfile(id) {
       if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return null;
-      return check(await db.from('profiles').select('id, full_name, role, no_login').eq('id', id).maybeSingle(), 'getProfile');
+      return check(await db.from('profiles').select('id, full_name, role, requested_role, no_login').eq('id', id).maybeSingle(), 'getProfile');
+    },
+    // Any tutor or parent link or session on this account (id is a checked uuid)
+    async hasLinks(id) {
+      const count = async (table, cols) => {
+        const { count: n, error } = await db.from(table).select('*', { count: 'exact', head: true })
+          .or(cols.map((c) => `${c}.eq.${id}`).join(','));
+        if (error) throw new Error(`hasLinks ${table}: ${error.message}`);
+        return n ?? 0;
+      };
+      const counts = await Promise.all([
+        count('parent_students', ['parent_id', 'student_id']),
+        count('tutor_students', ['tutor_id', 'student_id']),
+        count('sessions', ['student_id', 'tutor_id']),
+      ]);
+      return counts.some((n) => n > 0);
     },
     async createInvite(profileId, tokenHash, createdBy) {
       return check(await db.from('portal_invites').insert({ profile_id: profileId, token_hash: tokenHash, created_by: createdBy })

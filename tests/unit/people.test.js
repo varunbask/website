@@ -3,8 +3,9 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   handlePeople, placeholderEmail, isPlaceholder, normalizeEmail, normalizeName, inviteLink, inviteProblem, namesText,
-  buildInviteEmail, PLACEHOLDER_DOMAIN, createPeopleRepo,
+  buildInviteEmail, PLACEHOLDER_DOMAIN, createPeopleRepo, signupMayBe,
 } from '../../api/_lib/people.js';
+import { signupMatches } from '../../portal/js/invites-model.js';
 import { hashToken } from '../../api/_lib/testimonials.js';
 import { sendMail } from '../../api/_lib/referral-mail.js';
 
@@ -15,7 +16,7 @@ const ENV = { SITE_URL: 'https://www.varunbaskaran.com', RESEND_API_KEY: 're_tes
 const SIGNUP = '11111111-1111-4111-8111-111111111111';
 const NOLOGIN = '22222222-2222-4222-8222-222222222222';
 
-function fakes({ invite = undefined, children = ['Maya Lin'], updateError = null, admin = true, profiles = null } = {}) {
+function fakes({ invite = undefined, children = ['Maya Lin'], updateError = null, admin = true, profiles = null, links = false } = {}) {
   const state = {
     invite: invite === undefined
       ? { id: 7, profile_id: 'p1', expires_at: '2026-11-01T00:00:00Z', used_at: null, profile: { full_name: 'Grace Lin', role: 'parent', no_login: true } }
@@ -37,9 +38,10 @@ function fakes({ invite = undefined, children = ['Maya Lin'], updateError = null
     markEmailed: vi.fn(async (id, to, at) => { state.emailed = { id, to, at }; }),
     markNoLogin: vi.fn(async (id, role, name) => { state.profiles[id] = { role, name, no_login: true }; }),
     getProfile: vi.fn(async (id) => (profiles ?? {
-      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Lin', role: 'pending', no_login: false },
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Lin', role: 'pending', requested_role: 'parent', no_login: false },
       [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace', role: 'parent', no_login: true },
     })[id] ?? null),
+    hasLinks: vi.fn(async () => links),
     createInvite: vi.fn(async (profileId, tokenHash, createdBy) => { state.created = { profileId, tokenHash, createdBy }; return { id: 99 }; }),
     finishJoin: vi.fn(async (id, email) => { state.profiles[id] = { ...(state.profiles[id] ?? {}), email, no_login: false }; }),
   };
@@ -248,6 +250,15 @@ test('the join page gets the address the link was emailed to, to fill the form',
   expect((await (await handlePeople(get(TOKEN), f.deps)).json()).email).toBe('grace.lin@example.com');
 });
 
+test('the join page looks a link up by POST, so the token stays out of request URLs', async () => {
+  const f = fakes();
+  const res = await handlePeople(post({ action: 'lookup', t: TOKEN }), f.deps);
+  expect(res.status).toBe(200);
+  expect((await res.json()).name).toBe('Grace Lin');
+  expect((await handlePeople(post({ action: 'lookup', t: 'B'.repeat(43) }), f.deps)).status).toBe(404);
+  expect((await handlePeople(post({ action: 'lookup', t: 'short' }), f.deps)).status).toBe(404);
+});
+
 describe('use_signup: someone signed up who was already added without a login', () => {
   const body = { action: 'use_signup', signup_id: SIGNUP, profile_id: NOLOGIN };
 
@@ -293,6 +304,59 @@ describe('use_signup: someone signed up who was already added without a login', 
     } });
     expect((await handlePeople(post(body), tutor.deps)).status).toBe(409);
     for (const x of [approved, joined, tutor]) expect(x.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test('the server checks the pair itself: a name that does not match, or the wrong role, is refused', async () => {
+    const other = fakes({ profiles: {
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Lin', role: 'pending', requested_role: 'parent', no_login: false },
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Mei Chen', role: 'parent', no_login: true },
+    } });
+    expect(await (await handlePeople(post(body), other.deps)).json()).toEqual({ error: 'no_match' });
+    const role = fakes({ profiles: {
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Lin', role: 'pending', requested_role: 'student', no_login: false },
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace', role: 'parent', no_login: true },
+    } });
+    expect(await (await handlePeople(post(body), role.deps)).json()).toEqual({ error: 'no_match' });
+    for (const x of [other, role]) expect(x.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test('a sign-up with anything linked to it is never removed', async () => {
+    const f = fakes({ links: true });
+    expect(await (await handlePeople(post(body), f.deps)).json()).toEqual({ error: 'has_links' });
+    expect(f.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test('approved in another tab between the checks and the delete: nothing is removed', async () => {
+    const f = fakes();
+    const pending = { id: SIGNUP, full_name: 'Grace Lin', role: 'pending', requested_role: 'parent', no_login: false };
+    const target = { id: NOLOGIN, full_name: 'Grace', role: 'parent', no_login: true };
+    let signupReads = 0;
+    f.repo.getProfile.mockImplementation(async (id) => {
+      if (id === NOLOGIN) return target;
+      signupReads += 1;
+      return signupReads === 1 ? pending : { ...pending, role: 'parent' };
+    });
+    expect(await (await handlePeople(post(body), f.deps)).json()).toEqual({ error: 'not_pending' });
+    expect(f.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test('the server rule and the card rule agree', () => {
+    const people = [
+      { id: 'a', full_name: 'Amy', role: 'student', no_login: true },
+      { id: 'b', full_name: 'Amy Chen', role: 'student', no_login: true },
+      { id: 'c', full_name: 'Mary', role: 'parent', no_login: true },
+      { id: 'd', full_name: 'Mary', role: 'student', no_login: true },
+      { id: 'e', full_name: 'Amy Park', role: 'parent', no_login: true },
+    ];
+    for (const signup of [
+      { id: 'x', full_name: 'Amy Chen', requested_role: 'student' }, { id: 'x', full_name: 'amy', requested_role: null },
+      { id: 'x', full_name: 'Amy Park', requested_role: 'student' }, { id: 'x', full_name: 'Mary Smith', requested_role: 'parent' },
+      { id: 'x', full_name: 'Mary', requested_role: null }, { id: 'x', full_name: 'Zoe', requested_role: 'student' },
+    ]) {
+      const card = signupMatches(signup, people).map((m) => m.person.id).sort();
+      const server = people.filter((p) => signupMayBe(signup, p)).map((p) => p.id).sort();
+      expect(server, signup.full_name).toEqual(card);
+    }
   });
 
   test('an email that fails after the sign-up is removed says so', async () => {
