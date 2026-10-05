@@ -3,7 +3,7 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   handlePeople, placeholderEmail, isPlaceholder, normalizeEmail, normalizeName, inviteLink, inviteProblem, namesText,
-  buildInviteEmail, PLACEHOLDER_DOMAIN,
+  buildInviteEmail, PLACEHOLDER_DOMAIN, createPeopleRepo,
 } from '../../api/_lib/people.js';
 import { hashToken } from '../../api/_lib/testimonials.js';
 import { sendMail } from '../../api/_lib/referral-mail.js';
@@ -230,6 +230,19 @@ describe('join: the parent claims the account', () => {
     expect((await handlePeople(post({ action: 'nope' }), fakes().deps)).status).toBe(400);
     expect((await handlePeople(new Request('https://x.test/api/people', { method: 'POST', body: '{' }), fakes().deps)).status).toBe(400);
     expect((await handlePeople(new Request('https://x.test/api/people', { method: 'DELETE' }), fakes().deps)).status).toBe(405);
+  });
+});
+
+describe('the repo', () => {
+  test('embeds the invited person by profile_id, not created_by (two foreign keys to profiles)', async () => {
+    let selected = null;
+    const chain = {
+      select(cols) { selected = cols; return chain; },
+      eq() { return chain; },
+      maybeSingle: async () => ({ data: null, error: null }),
+    };
+    await createPeopleRepo({ from: () => chain }).findInvite('a'.repeat(64));
+    expect(selected).toContain('profile:profiles!portal_invites_profile_id_fkey(');
   });
 });
 
