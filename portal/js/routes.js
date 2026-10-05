@@ -11,6 +11,7 @@ import * as review from './views/review.js';
 import * as students from './views/students.js';
 import * as people from './views/people.js';
 import * as referrals from './views/referrals.js';
+import * as reviews from './views/reviews.js';
 import { normalizeFilter } from './review-model.js';
 
 export const ASSIGNMENT_SUBS = Object.freeze(['todo', 'in-review', 'graded', 'archived']);
@@ -87,6 +88,11 @@ export function peopleRoutes() {
       mount: (ctx) => referrals.mount(ctx),
       title: fixed('Referrals'),
       crumbs: () => [{ label: 'People', href: '#/pending' }, { label: 'Referrals' }],
+    },
+    reviews: {
+      mount: (ctx) => reviews.mount(ctx),
+      title: fixed('Reviews'),
+      crumbs: () => [{ label: 'People', href: '#/pending' }, { label: 'Reviews' }],
     },
   };
 }

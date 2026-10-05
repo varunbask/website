@@ -10,35 +10,55 @@ const INTAKE_FORM_URL = "";
 
 /* ------------------------------------------------------------
    Reviews: a Parents tab and a Students tab
-   The reviews themselves (TESTIMONIALS) live in translations.js,
-   one entry per family, with every language for each quote.
+   The reviews written into the site (TESTIMONIALS) live in
+   translations.js, one entry per family, with every language for
+   each quote. Reviews families send through a personal link are
+   added after the owner approves them: /api/testimonials returns
+   them, already translated. Review text is only ever set as text
+   (textContent), never as HTML.
    ------------------------------------------------------------ */
+
+const el = (tag, className, text) => {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
 
 /* Each figure carries the other languages' text invisibly (see
    styles.css .i18n-h) so the tile is the same height in every one. */
 function reviewFigure(voice, kind, lang) {
   const labelKey = kind === "parent" ? "Parent" : "Student";
-  const fig = document.createElement("figure");
-  fig.className = "review";
-  fig.innerHTML = `
-    <div class="stars" aria-label="${VB_I18N.translate("5 out of 5 stars", lang)}">★★★★★</div>
-    <blockquote><p class="i18n-h"><span>${voice.quote[lang] || voice.quote.en}</span></p></blockquote>
-    <figcaption>
-      <strong>${voice.name}</strong>
-      <span class="i18n-h"><span>${VB_I18N.translate(labelKey, lang)}</span></span>
-    </figcaption>
-  `;
   const shown = voice.quote[lang] || voice.quote.en;
+  const fig = el("figure", "review");
+
+  const stars = el("div", "stars", "★★★★★");
+  stars.setAttribute("aria-label", VB_I18N.translate("5 out of 5 stars", lang));
+
+  const quoteBox = el("p", "i18n-h");
+  quoteBox.append(el("span", undefined, shown));
+  const blockquote = el("blockquote");
+  blockquote.append(quoteBox);
+
+  const label = el("span", "i18n-h");
+  label.append(el("span", undefined, VB_I18N.translate(labelKey, lang)));
+  const caption = el("figcaption");
+  caption.append(el("strong", undefined, voice.name), label);
+
+  fig.append(stars, blockquote, caption);
   VB_I18N.setGhosts(
-    fig.querySelector("blockquote p"),
+    quoteBox,
     VB_I18N.LANG_CODES.filter((l) => l !== lang).map((l) => ({ lang: l, text: voice.quote[l] || voice.quote.en })),
     shown
   );
-  VB_I18N.setGhosts(fig.querySelector("figcaption .i18n-h"), VB_I18N.ghostsFor(labelKey, lang), VB_I18N.translate(labelKey, lang));
+  VB_I18N.setGhosts(label, VB_I18N.ghostsFor(labelKey, lang), VB_I18N.translate(labelKey, lang));
   return fig;
 }
 
-/* Rebuilt whenever the language changes. */
+/* Approved reviews from families, added after the ones in the code */
+let familyReviews = [];
+
+/* Rebuilt whenever the language changes, and once family reviews arrive. */
 function buildReviews() {
   const lang = VB_I18N.currentLang();
   const parents = document.getElementById("panel-parents");
@@ -50,6 +70,9 @@ function buildReviews() {
     if (t.parent) parents.appendChild(reviewFigure(t.parent, "parent", lang));
     if (t.student) students.appendChild(reviewFigure(t.student, "student", lang));
   });
+  familyReviews.forEach((r) => {
+    (r.kind === "student" ? students : parents).appendChild(reviewFigure(r, r.kind, lang));
+  });
 
   document.getElementById("count-parents").textContent = parents.children.length;
   document.getElementById("count-students").textContent = students.children.length;
@@ -57,6 +80,16 @@ function buildReviews() {
 
 buildReviews();
 document.addEventListener("langchange", buildReviews);
+
+fetch("/api/testimonials")
+  .then((response) => (response.ok ? response.json() : null))
+  .then((data) => {
+    const list = Array.isArray(data?.reviews) ? data.reviews : [];
+    familyReviews = list.filter((r) => r && typeof r.name === "string" && r.quote && typeof r.quote.en === "string"
+      && (r.kind === "parent" || r.kind === "student"));
+    if (familyReviews.length) buildReviews();
+  })
+  .catch(() => { /* the reviews written into the site still show */ });
 
 const tabs = [...document.querySelectorAll('.tabs [role="tab"]')];
 

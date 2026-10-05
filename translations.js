@@ -310,6 +310,24 @@ const UI = {
   "We'll reach out to them soon. Thanks for thinking of us.": { zh: "我们会尽快联系他们。感谢您想到我们。", es: "Nos pondremos en contacto con ellos pronto. Gracias por pensar en nosotros.", fr: "Nous les contacterons bientôt. Merci d'avoir pensé à nous.", ko: "곧 연락드리겠습니다. 저희를 떠올려 주셔서 감사합니다." },
   "Refer another family": { zh: "再推荐一个家庭", es: "Recomendar otra familia", fr: "Recommander une autre famille", ko: "다른 가정 추천하기" },
 
+  /* write a review (review.html) */
+  "Write a review | VP Education Group": { zh: "撰写评价 | VP 教育集团", es: "Escriba una reseña | VP Education Group", fr: "Écrire un avis | VP Education Group", ko: "후기 작성 | VP Education Group" },
+  "Share your experience": { zh: "分享您的体验", es: "Comparta su experiencia", fr: "Partagez votre expérience", ko: "경험을 나눠 주세요" },
+  "Thank you for taking a moment to write about your time with VP Education Group. With your permission, we'll share it on our website.": { zh: "感谢您抽空分享在 VP 教育集团的经历。经您同意后，我们会将它展示在网站上。", es: "Gracias por tomarse un momento para contarnos su experiencia con VP Education Group. Con su permiso, la compartiremos en nuestro sitio web.", fr: "Merci de prendre un moment pour parler de votre expérience avec VP Education Group. Avec votre accord, nous la partagerons sur notre site.", ko: "VP Education Group과 함께한 경험을 들려주셔서 감사합니다. 동의해 주시면 웹사이트에 소개하겠습니다." },
+  "Name to show with your review": { zh: "评价上显示的名字", es: "Nombre que aparecerá con su reseña", fr: "Nom affiché avec votre avis", ko: "후기에 표시할 이름" },
+  "A first name is enough, for example \"Grace\" or \"Grace, parent of a 7th grader\". Please don't include your child's full name.": { zh: "填写名字即可，例如“Grace”或“Grace，七年级学生家长”。请不要填写孩子的全名。", es: "Basta con el nombre, por ejemplo \"Grace\" o \"Grace, madre de un estudiante de 7.º grado\". No incluya el nombre completo de su hijo o hija.", fr: "Un prénom suffit, par exemple « Grace » ou « Grace, parent d'un élève de 5e ». N'indiquez pas le nom complet de votre enfant.", ko: "이름만 적어 주셔도 됩니다. 예: \"Grace\" 또는 \"Grace, 7학년 학부모\". 자녀의 성명은 적지 말아 주세요." },
+  "Your review": { zh: "您的评价", es: "Su reseña", fr: "Votre avis", ko: "후기" },
+  "Write in any language. We translate it for the website's other languages.": { zh: "可用任何语言撰写，我们会翻译成网站的其他语言。", es: "Escriba en el idioma que prefiera. Lo traducimos a los demás idiomas del sitio.", fr: "Écrivez dans la langue de votre choix. Nous le traduisons dans les autres langues du site.", ko: "어떤 언어로 쓰셔도 됩니다. 웹사이트의 다른 언어로 번역해 드립니다." },
+  "VP Education Group may show this review, with the name above, on its website.": { zh: "VP 教育集团可以在其网站上展示这条评价及上面的名字。", es: "VP Education Group puede mostrar esta reseña, con el nombre de arriba, en su sitio web.", fr: "VP Education Group peut afficher cet avis, avec le nom ci-dessus, sur son site.", ko: "VP Education Group이 위의 이름과 함께 이 후기를 웹사이트에 게시하는 것에 동의합니다." },
+  "Send review": { zh: "提交评价", es: "Enviar reseña", fr: "Envoyer l'avis", ko: "후기 보내기" },
+  "Your review is shown only after we approve it.": { zh: "您的评价需经我们审核后才会显示。", es: "Su reseña solo se muestra después de que la aprobemos.", fr: "Votre avis n'est affiché qu'après notre validation.", ko: "후기는 저희가 확인한 후에만 게시됩니다." },
+  "Please write a little more (at least 20 characters).": { zh: "请再多写一些（至少 20 个字符）。", es: "Escriba un poco más (al menos 20 caracteres).", fr: "Écrivez un peu plus (au moins 20 caractères).", ko: "조금 더 적어 주세요 (최소 20자)." },
+  "Please confirm we may show your review.": { zh: "请确认我们可以展示您的评价。", es: "Confirme que podemos mostrar su reseña.", fr: "Confirmez que nous pouvons afficher votre avis.", ko: "후기 게시에 동의해 주세요." },
+  "This review link doesn't work. Please ask us for a new one.": { zh: "此评价链接无效，请向我们索取新链接。", es: "Este enlace para reseñas no funciona. Pídanos uno nuevo.", fr: "Ce lien pour laisser un avis ne fonctionne pas. Demandez-nous-en un nouveau.", ko: "이 후기 링크는 사용할 수 없습니다. 새 링크를 요청해 주세요." },
+  "This review link has already been used. Thank you for your review!": { zh: "此评价链接已经使用过。感谢您的评价！", es: "Este enlace ya se usó. ¡Gracias por su reseña!", fr: "Ce lien a déjà été utilisé. Merci pour votre avis !", ko: "이 링크는 이미 사용되었습니다. 후기를 남겨 주셔서 감사합니다!" },
+  "This review link has expired. Please ask us for a new one.": { zh: "此评价链接已过期，请向我们索取新链接。", es: "Este enlace para reseñas venció. Pídanos uno nuevo.", fr: "Ce lien a expiré. Demandez-nous-en un nouveau.", ko: "이 후기 링크는 만료되었습니다. 새 링크를 요청해 주세요." },
+  "We've received your review. It will appear on our website once we've had a look.": { zh: "我们已收到您的评价，审核后会显示在网站上。", es: "Recibimos su reseña. Aparecerá en nuestro sitio web una vez que la revisemos.", fr: "Nous avons bien reçu votre avis. Il apparaîtra sur notre site après relecture.", ko: "후기를 잘 받았습니다. 확인 후 웹사이트에 게시하겠습니다." },
+
   /* footer and page metadata */
   "VP Education Group": {
     zh: "VP 教育集团",

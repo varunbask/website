@@ -140,7 +140,8 @@ export function mount(ctx) {
   const tabs = h('nav', { class: 'tabs', 'aria-label': 'People' },
     pendingTab,
     h('a', { class: 'tab', href: '#/everyone', 'aria-current': view === 'everyone' ? 'page' : undefined }, 'Everyone'),
-    h('a', { class: 'tab', href: '#/referrals' }, 'Referrals'));
+    h('a', { class: 'tab', href: '#/referrals' }, 'Referrals'),
+    h('a', { class: 'tab', href: '#/reviews' }, 'Reviews'));
   ctx.setHeader({ title: 'People', tabs });
 
   function setPendingCount(n) {
