@@ -12,6 +12,8 @@ const SPEC_NAMES = [
   'file-pdf', 'image-square', 'eye', 'eye-slash', 'envelope-simple', 'trend-up', 'trend-down', 'info',
   // Lesson materials and homework (schedules spec)
   'presentation', 'paperclip', 'link-simple', 'book-open-text', 'corners-out', 'repeat',
+  // Account view (billing spec)
+  'currency-dollar', 'receipt', 'printer', 'copy', 'lock-simple',
 ];
 
 test('ICON_NAMES lists exactly the icons in the spec', () => {

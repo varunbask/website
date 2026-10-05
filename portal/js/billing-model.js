@@ -572,6 +572,34 @@ export function periodStatus(ctx, t) {
   return { key: 'unpaid', label: 'Unpaid', tone: 'neutral' };
 }
 
+// Every tutor with sessions in [from, to]: hours, expected and realized pay,
+// what was paid for those days (payouts allocated by their lines), and YTD
+export function tutorRangeRows(ctx, from, to) {
+  const byTutor = new Map();
+  for (const r of ctx.rows) {
+    if (!inRange(r, from, to)) continue;
+    const k = String(r.session.tutor_id);
+    if (!byTutor.has(k)) byTutor.set(k, []);
+    byTutor.get(k).push(r);
+  }
+  return [...byTutor].map(([tutorId, rows]) => {
+    const slots = groupSlots(rows);
+    let paid = 0;
+    for (const p of ctx.payouts.filter((x) => x.kind === 'tutor' && same(x.tutor_id, tutorId))) {
+      for (const [day, c] of allocatePayout(p)) if (day >= from && day <= to) paid += c;
+    }
+    return {
+      tutorId,
+      name: ctx.nameOf(tutorId),
+      minutes: sum(slots.filter((s) => s.tutorExpected > 0 || s.payableMinutes > 0), (s) => s.minutes),
+      expectedCents: sum(slots, (s) => s.tutorExpected),
+      realizedCents: sum(slots, (s) => s.tutorRealized),
+      paidCents: paid,
+      ytdCents: yearToDate(ctx, tutorId, parseKey(to).y),
+    };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // Paid to a tutor this year: payouts by paid_on, opening balance included
 export function yearToDate(ctx, tutorId, year = parseKey(dayKey(ctx.now)).y) {
   return sum(ctx.payouts.filter((p) => p.kind !== 'referral' && same(p.tutor_id, tutorId) && p.paid_on.startsWith(`${year}-`)), (p) => p.amount_cents);
@@ -646,7 +674,11 @@ export function allocatePayout(payout) {
   return out;
 }
 
-export function rangeTotals(ctx, from, to) {
+// Totals for [from, to]. For a whole month (byMonth), Collected is what came in
+// for that month's bills (plus payments not tied to a month received in it);
+// for any other range it is what came in on those days. The referral fee of a
+// pay period counts in the range holding the period's last day.
+export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) && to === monthEnd(from) } = {}) {
   const rows = ctx.rows.filter((r) => inRange(r, from, to));
   const byTutor = new Map();
   for (const r of rows) {
@@ -659,7 +691,9 @@ export function rangeTotals(ctx, from, to) {
   const tutorAdj = sum(ctx.adjustments.filter((a) => a.party === 'tutor' && payPeriodEnd(a.period) >= from && a.period <= to), (a) => a.amount_cents);
   const revenueExpected = sum(rows, (r) => r.familyExpected) + familyAdj;
   const revenueRealized = sum(rows, (r) => r.familyRealized) + familyAdj;
-  const collected = sum(ctx.payments.filter((p) => p.received_on >= from && p.received_on <= to), (p) => p.amount_cents);
+  const collected = byMonth
+    ? sum(ctx.payments.filter((p) => p.period === from || (!p.period && p.received_on >= from && p.received_on <= to)), (p) => p.amount_cents)
+    : sum(ctx.payments.filter((p) => p.received_on >= from && p.received_on <= to), (p) => p.amount_cents);
   const tutorExpected = sum(slots, (s) => s.tutorExpected) + tutorAdj;
   const tutorRealized = sum(slots, (s) => s.tutorRealized) + tutorAdj;
   let paidOut = 0;
@@ -671,14 +705,13 @@ export function rangeTotals(ctx, from, to) {
   let referralRealized = 0;
   let referralPaid = 0;
   for (const p of periods) {
+    const end = payPeriodEnd(p);
+    if (end < from || end > to || end < ctx.settings.ledger_start) continue;
     const line = referralLine(ctx, p);
     if (!line) continue;
-    // A period partly in range counts by the share of its days in range
-    const days = Math.max(0, daysBetween(p < from ? from : p, payPeriodEnd(p) > to ? to : payPeriodEnd(p)) + 1);
-    const share = days / 14;
-    referralExpected += Math.round(line.expectedCents * share);
-    referralRealized += Math.round(line.owedCents * share);
-    referralPaid += Math.round(line.paidCents * share);
+    referralExpected += line.expectedCents;
+    referralRealized += line.owedCents;
+    referralPaid += line.paidCents;
   }
   const studentMinutes = sum(rows.filter((r) => r.familyExpected > 0), (r) => r.minutes);
   const slotMinutes = sum(slots.filter((s) => s.tutorExpected > 0), (s) => s.minutes);

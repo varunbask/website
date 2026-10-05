@@ -406,7 +406,10 @@ describe('totals', () => {
     expect(t.collected).toBe(6000);
     expect(t.tutorExpected).toBe(9000);
     expect(t.tutorRealized).toBe(6000);
-    expect(t.referralExpected).toBeGreaterThan(0);
+    // periods ending Nov 14 and Nov 28 count in November, at the $150 minimum each
+    expect(t.referralExpected).toBe(30000);
+    // a custom range counts payments by the day they arrived
+    expect(rangeTotals(ctx, '2026-11-07', '2026-11-30').collected).toBe(0);
     expect(t.netExpected).toBe(t.revenueExpected - t.tutorExpected - t.referralExpected);
     expect(t.studentMinutes).toBe(180);
   });

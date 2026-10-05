@@ -3,7 +3,7 @@
 // with the store, and applies the title, announcement, focus and scroll rules.
 //
 // startApp({ me, page, audience, table, defaultRoute(scope), loadScope, drawer })
-//   page          'student' | 'parent' | 'staff' | 'people'
+//   page          'student' | 'parent' | 'staff' | 'people' | 'account'
 //   audience      'family' | 'staff'
 //   table         the page's route table (routes.js; fields in app-model.js)
 //   defaultRoute  (scope) -> hash, the page default for that scope
@@ -46,7 +46,7 @@ import * as store from './store.js';
 import { startRouter, sameView, buildHash, withParams } from './router.js';
 import { mountShell } from './shell.js';
 import { initDrawer, showDrawer, hideDrawer, drawerOpen, syncDrawerRow } from './drawer.js';
-import { navModel } from './nav-model.js';
+import { navModel, ADMIN_PAGES } from './nav-model.js';
 import { navCounts } from './buckets.js';
 import { getSeen, hasNewSince } from './seen.js';
 import { recentChanges } from './sessions-model.js';
@@ -652,7 +652,7 @@ export function startApp(config) {
     const now = new Date();
     const student = scope?.student;
     const jobs = [];
-    if (student && page !== 'people') {
+    if (student && !ADMIN_PAGES.has(page)) {
       jobs.push((async () => {
         const data = await store.getStudentData(student.id);
         const items = store.itemsFor(data, { now, audience, viewerId: me.id });

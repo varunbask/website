@@ -1,0 +1,196 @@
+/* Account page (account.html, admin): billing and payroll.
+
+   div.acct-root
+     div.acct-month > icon-btn + h2.acct-month-title + icon-btn + .btn ...      month picker
+     div.grid-12.acct-tiles > section.card.acct-tile.span-4 (+ .is-net) >
+       div.card-head + dl.acct-figures > div.acct-figure(.is-main) > dt + dd + p.acct-tile-meta
+     details.card.acct-range > summary.acct-range-summary + div.acct-range-row
+     section.card.acct-attention(.is-clear) > details.group.acct-attention-group >
+       summary.group-header + ul.acct-attention-list > li.acct-attention-item >
+         a.acct-session-link + div.acct-attention-actions
+     div.acct-table-wrap > table.acct-table (stacks below 768px using td[data-label])
+       tr.acct-detail-row > td > div.acct-details > div.acct-details-main + aside.acct-details-side
+         ul.acct-lines > li.acct-line(.is-cancelled) > a.acct-line-what + .pill + span.acct-line-rate + span.acct-line-amount
+         dl.acct-summary > div.acct-summary-row(.is-total) > dt + dd
+         div.acct-pay-form, div.acct-inline-form(.is-tight) > label.acct-inline-field > span + control
+     section.card.acct-period > div.well.acct-referral
+     article.acct-statement                                                    statement and pay slip (prints alone)
+*/
+
+.acct-root { display: flex; flex-direction: column; gap: var(--s-5); }
+.acct-stack { display: flex; flex-direction: column; gap: var(--s-4); }
+.acct-root .grid-12 { gap: var(--s-4); }
+
+/* Month picker */
+.acct-month { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-2); }
+.acct-month-title { font: var(--t-h2); min-width: 10ch; text-align: center; }
+
+/* Tiles */
+.acct-tile .card-title { display: inline-flex; align-items: center; gap: var(--s-2); }
+.acct-tile .card-title .icon { color: var(--text-3); }
+.acct-figures { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s-2) var(--s-4); margin: 0; }
+.acct-figure { min-width: 0; }
+.acct-figure.is-main { grid-column: 1 / -1; }
+.acct-figure dt { font: var(--t-caption); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.acct-figure dd { margin: 0; font: 500 15px/22px var(--font-mono); font-variant-numeric: tabular-nums; }
+.acct-figure.is-main dd { font: var(--t-figure); letter-spacing: -0.02em; }
+.acct-tile.is-net .acct-figure.is-main dd { color: var(--success-text); }
+.acct-tile-meta { margin-top: var(--s-3); }
+
+/* Custom range and other collapsible cards */
+.acct-range, .acct-paste-card, details.card.acct-card { padding: var(--s-4) var(--s-5); }
+.acct-range-summary { cursor: pointer; font: var(--t-h3); list-style-position: inside; }
+.acct-range-row, .acct-inline-form {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-2) var(--s-3); margin-top: var(--s-3);
+}
+.acct-inline-form.is-tight { margin-top: var(--s-2); }
+.acct-inline-field { display: flex; flex-direction: column; gap: var(--s-1); font: var(--t-caption); color: var(--text-3); min-width: 0; }
+.acct-inline-field > .input, .acct-inline-field > .select { min-width: 9rem; }
+.acct-money-input { width: 7.5rem; font-family: var(--font-mono); text-align: right; }
+.acct-num-input { width: 5.5rem; }
+.acct-form-hint:empty { display: none; }
+
+/* Needs attention */
+.acct-attention { border-color: var(--warning-solid); }
+.acct-attention.is-clear { border-color: var(--line-strong); }
+.acct-attention .card-title { display: inline-flex; align-items: center; gap: var(--s-2); }
+.acct-attention .card-title .icon { color: var(--warning-text); }
+.acct-attention.is-clear .card-title .icon { color: var(--success-text); }
+.acct-attention-groups { display: flex; flex-direction: column; gap: var(--s-2); }
+.acct-attention-group > summary { cursor: pointer; }
+.acct-attention-group[open] > summary .icon:first-child { transform: rotate(90deg); }
+.acct-attention-bulk { display: flex; gap: var(--s-2); padding: var(--s-2) 0; }
+.acct-attention-list { list-style: none; margin: 0; padding: 0; }
+.acct-attention-item {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2) var(--s-4);
+  padding: var(--s-2) 0; border-bottom: 1px solid var(--line);
+}
+.acct-attention-item:last-child { border-bottom: 0; }
+.acct-attention-actions { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+.acct-session-link { display: flex; flex-direction: column; min-width: 0; color: var(--text); text-decoration: none; }
+.acct-session-link:hover .acct-session-when { text-decoration: underline; }
+.acct-session-when { font: 500 14px/20px var(--font-ui); }
+.acct-session-link > span:last-child { font: var(--t-meta); color: var(--text-3); }
+
+/* Tables */
+.acct-table-wrap { overflow-x: auto; }
+.acct-table { width: 100%; border-collapse: collapse; font: var(--t-ui); }
+.acct-table th, .acct-table td { padding: var(--s-2) var(--s-3); text-align: left; vertical-align: middle; border-bottom: 1px solid var(--line); }
+.acct-table thead th { font: var(--t-caption); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
+.acct-table tbody th { font-weight: 500; }
+.acct-table .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.acct-table tfoot th, .acct-table tfoot td { font-weight: 600; border-bottom: 0; border-top: 1px solid var(--line-strong); }
+.acct-table tr.is-voided { color: var(--text-4); text-decoration: line-through; }
+.acct-table tr.acct-detail-row > td { padding: 0 0 var(--s-4); background-color: var(--surface-2); }
+.acct-owes { color: var(--danger-text); }
+.acct-missing { color: var(--danger-text); font-weight: 500; }
+
+@media (max-width: 767.98px) {
+  .acct-table thead { display: none; }
+  .acct-table, .acct-table tbody, .acct-table tfoot, .acct-table tr, .acct-table th, .acct-table td { display: block; width: 100%; }
+  .acct-table tr { padding: var(--s-2) 0; border-bottom: 1px solid var(--line); }
+  .acct-table th, .acct-table td { border: 0; padding: 2px 0; }
+  .acct-table td[data-label]:not([data-label=""])::before {
+    content: attr(data-label); display: inline-block; min-width: 7rem; font: var(--t-caption); color: var(--text-3);
+  }
+  .acct-table .num { text-align: left; }
+  .acct-table tr.acct-detail-row > td::before { content: none; }
+  .acct-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Family and payroll details */
+.acct-details { display: grid; grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem); gap: var(--s-5); padding: var(--s-4); }
+@media (max-width: 1023.98px) { .acct-details { grid-template-columns: minmax(0, 1fr); } }
+.acct-details-main, .acct-details-side { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
+.acct-student-name, .acct-block h4, .acct-pay-form h4 { font: var(--t-h3); margin-bottom: var(--s-2); }
+.acct-lines { list-style: none; margin: 0; padding: 0; }
+.acct-line {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-3);
+  padding: var(--s-2) 0; border-bottom: 1px solid var(--line);
+}
+.acct-line:last-child { border-bottom: 0; }
+.acct-line.is-cancelled .acct-line-what, .acct-line.is-cancelled .acct-line-amount { color: var(--text-4); text-decoration: line-through; }
+.acct-line-what { display: flex; flex-direction: column; flex: 1 1 16rem; min-width: 0; color: var(--text); text-decoration: none; }
+a.acct-line-what:hover .acct-line-when { text-decoration: underline; }
+.acct-line-when { font: 500 14px/20px var(--font-ui); }
+.acct-line-what > span:last-child { font: var(--t-meta); color: var(--text-3); }
+.acct-line-rate { font: var(--t-meta); color: var(--text-3); }
+.acct-line-amount { min-width: 6rem; text-align: right; font-family: var(--font-mono); }
+.acct-exception { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s-2); width: 100%; padding: var(--s-2) 0; }
+.acct-exception[hidden] { display: none; }
+.acct-summary { margin: 0; padding: var(--s-4); border-radius: var(--r-md); background-color: var(--surface); border: 1px solid var(--line); }
+.acct-summary-row { display: flex; justify-content: space-between; gap: var(--s-3); padding: 2px 0; }
+.acct-summary-row dt { color: var(--text-3); }
+.acct-summary-row dd { margin: 0; }
+.acct-summary-row.is-total { margin-top: var(--s-1); padding-top: var(--s-2); border-top: 1px solid var(--line-strong); font-weight: 600; }
+.acct-summary-row.is-total dt { color: var(--text); }
+.acct-pay-form { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-4); border-radius: var(--r-md); background-color: var(--surface); border: 1px solid var(--line); }
+.acct-pay-form .acct-inline-field > .input, .acct-pay-form .acct-inline-field > .select { width: 100%; }
+.acct-side-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.acct-contact > summary { cursor: pointer; font: var(--t-meta); color: var(--text-2); }
+.acct-gate { align-items: flex-start; }
+.acct-carried { font: var(--t-meta); color: var(--text-2); }
+.acct-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.acct-toolbar .input[type="search"] { max-width: 18rem; }
+
+/* Payroll */
+.acct-periods { display: flex; flex-direction: column; gap: var(--s-4); }
+.acct-period .card-actions { margin-left: auto; }
+.acct-referral { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-3); }
+.acct-referral-title { font: 500 15px/22px var(--font-ui); }
+.acct-pay-toggle > summary { list-style: none; cursor: pointer; }
+.acct-pay-toggle > summary::-webkit-details-marker { display: none; }
+.acct-pay-toggle[open] > summary { margin-bottom: var(--s-2); }
+
+/* Rates */
+.acct-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3); }
+.acct-section-head h2 { font: var(--t-h2); }
+.acct-section-head .input { max-width: 16rem; }
+.acct-rate-list { display: flex; flex-direction: column; gap: var(--s-3); }
+.acct-student-rates .card-head { margin-bottom: var(--s-2); }
+.acct-paste { width: 100%; margin-top: var(--s-3); font-family: var(--font-mono); }
+.acct-paste-result ul { margin: 0 0 var(--s-3); padding-left: var(--s-5); font: var(--t-meta); }
+.acct-paste-title { font: 600 13px/18px var(--font-ui); margin: var(--s-3) 0 var(--s-1); }
+.acct-paste-title.is-warning { color: var(--warning-text); }
+.acct-settings { display: flex; flex-direction: column; gap: var(--s-3); margin-bottom: var(--s-3); }
+.acct-policy-text { font: var(--t-meta); color: var(--text-2); margin-bottom: var(--s-3); }
+.acct-history { margin-top: var(--s-2); font: var(--t-meta); color: var(--text-3); }
+.acct-history > summary { cursor: pointer; }
+.acct-history ul { margin: var(--s-1) 0 0; padding-left: var(--s-5); }
+.acct-history li.is-voided { text-decoration: line-through; }
+.acct-reason .field { margin: var(--s-3) 0; }
+
+/* Statement and pay slip */
+.acct-print-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
+.acct-statement {
+  max-width: 52rem; padding: var(--s-8); border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  background-color: var(--surface); color: var(--text);
+}
+.acct-statement-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-6); }
+.acct-statement-org { font: var(--t-meta); color: var(--text-3); }
+.acct-statement-head h1 { font: var(--t-h1); }
+.acct-statement-meta { display: grid; grid-template-columns: auto auto; gap: 2px var(--s-4); margin: 0; font: var(--t-meta); }
+.acct-statement-meta dt { color: var(--text-3); }
+.acct-statement-meta dd { margin: 0; text-align: right; }
+.acct-statement-lines { width: 100%; border-collapse: collapse; font: var(--t-ui); }
+.acct-statement-lines th, .acct-statement-lines td { padding: 6px var(--s-2); text-align: left; border-bottom: 1px solid var(--line); }
+.acct-statement-lines thead th { font: var(--t-caption); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.acct-statement-lines .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.acct-statement-lines tr.is-cancelled td { color: var(--text-4); }
+.acct-statement-lines tfoot th, .acct-statement-lines tfoot td { border-bottom: 0; }
+.acct-statement-lines tfoot tr.is-total th, .acct-statement-lines tfoot tr.is-total td { font-weight: 600; border-top: 2px solid var(--text); }
+.acct-statement-note { margin-top: var(--s-4); font: var(--t-meta); color: var(--text-2); white-space: pre-line; }
+
+@media (max-width: 767.98px) {
+  .acct-statement { padding: var(--s-4); }
+  .acct-statement-lines { font: var(--t-meta); }
+}
+
+@page { margin: 12mm; }
+@media print {
+  body.app-body { background: #fff; }
+  .sidebar, .topbar-wrap, .tabbar, .toasts, .view-header, .tabs, .acct-print-bar, .skip-link { display: none !important; }
+  .app, .panel, #main, .view-root, .view { display: block !important; margin: 0 !important; padding: 0 !important; max-width: none !important; }
+  .acct-statement { max-width: none; border: 0; padding: 0; color: #000; background: #fff; }
+  .acct-statement-lines th, .acct-statement-lines td { border-color: #ccc; }
+}

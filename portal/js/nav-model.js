@@ -73,9 +73,12 @@ function studentItems({ route, counts, fresh, family, staff }) {
   ];
 }
 
+// Pages of their own for the admin: no student scope, workspace links point back to staff.html
+export const ADMIN_PAGES = new Set(['people', 'account']);
+
 // Today, Review queue, Students, Calendar (all students)
 function workspaceItems({ route, counts, page }) {
-  const onStaff = page !== 'people';
+  const onStaff = !ADMIN_PAGES.has(page);
   const base = onStaff ? '' : '/portal/staff.html';
   const view = onStaff ? route?.view : null;
   return [
@@ -96,6 +99,10 @@ function peopleItem({ counts, page }) {
     current: page === 'people',
     badge: badge(counts.pending, plural(counts.pending, 'person waiting', 'people waiting')),
   });
+}
+
+function accountItem({ page }) {
+  return item('account', 'Account', 'currency-dollar', '/portal/account.html#/dashboard', { current: page === 'account' });
 }
 
 // A tab bar slot: same item without children or "New", with the rail count
@@ -136,26 +143,27 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
   }
 
   // Tutors and admins
-  const onPeople = page === 'people';
+  const onAdminPage = ADMIN_PAGES.has(page);
   const isAdmin = role === 'admin';
   const work = workspaceItems({ route, counts: c, page });
-  const student = !onPeople && scope?.student ? studentItems({ route, counts: c, fresh, family: false, staff: true }) : [];
+  const student = !onAdminPage && scope?.student ? studentItems({ route, counts: c, fresh, family: false, staff: true }) : [];
   const people = isAdmin ? peopleItem({ counts: c, page }) : null;
+  const account = isAdmin ? accountItem({ page }) : null;
   const groups = [{ key: 'workspace', label: 'Workspace', switcher: false, items: work }];
-  if (!onPeople) groups.push({ key: 'student', label: 'Student', switcher: true, items: student });
-  if (people) groups.push({ key: 'admin', label: 'Admin', switcher: false, items: [people] });
+  if (!onAdminPage) groups.push({ key: 'student', label: 'Student', switcher: true, items: student });
+  if (people) groups.push({ key: 'admin', label: 'Admin', switcher: false, items: [people, account] });
 
-  const mode = !onPeople && isStudentMode(route, scope) ? 'student' : 'workspace';
+  const mode = !onAdminPage && isStudentMode(route, scope) ? 'student' : 'workspace';
   const w = byKey(work);
   let tabs;
   let more;
   if (mode === 'student') {
     const s = byKey(student);
     tabs = [s.overview, s.assignments, s.tasks, s.calendar];
-    more = [s.updates, w.today, w.review, w.students, ...(people ? [people] : [])];
+    more = [s.updates, w.today, w.review, w.students, ...(people ? [people, account] : [])];
   } else if (isAdmin) {
     tabs = [w.today, w.review, w.students, people];
-    more = [w['calendar-all']];
+    more = [w['calendar-all'], account];
   } else {
     tabs = [w.today, w.review, w.students, w['calendar-all']];
     more = [];
