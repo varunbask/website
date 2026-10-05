@@ -8,12 +8,13 @@ export function sortReferrals(list) {
   return [...(list ?? [])].sort((a, b) => (Date.parse(b.created_at) - Date.parse(a.created_at)) || (Number(b.id) - Number(a.id)));
 }
 
-// { fresh, contacted }, each newest first
+// { fresh, approved, declined }, each newest first
 export function groupReferrals(list) {
   const sorted = sortReferrals(list);
   return {
-    fresh: sorted.filter((r) => r.status !== 'contacted'),
-    contacted: sorted.filter((r) => r.status === 'contacted'),
+    fresh: sorted.filter((r) => r.status !== 'approved' && r.status !== 'declined'),
+    approved: sorted.filter((r) => r.status === 'approved'),
+    declined: sorted.filter((r) => r.status === 'declined'),
   };
 }
 

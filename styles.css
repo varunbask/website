@@ -701,6 +701,27 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .refer-pair { grid-template-columns: 1fr; }
 }
 
+/* ---------- referral review page (api/referral-review) ---------- */
+
+.review-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+}
+.review-card {
+  width: 100%;
+  max-width: 480px;
+  padding: 32px;
+  border: 1.5px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--paper);
+}
+.review-brand { margin-bottom: 12px; font-family: var(--font-display); font-weight: 700; color: var(--pen); }
+.review-card h1 { font-size: 1.8rem; margin-bottom: 12px; }
+.review-card p { line-height: 1.6; color: var(--ink-2); margin-bottom: 20px; }
+.review-card form { margin-bottom: 20px; }
+
 /* ---------- footer ---------- */
 
 .site-footer {
