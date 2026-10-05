@@ -641,7 +641,7 @@ export function mount(ctx) {
       syncCounts();
     }));
     return h('div', { class: 'ppl-add-person ppl-add-list', hidden: true },
-      h('p', { class: 'ppl-add-person-help' }, 'One student per line, with their parent in brackets, as the old scheduler lists them: Amy (Ryan). Rates after a colon are ignored here (paste them on Account > Rates). People already in the portal under the same full name are reused, not added twice.'),
+      h('p', { class: 'ppl-add-person-help' }, 'One student per line, with their parent in brackets, as the old scheduler lists them: Amy (Ryan). For a parent with two children, write a line for each child with the same parent: Mason (Sunny) and Bill (Sunny). Rates after a colon are ignored here (paste them on Account > Rates). People already in the portal under the same full name are reused, not added twice.'),
       text,
       h('div', { class: 'ppl-add-person-row' }, preview),
       progress,
@@ -754,12 +754,13 @@ export function mount(ctx) {
     // An admin can also be a student's tutor (marked in the add list)
     const tutors = data.people.filter((p) => p.role === 'tutor' || p.role === 'admin').sort(byName);
     const parents = data.people.filter((p) => p.role === 'parent').sort(byName);
+    const students = data.people.filter((p) => p.role === 'student').sort(byName);
     let n = 0;
     const animate = firstRender && !ctx.isRefresh;
     list.replaceChildren(...groups.map((g) => h('section', { class: 'ppl-group', 'aria-label': g.label },
       role === 'all' ? groupHeader({ label: g.label, count: g.people.length }) : null,
       h('ul', { class: 'ppl-list' }, g.people.map((p) => {
-        const li = personRow(p, { tutors, parents });
+        const li = personRow(p, { tutors, parents, students });
         if (animate && n < ENTER_LIMIT) {
           li.classList.add('enter');
           li.style.setProperty('--i', String(n));
@@ -980,6 +981,68 @@ export function mount(ctx) {
       h('div', { class: 'ppl-link-body' }, chips, adder));
   }
 
+  // A parent's children, from the parent's side: one parent can have any number
+  // of children (two kids with us = two chips), and a child can have two parents
+  function childGroup(parent, students) {
+    const parentName = displayName(parent);
+    const addKey = `add-child-${parent.id}`;
+    const labelId = uid('ppl-links');
+    const linked = studentsOf(parent.id, data.parentLinks, 'parent_id', data.byId);
+    const linkedIds = new Set(linked.map((p) => p.id));
+    const available = students.filter((p) => !linkedIds.has(p.id));
+
+    let adder = null;
+    if (available.length) {
+      const picker = select({
+        label: `Add a child for ${parentName}`,
+        size: 'sm',
+        value: '',
+        options: [{ value: '', label: 'Add a child' }, ...available.map((p) => ({ value: p.id, label: displayName(p) }))],
+      });
+      picker.classList.add('ppl-add');
+      const sel = picker.firstElementChild;
+      sel.dataset.focusKey = addKey;
+      sel.addEventListener('change', () => {
+        if (!sel.value) return;
+        const child = sel.value;
+        sel.disabled = true;
+        act(sb.from('parent_students').insert({ parent_id: parent.id, student_id: child }),
+          `Linked ${parentName} to ${displayName(data.byId.get(child))}.`,
+          { key: `remove-child-${parent.id}-${child}`, fallback: addKey });
+      });
+      adder = h('div', { class: 'ppl-add-row' }, picker);
+    }
+
+    const chips = linked.length
+      ? h('ul', { class: 'ppl-chips', 'aria-labelledby': labelId }, linked.map((c) => {
+        const cname = displayName(c);
+        const x = iconButton({
+          icon: 'x',
+          label: `Unlink ${cname}`,
+          tip: 'top',
+          className: 'ppl-chip-remove',
+          focusKey: `remove-child-${parent.id}-${c.id}`,
+          onClick: () => {
+            x.disabled = true;
+            act(sb.from('parent_students').delete().eq('parent_id', parent.id).eq('student_id', c.id),
+              `Unlinked ${parentName} from ${cname}.`, { key: addKey, fallback: null });
+          },
+        });
+        x.dataset.focusFallback = addKey;
+        // Who gets the bill shows when a child has more than one parent (Bill to is on the child's row)
+        const link = data.parentLinks.find((l) => l.parent_id === parent.id && l.student_id === c.id);
+        const parentsOfChild = data.parentLinks.filter((l) => l.student_id === c.id).length;
+        const pays = parentsOfChild > 1 && link && 'bills' in link && link.bills
+          ? h('span', { class: 'pill tone-success ppl-pays' }, 'Pays') : null;
+        return h('li', { class: 'ppl-chip' }, avatar(cname, { size: 24 }), h('span', { class: 'ppl-chip-name' }, cname), pays, x);
+      }))
+      : h('p', { class: 'ppl-none' }, 'None yet');
+
+    return h('div', { class: 'ppl-link-group' },
+      h('span', { class: 'ppl-link-label', id: labelId }, 'Children'),
+      h('div', { class: 'ppl-link-body' }, chips, adder));
+  }
+
   // The name with an Edit button that swaps in a field. Enter or Save saves,
   // Escape or Cancel puts the name back; zero rows back means it did not save
   // (act reports it). The sidebar shows a new name of your own after a reload.
@@ -1049,7 +1112,7 @@ export function mount(ctx) {
     return wrap;
   }
 
-  function personRow(person, { tutors, parents }) {
+  function personRow(person, { tutors, parents, students }) {
     const name = displayName(person);
     const self = person.id === me.id;
     const isStudent = person.role === 'student';
@@ -1057,13 +1120,10 @@ export function mount(ctx) {
     let detail = null;
     // An admin who teaches shows their students too
     const teachingAdmin = person.role === 'admin' && data.tutorLinks.some((l) => l.tutor_id === person.id);
-    if (person.role === 'tutor' || person.role === 'parent' || teachingAdmin) {
-      const asTutor = person.role !== 'parent';
-      const linked = studentsOf(person.id, asTutor ? data.tutorLinks : data.parentLinks,
-        asTutor ? 'tutor_id' : 'parent_id', data.byId);
-      const word = asTutor ? 'Students' : 'Children';
+    if (person.role === 'tutor' || teachingAdmin) {
+      const linked = studentsOf(person.id, data.tutorLinks, 'tutor_id', data.byId);
       detail = h('p', { class: linked.length ? 'ppl-detail' : 'ppl-detail is-empty' },
-        linked.length ? `${word}: ${linked.map(displayName).join(', ')}` : `${word}: none yet`);
+        linked.length ? `Students: ${linked.map(displayName).join(', ')}` : 'Students: none yet');
     }
 
     const workspace = isStudent
@@ -1092,7 +1152,8 @@ export function mount(ctx) {
         ? h('div', { class: 'ppl-links' },
           linkGroup(person, 'tutor', linkedTo(person.id, data.tutorLinks, 'tutor_id', data.byId), tutors),
           linkGroup(person, 'parent', linkedTo(person.id, data.parentLinks, 'parent_id', data.byId), parents))
-        : null);
+        : null,
+      person.role === 'parent' ? h('div', { class: 'ppl-links is-parent' }, childGroup(person, students)) : null);
   }
 
   return render();

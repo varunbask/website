@@ -31,7 +31,7 @@
            div.ppl-person-head (avatar, .ppl-id > .ppl-name > .ppl-name-text + .ppl-you + .ppl-name-edit
              (editing: .ppl-name.is-editing > input.ppl-name-input + Save + Cancel),
              .ppl-controls > .ppl-open + .ppl-role)
-           div.ppl-links > div.ppl-link-group x2 (students only)
+           div.ppl-links > div.ppl-link-group x2 (students; parents get one: Children)
              tutors: ul.ppl-chips.is-tutors > li.ppl-tutor > span.ppl-chip + input.ppl-subject-input
                      (the chip names the tutor and subject; the input changes the subject)
                      div.ppl-add-row > input.ppl-subject-input.is-new + .select.ppl-add
@@ -756,3 +756,4 @@
 .ppl-list-title { margin: var(--s-2) 0 0; font: 600 13px/18px var(--font-ui); color: var(--text); }
 .ppl-list-title.is-warning { color: var(--warning-text); }
 .ppl-list-plan > .btn { margin-top: var(--s-2); }
+.ppl-links.is-parent { grid-template-columns: minmax(0, 1fr); }
