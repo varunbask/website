@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#EEEFF2">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <title>Set up your account | VP Education Group</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="/portal/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/portal/css/app.css?v=3">
+  <link rel="stylesheet" href="/portal/css/auth.css?v=3">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous" defer></script>
+  <script type="module" src="/portal/js/join.js"></script>
+</head>
+<body class="auth-body">
+
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="auth-toolbar">
+    <span class="auth-theme-slot" id="theme-toggle"></span>
+  </header>
+
+  <main id="main" class="auth-main">
+    <div class="auth-column">
+
+      <a class="brand auth-brand" href="/">
+        <span class="brand-mark" aria-hidden="true">VP</span>
+        <span class="brand-text"><span class="brand-name">VP Education Group</span><span class="brand-sub">Portal</span></span>
+      </a>
+
+      <div class="auth-panel" id="panel-loading">
+        <div class="auth-card">
+          <div class="auth-head">
+            <h1 class="auth-title" tabindex="-1">Opening your invitation…</h1>
+          </div>
+        </div>
+      </div>
+
+      <div class="auth-panel" id="panel-join" hidden>
+        <div class="auth-card">
+          <div class="auth-head">
+            <span class="auth-icon" data-icon="identification-badge" data-icon-size="20"></span>
+            <h1 class="auth-title" tabindex="-1">Welcome, <span id="join-name"></span></h1>
+            <p class="auth-lede" id="join-lede">Choose the email and password you will sign in with.</p>
+          </div>
+          <form id="join-form" class="auth-form" method="post" novalidate>
+            <div class="field">
+              <label class="field-label" for="join-email">Email</label>
+              <input class="input" id="join-email" type="email" name="email" autocomplete="email" required>
+            </div>
+            <div class="field">
+              <label class="field-label" for="join-password">Password</label>
+              <span class="auth-pass">
+                <input class="input" id="join-password" type="password" name="password" autocomplete="new-password" minlength="8" maxlength="72" required aria-describedby="join-password-hint">
+              </span>
+              <p class="field-hint" id="join-password-hint">At least 8 characters.</p>
+            </div>
+            <p class="form-message auth-message" role="alert" hidden></p>
+            <button class="btn btn-primary btn-lg btn-block auth-submit" type="submit"><span class="btn-label">Create my account</span></button>
+          </form>
+          <p class="auth-note">By creating an account you agree to our <a class="link" href="/privacy.html">privacy policy</a>.</p>
+        </div>
+      </div>
+
+      <div class="auth-panel" id="panel-problem" hidden>
+        <div class="auth-card">
+          <div class="auth-head">
+            <span class="auth-icon" data-icon="warning-circle" data-icon-size="20"></span>
+            <h1 class="auth-title" tabindex="-1" id="problem-title">This link doesn’t work</h1>
+            <p class="auth-lede" id="problem-text">Ask VP Education Group for a new one.</p>
+          </div>
+          <p class="auth-note">Questions? Email <a class="link" href="mailto:vbmgroupsllc@gmail.com">vbmgroupsllc@gmail.com</a>.</p>
+          <div class="auth-actions">
+            <a class="btn btn-secondary btn-lg btn-block" href="/portal/index.html"><span class="btn-label">Go to sign in</span></a>
+          </div>
+        </div>
+      </div>
+
+      <p class="auth-back">
+        <a class="auth-back-link" href="/"><span class="auth-back-icon" data-icon="caret-left"></span><span>Back to VP Education Group</span></a>
+        <a class="auth-back-link" href="/privacy.html">Privacy policy</a>
+      </p>
+
+    </div>
+    <p class="visually-hidden" id="auth-status" role="status"></p>
+  </main>
+
+</body>
+</html>

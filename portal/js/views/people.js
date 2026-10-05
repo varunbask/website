@@ -14,12 +14,19 @@
 // is never [hidden]: a live region that is in the accessibility tree before
 // its first change is announced reliably; while empty, CSS collapses its slot.
 //
+// People without a sign-in (profiles.no_login): the admin adds a student or
+// parent by name (Add without a login, through /api/people), links and
+// schedules them like anyone else, and later sends a personal Invite link
+// (only its SHA-256 is stored in portal_invites) so they can set their own
+// email and password on portal/join.html.
+//
 // Pure helpers (normalizeRole, roleCounts, linkedTo, peopleIn, byCreated,
 // approveText) are exported for tests; they never touch the DOM.
 
 import { sb } from '../supabase.js';
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
+import { newInviteToken, inviteLink, inviteMessage, inviteState, parseFamilyLines, planFamilies } from '../invites-model.js';
 import {
   avatar, button, iconButton, busy, pill, select, emptyState, errorCallout, skeletonRows,
   segmented, setSegmented, groupHeader, badgeText, visuallyHidden,
@@ -112,11 +119,26 @@ async function loadParentLinks() {
   return sb.from('parent_students').select('parent_id, student_id');
 }
 
+// profiles.no_login and portal_invites come with the invites migration; the
+// page still loads without them
+async function loadProfiles() {
+  const fields = 'id, email, full_name, role, requested_role, signup_note, created_at';
+  const withFlag = await sb.from('profiles').select(`${fields}, no_login`);
+  if (!withFlag.error) return withFlag;
+  return sb.from('profiles').select(fields);
+}
+
+async function loadInvites() {
+  const res = await sb.from('portal_invites').select('id, profile_id, created_at, expires_at, used_at, emailed_to, emailed_at');
+  return res.error ? { data: [] } : res;
+}
+
 async function load() {
-  const [people, tutorLinks, parentLinks] = await Promise.all([
-    sb.from('profiles').select('id, email, full_name, role, requested_role, signup_note, created_at'),
+  const [people, tutorLinks, parentLinks, invites] = await Promise.all([
+    loadProfiles(),
     sb.from('tutor_students').select('tutor_id, student_id, subject'),
     loadParentLinks(),
+    loadInvites(),
   ]);
   for (const result of [people, tutorLinks, parentLinks]) if (result.error) throw result.error;
   const list = people.data ?? [];
@@ -125,7 +147,28 @@ async function load() {
     byId: new Map(list.map((p) => [p.id, p])),
     tutorLinks: tutorLinks.data ?? [],
     parentLinks: parentLinks.data ?? [],
+    invites: invites.data ?? [],
   };
+}
+
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// POST /api/people as the signed-in admin -> { status, body }
+async function peopleApi(payload) {
+  const { data: { session } } = await sb.auth.getSession();
+  try {
+    const res = await fetch('/api/people', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session?.access_token ?? ''}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return { status: res.status, body: await res.json().catch(() => ({})) };
+  } catch {
+    return { status: 0, body: {} };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -448,13 +491,242 @@ export function mount(ctx) {
 
     const list = h('div', { class: 'ppl-everyone' });
     const status = h('p', { class: 'visually-hidden', role: 'status' });
+    const adder = addWithoutLogin();
     const toolbar = h('div', { class: 'ppl-toolbar' },
       h('div', { class: 'ppl-search' },
         h('label', { class: 'visually-hidden', for: inputId }, 'Find a person'),
         h('span', { class: 'input-icon' }, icon('magnifying-glass'), input)),
-      h('div', { class: 'ppl-filter-wrap' }, seg));
+      h('div', { class: 'ppl-filter-wrap' }, seg),
+      adder);
     everyone = { input, seg, list, status, countSpans, toolbar };
     root.replaceChildren(toolbar, status, list);
+  }
+
+  // A student or parent who has no account yet: a real portal account with no
+  // way to sign in, so they can be linked, scheduled and billed; Invite later
+  function addWithoutLogin() {
+    const nameInput = h('input', {
+      class: 'input', type: 'text', maxlength: '120', autocomplete: 'off', placeholder: 'Full name',
+      'aria-label': 'Full name of the person to add', dataset: { focusKey: 'ppl-add-name' },
+    });
+    let newRole = 'student';
+    const kind = segmented({
+      label: 'Add as',
+      value: newRole,
+      options: [{ value: 'student', label: 'Student' }, { value: 'parent', label: 'Parent' }],
+      onChange: (v) => { newRole = v; },
+    });
+    const add = button({ label: 'Add', type: 'submit', variant: 'primary', size: 'sm', icon: 'plus', focusKey: 'ppl-add-submit' });
+    const form = h('form', { class: 'ppl-add-person', hidden: true },
+      h('p', { class: 'ppl-add-person-help' }, 'For a student or parent who has no account yet. You can link, schedule and bill them now, and send them an invite to set up their sign-in later.'),
+      h('div', { class: 'ppl-add-person-row' }, nameInput, kind, add));
+    const list = addFromList();
+    const open = button({
+      label: 'Add without a login', size: 'sm', variant: 'secondary', icon: 'plus', focusKey: 'ppl-add-open',
+      onClick: () => {
+        form.hidden = !form.hidden;
+        list.hidden = true;
+        if (!form.hidden) nameInput.focus();
+      },
+    });
+    const openList = button({
+      label: 'Paste a list', size: 'sm', variant: 'ghost', icon: 'clipboard-text', focusKey: 'ppl-list-open',
+      onClick: () => {
+        list.hidden = !list.hidden;
+        form.hidden = true;
+        if (!list.hidden) list.querySelector('textarea').focus();
+      },
+    });
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const name = nameInput.value.trim().replace(/\s+/g, ' ');
+      if (!name) {
+        nameInput.focus();
+        return;
+      }
+      busy(add, 'Adding…', async () => {
+        const { status, body } = await peopleApi({ action: 'create', full_name: name, role: newRole });
+        if (!ctx.alive()) return;
+        if (status !== 201) {
+          say(`That didn’t save: ${status === 0 ? 'check your connection and try again.' : status === 401 ? 'sign in again as an admin.' : 'please try again.'}`, 'error');
+          return;
+        }
+        nameInput.value = '';
+        form.hidden = true;
+        say(`Added ${name} as a ${newRole} without a login. Link them below, then use Invite when they are ready to sign in.`, 'success');
+        await render({ key: `invite-${body.id}`, fallback: 'ppl-add-open' });
+        syncCounts();
+      });
+    });
+    return h('div', { class: 'ppl-add-wrap' }, h('div', { class: 'ppl-add-buttons' }, open, openList), form, list);
+  }
+
+  // Many families at once, from the old scheduler's lines ("Amy (Ryan): Math $45"):
+  // adds the students and parents who are not in the portal yet, without a
+  // login, and links each student to their parent. Nothing is saved until Add.
+  function addFromList() {
+    const text = h('textarea', {
+      class: 'input textarea ppl-list-text', rows: '6', 'aria-label': 'Families, one student per line',
+      placeholder: 'Amy (Ryan)\nMason (Sunny)\nBill (Sunny): Programming $15',
+    });
+    const out = h('div', { class: 'ppl-list-plan' });
+    const progress = h('p', { class: 'ppl-list-progress', role: 'status' });
+    let plan = null;
+    const names = (rows) => rows.map((p) => p.name).join(', ');
+    const section = (title, body, warning = false) => [
+      h('h4', { class: `ppl-list-title${warning ? ' is-warning' : ''}` }, title),
+      body,
+    ];
+    const go = button({ label: 'Add', variant: 'primary', size: 'sm', icon: 'plus', focusKey: 'ppl-list-add' });
+    const preview = button({
+      label: 'Preview', size: 'sm', focusKey: 'ppl-list-preview',
+      onClick: () => {
+        const parsed = parseFamilyLines(text.value);
+        plan = planFamilies(parsed.rows, { people: data.people, parentLinks: data.parentLinks });
+        const students = plan.add.filter((p) => p.role === 'student');
+        const parents = plan.add.filter((p) => p.role === 'parent');
+        const issues = [...parsed.errors.map((e) => `${e.line}: ${e.error}`), ...plan.problems.map((p) => `${p.line}: ${p.reason}`)];
+        const total = plan.add.length + plan.links.length;
+        go.querySelector('.btn-label').textContent = `Add ${plan.add.length} ${plan.add.length === 1 ? 'person' : 'people'}`
+          + (plan.links.length ? ` and ${plan.links.length} ${plan.links.length === 1 ? 'link' : 'links'}` : '');
+        out.replaceChildren(
+          ...(students.length ? section(`New students (${students.length})`, h('p', {}, names(students))) : []),
+          ...(parents.length ? section(`New parents (${parents.length})`, h('p', {}, names(parents))) : []),
+          ...(plan.found.length ? section(`Already in the portal (${plan.found.length})`, h('p', {}, names(plan.found))) : []),
+          ...(plan.links.length ? section(`Parent links to make (${plan.links.length})`, h('p', {}, 'Each student to the parent in brackets. The first parent linked to a student pays.')) : []),
+          ...(issues.length ? section(`Needs attention, skipped (${issues.length})`, h('ul', {}, issues.map((t) => h('li', {}, t))), true) : []),
+          total ? go : h('p', { class: 'ppl-list-none' }, 'Nothing new to add.'),
+        );
+      },
+    });
+    go.addEventListener('click', () => busy(go, 'Adding…', async () => {
+      if (!plan) return;
+      const ids = new Map(plan.found.map((p) => [p.key, p.id]));
+      let made = 0;
+      let failed = 0;
+      for (const person of plan.add) {
+        progress.textContent = `Adding ${made + failed + 1} of ${plan.add.length}…`;
+        const { status, body } = await peopleApi({ action: 'create', full_name: person.name, role: person.role });
+        if (!ctx.alive()) return;
+        if (status === 201 && body.id) {
+          ids.set(person.key, body.id);
+          made += 1;
+        } else {
+          failed += 1;
+          if (status === 401 || status === 0) break;
+        }
+      }
+      let linked = 0;
+      for (const l of plan.links) {
+        const parentId = ids.get(l.parent);
+        const studentId = ids.get(l.student);
+        if (!parentId || !studentId) continue;
+        progress.textContent = `Linking ${linked + 1} of ${plan.links.length}…`;
+        const { error } = await sb.from('parent_students').insert({ parent_id: parentId, student_id: studentId });
+        if (!ctx.alive()) return;
+        if (error) failed += 1;
+        else linked += 1;
+      }
+      progress.textContent = '';
+      plan = null;
+      out.replaceChildren();
+      const done = `Added ${made} ${made === 1 ? 'person' : 'people'} without a login and ${linked} parent ${linked === 1 ? 'link' : 'links'}.`;
+      if (failed) {
+        say(`${done} ${failed} didn’t save. Paste the same list again to add the rest; anyone already added is kept.`, 'error');
+      } else {
+        text.value = '';
+        say(`${done} Press Invite on a parent’s row when the family is ready to sign in.`, 'success');
+      }
+      await render({ fallback: 'ppl-list-open' });
+      syncCounts();
+    }));
+    return h('div', { class: 'ppl-add-person ppl-add-list', hidden: true },
+      h('p', { class: 'ppl-add-person-help' }, 'One student per line, with their parent in brackets, as the old scheduler lists them: Amy (Ryan). For a parent with two children, write a line for each child with the same parent: Mason (Sunny) and Bill (Sunny). Rates after a colon are ignored here (paste them on Account > Rates). People already in the portal under the same full name are reused, not added twice.'),
+      text,
+      h('div', { class: 'ppl-add-person-row' }, preview),
+      progress,
+      out);
+  }
+
+  // The latest invite of a person without a sign-in, and making a new one
+  function inviteControls(person) {
+    if (!person.no_login || !['student', 'parent'].includes(person.role)) return null;
+    const name = displayName(person);
+    const state = inviteState(data.invites.filter((i) => i.profile_id === person.id), Date.now());
+    const panel = h('div', { class: 'ppl-invite-panel', hidden: true });
+    const when = (iso) => relativeTime(iso, ctx.now).text.toLowerCase();
+    const note = state.key === 'open'
+      ? `Invited ${when(state.invite.created_at)}${state.invite.emailed_to ? `, emailed to ${state.invite.emailed_to}` : ''}`
+      : state.key === 'expired' ? 'Invite expired' : null;
+    const make = button({
+      label: state.key === 'open' ? 'New invite link' : 'Invite',
+      size: 'sm',
+      variant: state.key === 'open' ? 'ghost' : 'secondary',
+      icon: 'envelope-simple',
+      focusKey: `invite-${person.id}`,
+      onClick: () => busy(make, 'Making a link…', async () => {
+        const token = newInviteToken();
+        const token_hash = await sha256Hex(token);
+        const { data: rows, error } = await sb.from('portal_invites').insert({ profile_id: person.id, token_hash }).select('id');
+        if (!ctx.alive()) return;
+        if (error || !rows?.length) {
+          say('That didn’t save: the invite could not be made. Refresh the page and try again.', 'error');
+          return;
+        }
+        showLink(panel, person, token);
+      }),
+    });
+    make.setAttribute('aria-label', `${state.key === 'open' ? 'New invite link' : 'Invite'} for ${name}`);
+    return h('div', { class: 'ppl-invite' },
+      h('div', { class: 'ppl-invite-row' }, pill({ label: 'No sign-in yet', tone: 'warning', icon: 'clock' }), note ? h('span', { class: 'ppl-invite-note' }, note) : null, make),
+      panel);
+  }
+
+  // The link is shown once (only its hash is kept): copy it, or email it from here
+  function showLink(panel, person, token) {
+    const name = displayName(person);
+    const link = inviteLink(token, location.origin);
+    const children = person.role === 'parent' ? studentsOf(person.id, data.parentLinks, 'parent_id', data.byId).map(displayName) : [];
+    const message = inviteMessage(name, link, { role: person.role, children });
+    const copy = (text, label, done) => button({
+      label, size: 'sm', icon: 'copy',
+      onClick: async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          say(done, 'success');
+        } catch {
+          say('Your browser blocked copying. Select the link and copy it yourself.', 'error');
+        }
+      },
+    });
+    const to = h('input', { class: 'input', type: 'email', autocomplete: 'off', placeholder: 'their@email.com', 'aria-label': `Email to send ${name}’s invite to` });
+    const send = button({ label: 'Email it', size: 'sm', variant: 'primary', icon: 'envelope-simple' });
+    send.addEventListener('click', () => busy(send, 'Sending…', async () => {
+      const address = to.value.trim();
+      if (!address.includes('@')) {
+        to.focus();
+        return;
+      }
+      const { status } = await peopleApi({ action: 'email', t: token, to: address });
+      if (!ctx.alive()) return;
+      if (status === 200) {
+        say(`Invite emailed to ${address}. ${name} can set up their sign-in from the link.`, 'success');
+        await render({ key: `invite-${person.id}` });
+        return;
+      }
+      say(`That didn’t send: ${status === 422 ? 'check the email address.' : status === 503 ? 'email is not set up; copy the link instead.' : 'please try again, or copy the link instead.'}`, 'error');
+    }));
+    const field = h('input', { class: 'input ppl-invite-link', type: 'text', readonly: true, value: link, 'aria-label': `Invite link for ${name}` });
+    field.addEventListener('focus', () => field.select());
+    panel.replaceChildren(
+      h('p', { class: 'ppl-invite-help' }, `${name}’s personal link. It works once, for 30 days, and is shown only now.`),
+      field,
+      h('div', { class: 'ppl-invite-actions' },
+        copy(link, 'Copy link', 'Link copied.'),
+        copy(message, 'Copy message with link', 'Message copied. Paste it into a text.')),
+      h('div', { class: 'ppl-invite-email' }, to, send));
+    panel.hidden = false;
+    field.focus();
   }
 
   function updateSegmentCounts(counts) {
@@ -482,12 +754,13 @@ export function mount(ctx) {
     // An admin can also be a student's tutor (marked in the add list)
     const tutors = data.people.filter((p) => p.role === 'tutor' || p.role === 'admin').sort(byName);
     const parents = data.people.filter((p) => p.role === 'parent').sort(byName);
+    const students = data.people.filter((p) => p.role === 'student').sort(byName);
     let n = 0;
     const animate = firstRender && !ctx.isRefresh;
     list.replaceChildren(...groups.map((g) => h('section', { class: 'ppl-group', 'aria-label': g.label },
       role === 'all' ? groupHeader({ label: g.label, count: g.people.length }) : null,
       h('ul', { class: 'ppl-list' }, g.people.map((p) => {
-        const li = personRow(p, { tutors, parents });
+        const li = personRow(p, { tutors, parents, students });
         if (animate && n < ENTER_LIMIT) {
           li.classList.add('enter');
           li.style.setProperty('--i', String(n));
@@ -708,6 +981,68 @@ export function mount(ctx) {
       h('div', { class: 'ppl-link-body' }, chips, adder));
   }
 
+  // A parent's children, from the parent's side: one parent can have any number
+  // of children (two kids with us = two chips), and a child can have two parents
+  function childGroup(parent, students) {
+    const parentName = displayName(parent);
+    const addKey = `add-child-${parent.id}`;
+    const labelId = uid('ppl-links');
+    const linked = studentsOf(parent.id, data.parentLinks, 'parent_id', data.byId);
+    const linkedIds = new Set(linked.map((p) => p.id));
+    const available = students.filter((p) => !linkedIds.has(p.id));
+
+    let adder = null;
+    if (available.length) {
+      const picker = select({
+        label: `Add a child for ${parentName}`,
+        size: 'sm',
+        value: '',
+        options: [{ value: '', label: 'Add a child' }, ...available.map((p) => ({ value: p.id, label: displayName(p) }))],
+      });
+      picker.classList.add('ppl-add');
+      const sel = picker.firstElementChild;
+      sel.dataset.focusKey = addKey;
+      sel.addEventListener('change', () => {
+        if (!sel.value) return;
+        const child = sel.value;
+        sel.disabled = true;
+        act(sb.from('parent_students').insert({ parent_id: parent.id, student_id: child }),
+          `Linked ${parentName} to ${displayName(data.byId.get(child))}.`,
+          { key: `remove-child-${parent.id}-${child}`, fallback: addKey });
+      });
+      adder = h('div', { class: 'ppl-add-row' }, picker);
+    }
+
+    const chips = linked.length
+      ? h('ul', { class: 'ppl-chips', 'aria-labelledby': labelId }, linked.map((c) => {
+        const cname = displayName(c);
+        const x = iconButton({
+          icon: 'x',
+          label: `Unlink ${cname}`,
+          tip: 'top',
+          className: 'ppl-chip-remove',
+          focusKey: `remove-child-${parent.id}-${c.id}`,
+          onClick: () => {
+            x.disabled = true;
+            act(sb.from('parent_students').delete().eq('parent_id', parent.id).eq('student_id', c.id),
+              `Unlinked ${parentName} from ${cname}.`, { key: addKey, fallback: null });
+          },
+        });
+        x.dataset.focusFallback = addKey;
+        // Who gets the bill shows when a child has more than one parent (Bill to is on the child's row)
+        const link = data.parentLinks.find((l) => l.parent_id === parent.id && l.student_id === c.id);
+        const parentsOfChild = data.parentLinks.filter((l) => l.student_id === c.id).length;
+        const pays = parentsOfChild > 1 && link && 'bills' in link && link.bills
+          ? h('span', { class: 'pill tone-success ppl-pays' }, 'Pays') : null;
+        return h('li', { class: 'ppl-chip' }, avatar(cname, { size: 24 }), h('span', { class: 'ppl-chip-name' }, cname), pays, x);
+      }))
+      : h('p', { class: 'ppl-none' }, 'None yet');
+
+    return h('div', { class: 'ppl-link-group' },
+      h('span', { class: 'ppl-link-label', id: labelId }, 'Children'),
+      h('div', { class: 'ppl-link-body' }, chips, adder));
+  }
+
   // The name with an Edit button that swaps in a field. Enter or Save saves,
   // Escape or Cancel puts the name back; zero rows back means it did not save
   // (act reports it). The sidebar shows a new name of your own after a reload.
@@ -777,7 +1112,7 @@ export function mount(ctx) {
     return wrap;
   }
 
-  function personRow(person, { tutors, parents }) {
+  function personRow(person, { tutors, parents, students }) {
     const name = displayName(person);
     const self = person.id === me.id;
     const isStudent = person.role === 'student';
@@ -785,13 +1120,10 @@ export function mount(ctx) {
     let detail = null;
     // An admin who teaches shows their students too
     const teachingAdmin = person.role === 'admin' && data.tutorLinks.some((l) => l.tutor_id === person.id);
-    if (person.role === 'tutor' || person.role === 'parent' || teachingAdmin) {
-      const asTutor = person.role !== 'parent';
-      const linked = studentsOf(person.id, asTutor ? data.tutorLinks : data.parentLinks,
-        asTutor ? 'tutor_id' : 'parent_id', data.byId);
-      const word = asTutor ? 'Students' : 'Children';
+    if (person.role === 'tutor' || teachingAdmin) {
+      const linked = studentsOf(person.id, data.tutorLinks, 'tutor_id', data.byId);
       detail = h('p', { class: linked.length ? 'ppl-detail' : 'ppl-detail is-empty' },
-        linked.length ? `${word}: ${linked.map(displayName).join(', ')}` : `${word}: none yet`);
+        linked.length ? `Students: ${linked.map(displayName).join(', ')}` : 'Students: none yet');
     }
 
     const workspace = isStudent
@@ -812,14 +1144,16 @@ export function mount(ctx) {
         avatar(name, { size: 32 }),
         h('div', { class: 'ppl-id' },
           nameField(person, name, self),
-          person.email && person.email !== name ? h('span', { class: 'ppl-email' }, person.email) : null,
+          person.email && person.email !== name && !person.no_login ? h('span', { class: 'ppl-email' }, person.email) : null,
           detail),
         h('div', { class: 'ppl-controls' }, workspace, roleSelect(person))),
+      inviteControls(person),
       isStudent
         ? h('div', { class: 'ppl-links' },
           linkGroup(person, 'tutor', linkedTo(person.id, data.tutorLinks, 'tutor_id', data.byId), tutors),
           linkGroup(person, 'parent', linkedTo(person.id, data.parentLinks, 'parent_id', data.byId), parents))
-        : null);
+        : null,
+      person.role === 'parent' ? h('div', { class: 'ppl-links is-parent' }, childGroup(person, students)) : null);
   }
 
   return render();

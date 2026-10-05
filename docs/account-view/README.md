@@ -8,9 +8,14 @@ scheduler.
    approved on People > Waiting for approval and linked on People > Everyone
    (parent to student, tutor to student with the subject spelled as it should
    appear on sessions, for example "Math", "AP CSP", "SAT"). For families who
-   will not log in, sign up a placeholder address you control, such as
-   varun+mason@gmail.com, approve it and link it. The first parent linked to a
-   student pays; use "Bill to" on People to move the bill.
+   have not signed up, use People > Everyone > "Paste a list": paste
+   reference-rates.txt (or any "Student (Parent)" lines), Preview, then Add. It
+   adds every student and parent without a login and links each student to
+   their parent; "Add without a login" adds one person at a time.
+   When the family is ready, press Invite on the parent's row and email or text
+   the personal link; they choose their own email and password and land on the
+   same account, with every session and bill already there. The first parent
+   linked to a student pays; use "Bill to" on People to move the bill.
 2. Sessions. Put each weekly shift on the portal calendar as a weekly series
    that never ends, from the first week of November.
 3. Rates. On Account > Rates, open "Paste rates from the old scheduler", paste

@@ -64,7 +64,8 @@ export function buildReferralEmail(row, id, { env = process.env, now = Date.now(
   return { subject, text, html, replyTo: row.family_email || row.referrer_email };
 }
 
-// Sends one email to the business inbox through Resend.
+// Sends one email through Resend: to the business inbox, unless the mail names
+// its own `to` (a family's portal invite) and `from`.
 // -> 'sent' | 'skipped' (no key); throws when Resend refuses it
 export async function sendMail(mail, { env = process.env, fetchImpl = fetch } = {}) {
   if (!env.RESEND_API_KEY) return 'skipped';
@@ -72,8 +73,8 @@ export async function sendMail(mail, { env = process.env, fetchImpl = fetch } = 
     method: 'POST',
     headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: env.REFERRAL_EMAIL_FROM || DEFAULT_FROM,
-      to: [env.REFERRAL_EMAIL_TO || DEFAULT_TO],
+      from: mail.from || env.REFERRAL_EMAIL_FROM || DEFAULT_FROM,
+      to: [mail.to || env.REFERRAL_EMAIL_TO || DEFAULT_TO],
       ...(mail.replyTo ? { reply_to: mail.replyTo } : {}),
       subject: mail.subject,
       html: mail.html,
