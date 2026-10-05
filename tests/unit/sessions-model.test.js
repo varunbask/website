@@ -219,7 +219,7 @@ describe('form', () => {
   test('valid create with repeats', () => {
     const r = validateSessionForm({ date: '2026-10-15', start: '16:00', end: '17:00', subject: ' Algebra ', repeat: true, weeks: '8', meeting_url: ' https://meet.example.com/x ' });
     expect(r.ok).toBe(true);
-    expect(r.values).toMatchObject({ subject: 'Algebra', weeks: 8, repeat: true, meeting_url: 'https://meet.example.com/x', location: null });
+    expect(r.values).toMatchObject({ subject: 'Algebra', repeat: true, meeting_url: 'https://meet.example.com/x', location: null });
   });
 
   test('errors', () => {
@@ -228,13 +228,12 @@ describe('form', () => {
     expect(validateSessionForm({ date: '2026-10-15', start: '08:00', end: '16:30' }).errors.end).toBe('A session can be at most 8 hours.');
     expect(validateSessionForm({ date: '2026-10-15', start: '16:00', end: '17:00', meeting_url: 'http://x.com' }).errors.meeting_url)
       .toBe('Use a link that starts with https://');
-    expect(validateSessionForm({ date: '2026-10-15', start: '16:00', end: '17:00', repeat: true, weeks: '30' }).errors.weeks).toBe('Repeat for 1 to 26 weeks.');
   });
 
   test('editing ignores repeat', () => {
     const r = validateSessionForm({ date: '2026-10-15', start: '16:00', end: '17:00', repeat: true, weeks: '99' }, { creating: false });
     expect(r.ok).toBe(true);
-    expect(r.values).toMatchObject({ repeat: false, weeks: 1 });
+    expect(r.values).toMatchObject({ repeat: false });
   });
 });
 

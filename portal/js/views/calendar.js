@@ -21,7 +21,7 @@ import { sb } from '../supabase.js';
 import { choiceDialog } from '../overlays.js';
 import { pointerDrag, hitAt } from '../calendar-drag.js';
 import {
-  canDragSession, canDragDue, dropStart, grabOffset, minutesToTime, movedTimes, moveProblem, moveUpdates,
+  canDragSession, canDragDue, dropStart, grabOffset, minutesToTime, movedTimes, moveProblem, moveUpdates, followingMove,
   moveSummary, moveToast, MOVE_PROBLEMS, dueMoveProblem, dueAtFor, dueToast, DUE_PAST, followingFits,
 } from '../calendar-drag-model.js';
 import { clashReport, mergeSessions, saveErrorText } from '../session-form-model.js';
@@ -999,6 +999,22 @@ export function mount(ctx) {
     const late = moveProblem(s, { date, start }, clock());
     if (late === 'past') {
       ctx.toast({ text: MOVE_PROBLEMS.past });
+      return;
+    }
+
+    // This and following: one call moves the rest of the series and its rule, all or nothing
+    if (choice === 'following') {
+      const change = followingMove({ session: s, date, start });
+      if (!change) return;
+      const result = await sb.rpc('edit_following_sessions', change);
+      if (result.error) {
+        console.error(result.error);
+        ctx.toast({ text: `We couldn’t move those sessions. ${saveErrorText(result.error)}` });
+        return;
+      }
+      ctx.store.invalidate(s.student_id);
+      if (String(s.tutor_id) === String(ctx.me.id)) syncSoon();
+      ctx.toast({ text: moveToast(Number(result.data) || 1) });
       return;
     }
 

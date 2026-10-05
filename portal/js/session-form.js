@@ -27,16 +27,17 @@ import {
   button, field, select, segmented, setSegmented, setFieldError, busy, drawerHref,
 } from './ui.js';
 import { sb } from './supabase.js';
+import { choiceDialog } from './overlays.js';
 import { displayName, canHaveSessions } from './format.js';
 import { viewerIsInBusinessZone, dayKey } from './dates.js';
 import { getGoogleStatus, personalEvents, syncSoon } from './google.js';
 import { personalClashes, mergePersonalClashes, dayRange } from './google-model.js';
 import { ATTENDANCE, addMinutesToTime, followingInSeries, sessionTitle } from './sessions-model.js';
 import {
-  QUICK_DURATIONS, DEFAULT_START, DEFAULT_MINUTES, DEFAULT_WEEKS, MIN_REPEAT_WEEKS, MAX_RECAP_LENGTH, GONE,
+  QUICK_DURATIONS, DEFAULT_START, DEFAULT_MINUTES, MIN_REPEAT_COUNT, MAX_REPEAT_COUNT, MAX_RECAP_LENGTH, GONE,
   createDefaults, editDefaults, minutesBetween, tutorChoices, subjectsFor, defaultSubject,
-  checkSessionForm, plannedTimes, buildInsertRows, buildUpdates, changedUpdates, mergeSessions, scheduleLabel,
-  repeatSummary, followingSummary, clashReport, saveErrorText, whenText,
+  checkSessionForm, plannedTimes, buildInsertRow, buildSeriesRow, buildUpdates, changedUpdates, followingChange,
+  mergeSessions, scheduleLabel, repeatChoices, repeatSummary, clashReport, saveErrorText, whenText,
 } from './session-form-model.js';
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -216,45 +217,55 @@ export function sessionForm(dctx, {
     label: 'Plan for the session', optional: true, hint: 'The student and family can see this.', control: notesInput,
   });
 
-  // Repeat weekly (create only)
-  let repeatBox = null;
-  let weeksInput = null;
-  let weeksField = null;
+  // Repeat (create only), like Google Calendar: "Does not repeat" or "Weekly
+  // on Tuesday", which never ends unless it ends on a date or after a count
+  let repeatSelect = null;
   let repeatGroup = null;
+  let endsValue = defaults.ends;
+  let untilInput = null;
+  let untilField = null;
+  let countInput = null;
+  let countField = null;
+  let endsBox = null;
+  let repeatHint = null;
   if (!editing) {
-    repeatBox = h('input', { type: 'checkbox', class: 'checkbox', name: 'repeat' });
-    weeksInput = h('input', {
-      type: 'number', class: 'input ses-weeks-input', name: 'weeks', min: String(MIN_REPEAT_WEEKS), max: '26', inputmode: 'numeric', value: String(DEFAULT_WEEKS),
-    });
-    weeksField = field({
-      label: 'For how many weeks', hint: repeatSummary(defaults.date, DEFAULT_WEEKS) || ' ', control: weeksInput,
-    });
-    weeksField.hidden = true;
-    repeatGroup = h('div', { class: 'ses-repeat' },
-      h('label', { class: 'check' }, repeatBox, h('span', {}, 'Repeat weekly')),
-      weeksField);
-  }
-
-  // Apply to (edit of a series)
-  const rows = editing ? followingInSeries(siblings, session) : null;
-  let apply = 'this';
-  let applyField = null;
-  let applyHint = null;
-  if (editing && session.series_id) {
-    applyHint = h('p', { class: 'field-hint' }, 'Changes only this session.');
-    const group = segmented({
-      label: 'Apply to',
+    const repeatWrap = select({ name: 'repeat', options: repeatChoices(defaults.date), value: 'none' });
+    repeatSelect = repeatWrap.querySelector('select');
+    const repeatField = field({ label: 'Repeat', control: repeatWrap });
+    const endsGroup = segmented({
+      label: 'Ends',
       block: true,
-      options: [{ value: 'this', label: 'This session' }, { value: 'following', label: 'This and following' }],
-      value: 'this',
+      options: [{ value: 'never', label: 'Never' }, { value: 'on', label: 'On a date' }, { value: 'after', label: 'After' }],
+      value: endsValue,
       onChange: (value) => {
-        apply = value;
-        applyHint.textContent = value === 'following' ? `${followingSummary(rows, session)}.` : 'Changes only this session.';
-        refreshClash();
+        endsValue = value;
+        showEnds();
+        onTimesChanged();
       },
     });
-    applyField = groupField('Apply to', group, applyHint);
+    untilInput = h('input', { type: 'date', class: 'input ses-date', name: 'until', value: defaults.until });
+    untilField = field({ label: 'Last day', control: untilInput });
+    countInput = h('input', {
+      type: 'number', class: 'input ses-weeks-input', name: 'count', min: String(MIN_REPEAT_COUNT), max: String(MAX_REPEAT_COUNT),
+      inputmode: 'numeric', value: defaults.count,
+    });
+    countField = field({ label: 'Number of sessions', control: countInput });
+    repeatHint = h('p', { class: 'field-hint ses-repeat-hint', role: 'status' });
+    endsBox = h('div', { class: 'ses-repeat-ends' }, groupField('Ends', endsGroup), untilField, countField, repeatHint);
+    repeatGroup = h('div', { class: 'ses-repeat' }, repeatField, endsBox);
   }
+  function showEnds() {
+    if (!repeatGroup) return;
+    endsBox.hidden = repeatSelect.value !== 'weekly';
+    untilField.hidden = endsValue !== 'on';
+    countField.hidden = endsValue !== 'after';
+  }
+  showEnds();
+
+  // Editing a session of a series asks, on save, whether the change is for
+  // this session or this and following (Google Calendar asks the same)
+  const rows = editing ? followingInSeries(siblings, session) : null;
+  const inSeries = Boolean(editing && session.series_id && rows.length > 1);
 
   const zoneHint = viewerIsInBusinessZone(now) ? null : h('p', { class: 'field-hint ses-zone-hint' }, 'Times are Pacific time (PT).');
   const clashSlot = h('div', { class: 'ses-clash' });
@@ -267,23 +278,27 @@ export function sessionForm(dctx, {
     ].filter(Boolean).join(', '))
     : null;
 
+  const seriesNote = inSeries
+    ? h('p', { class: 'note ses-series-note' }, icon('repeat'), h('span', {}, 'This session repeats weekly. When you save, you choose this session or this and following.'))
+    : null;
+
   const form = h('form', { class: 'ses-form', id: formId, novalidate: true },
-    applyField, studentField, tutorField,
+    seriesNote, studentField, tutorField,
     subjectField, subjectList,
     dateField,
     h('div', { class: 'ses-times' }, startField, endField),
     lengthField, zoneHint,
+    repeatGroup,
     // Next to the times it is about, so it shows while the tutor picks them
     clashSlot,
     whereField, locationField, urlField,
     notesField,
-    repeatGroup,
     errorSlot);
   const root = h('div', { class: 'ses-form-wrap', dataset: { title } }, heading, sub, form);
 
   // Footer
   const submit = button({
-    label: editing ? 'Save changes' : scheduleLabel(1),
+    label: editing ? 'Save changes' : scheduleLabel(false),
     variant: 'primary',
     type: 'submit',
     focusKey: editing ? 'save-session' : 'create-session',
@@ -305,19 +320,21 @@ export function sessionForm(dctx, {
     location: locationInput.value,
     meeting_url: urlInput.value,
     notes: notesInput.value,
-    repeat: Boolean(repeatBox?.checked),
-    weeks: weeksInput?.value ?? '',
+    repeat: repeatSelect?.value === 'weekly',
+    ends: endsValue,
+    until: untilInput?.value ?? '',
+    count: countInput?.value ?? '',
   });
 
   const fields = {
     subject: subjectField, date: dateField, start: startField, end: endField,
-    location: locationField, meeting_url: urlField, notes: notesField, weeks: weeksField,
+    location: locationField, meeting_url: urlField, notes: notesField, until: untilField, count: countField,
   };
   const controls = {
     subject: subjectInput, date: dateInput, start: startInput, end: endInput,
-    location: locationInput, meeting_url: urlInput, notes: notesInput, weeks: weeksInput,
+    location: locationInput, meeting_url: urlInput, notes: notesInput, until: untilInput, count: countInput,
   };
-  const ORDER = ['subject', 'date', 'start', 'end', 'location', 'meeting_url', 'notes', 'weeks'];
+  const ORDER = ['subject', 'date', 'start', 'end', 'until', 'count', 'location', 'meeting_url', 'notes'];
 
   // Errors already on screen go away as soon as the field is right
   function clearFixedErrors() {
@@ -381,7 +398,7 @@ export function sessionForm(dctx, {
       ensureStudentSessions(sid);
       const check = checkSessionForm(read(), { creating: !editing });
       if (!check.errors.date && !check.errors.start && !check.errors.end) {
-        const planned = plannedTimes(check.values, { session, rows, apply });
+        const planned = plannedTimes(check.values, { session });
         const list = mergeSessions(
           studentLists.get(sid) ?? [],
           (ws?.sessions ?? []).filter((s) => sameId(s.tutor_id, tid)),
@@ -421,14 +438,16 @@ export function sessionForm(dctx, {
 
   function updateScheduleLabel() {
     if (editing) return;
-    const check = checkSessionForm(read(), { creating: true });
-    const weeks = check.values.repeat && !check.errors.weeks ? check.values.weeks : 1;
+    const state = read();
     const label = submit.querySelector('.btn-label');
-    if (label) label.textContent = scheduleLabel(weeks);
-    if (weeksField) {
-      const hint = weeksField.querySelector('.field-hint');
-      if (hint) hint.textContent = repeatSummary(dateInput.value, weeksInput.value) || ' ';
+    if (label) label.textContent = scheduleLabel(state.repeat);
+    // "Weekly on Tuesday" follows the date
+    const choices = repeatChoices(dateInput.value);
+    for (const opt of repeatSelect.options) {
+      const c = choices.find((x) => x.value === opt.value);
+      if (c && opt.textContent !== c.label) opt.textContent = c.label;
     }
+    repeatHint.textContent = state.repeat ? repeatSummary(state) : '';
   }
 
   function onTimesChanged() {
@@ -450,11 +469,13 @@ export function sessionForm(dctx, {
   dateInput.addEventListener('input', onTimesChanged);
   dateInput.addEventListener('change', onTimesChanged);
   for (const el of [subjectInput, locationInput, urlInput, notesInput]) el.addEventListener('input', clearFixedErrors);
-  repeatBox?.addEventListener('change', () => {
-    weeksField.hidden = !repeatBox.checked;
+  repeatSelect?.addEventListener('change', () => {
+    showEnds();
     onTimesChanged();
   });
-  weeksInput?.addEventListener('input', onTimesChanged);
+  untilInput?.addEventListener('input', onTimesChanged);
+  untilInput?.addEventListener('change', onTimesChanged);
+  countInput?.addEventListener('input', onTimesChanged);
 
   studentSelect?.addEventListener('change', () => {
     setFieldError(studentField, '');
@@ -477,6 +498,7 @@ export function sessionForm(dctx, {
   fillSubjects();
   refreshClash();
   syncLength();
+  updateScheduleLabel();
 
   // Save -----------------------------------------------------------------
 
@@ -513,8 +535,20 @@ export function sessionForm(dctx, {
 
     saving = true;
     try {
+      // A series asks first (nothing to ask when nothing changed)
+      let apply = 'this';
+      if (editing && inSeries && followingChange({ values: check.values, session })) {
+        apply = await choiceDialog({
+          title: 'Edit repeating session',
+          body: 'Change only this session, or this one and every session after it?',
+          choices: [{ value: 'following', label: 'This and following' }, { value: 'this', label: 'This session', primary: true }],
+        });
+        if (!apply || !dctx.alive()) return;
+      }
       await busy(submit, editing ? 'Saving…' : 'Scheduling…', async () => {
-        if (editing) await saveEdit(check.values);
+        if (editing && apply === 'following') await saveFollowing(check.values);
+        else if (editing) await saveEdit(check.values);
+        else if (check.values.repeat) await saveSeries(check.values, sid, tid);
         else await saveNew(check.values, sid, tid);
       });
     } finally {
@@ -529,30 +563,68 @@ export function sessionForm(dctx, {
   }
 
   async function saveNew(values, sid, tid) {
-    const insertRows = buildInsertRows({ studentId: sid, tutorId: tid, values });
-    const result = await sb.from('sessions').insert(insertRows).select('id');
+    const result = await sb.from('sessions').insert([buildInsertRow({ studentId: sid, tutorId: tid, values })]).select('id');
     if (result.error || !result.data?.length) {
       if (result.error) console.error(result.error);
       showError('We couldn’t schedule this.', saveErrorText(result.error));
       return;
     }
+    scheduled(sid, tid, 'Session scheduled', result.data[0].id);
+  }
+
+  // A weekly series: the database makes its sessions (a year ahead, topped up daily)
+  async function saveSeries(values, sid, tid) {
+    const row = buildSeriesRow({ studentId: sid, tutorId: tid, values });
+    const result = await sb.from('session_series').insert(row).select('id');
+    if (result.error || !result.data?.length) {
+      if (result.error) console.error(result.error);
+      showError('We couldn’t schedule this.', saveErrorText(result.error));
+      return;
+    }
+    const first = await sb.from('sessions').select('id').eq('series_id', row.id).order('starts_at').limit(1);
+    if (first.error) console.error(first.error);
+    scheduled(sid, tid, 'Weekly sessions scheduled', first.data?.[0]?.id ?? null);
+  }
+
+  function scheduled(sid, tid, text, firstId) {
     // Invalidate first, so what renders next reads the new sessions
     dctx.store.invalidate(sid);
     if (sameId(tid, me?.id)) syncSoon();
-    dctx.toast({ text: insertRows.length > 1 ? `${insertRows.length} sessions scheduled` : 'Session scheduled' });
+    dctx.toast({ text });
     if (!dctx.alive()) return;
-    const ids = result.data.map((r) => Number(r.id)).filter(Number.isFinite);
-    if (ids.length) {
+    const id = Number(firstId);
+    if (Number.isFinite(id)) {
       // Show the first new session in this drawer (replace: Back closes it)
-      dctx.go(drawerHref(globalThis.location?.hash ?? '', `s${Math.min(...ids)}`), { replace: true });
+      dctx.go(drawerHref(globalThis.location?.hash ?? '', `s${id}`), { replace: true });
     } else {
       dctx.close();
     }
   }
 
+  // "This and following": one call moves and updates the rest of the series
+  // (and the rule that makes later ones), all or nothing
+  async function saveFollowing(values) {
+    const change = followingChange({ values, session });
+    if (!change) {
+      if (dctx.alive()) onSaved?.();
+      return;
+    }
+    const result = await sb.rpc('edit_following_sessions', change);
+    if (result.error) {
+      console.error(result.error);
+      showError('We couldn’t save your changes.', result.error.code === '42501' ? GONE : saveErrorText(result.error));
+      return;
+    }
+    dctx.store.invalidate(session.student_id);
+    if (sameId(session.tutor_id, me?.id)) syncSoon();
+    const n = Number(result.data) || 0;
+    dctx.toast({ text: n > 1 ? `${n} sessions updated` : 'Session updated' });
+    if (dctx.alive()) onSaved?.();
+  }
+
   async function saveEdit(values) {
     // Rows that would not change are left alone (a no-op save writes nothing)
-    const updates = changedUpdates(buildUpdates({ values, session, rows, apply }), [session, ...siblings]);
+    const updates = changedUpdates(buildUpdates({ values, session }), [session, ...siblings]);
     if (!updates.length) {
       if (dctx.alive()) onSaved?.();
       return;

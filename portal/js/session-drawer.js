@@ -12,7 +12,7 @@
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { pill, emptyState, errorCallout, button, avatar, itemRow, rowList, drawerHref } from './ui.js';
-import { menu } from './overlays.js';
+import { menu, choiceDialog } from './overlays.js';
 import { todayKey } from './dates.js';
 import { displayName, firstName, canHaveSessions } from './format.js';
 import { staffNames } from './updates-feed.js';
@@ -184,10 +184,11 @@ async function loadExtras(dctx, found) {
   // sync status (it never rejects; an unreadable one just means no note)
   const waiting = canHaveSessions(dctx.me?.role) && sameId(session.tutor_id, dctx.me.id)
     && (session.sync_state === 'pending' || session.sync_state === 'error');
-  const [materials, data, google] = await Promise.all([
+  const [materials, data, google, rule] = await Promise.all([
     store.getMaterials(found.studentId).catch((error) => { console.error(error); return null; }),
     store.getStudentData(found.studentId).catch((error) => { console.error(error); return null; }),
     waiting ? getGoogleStatus() : null,
+    session.series_id ? loadRule(session.series_id) : null,
   ]);
   const items = data
     ? store.itemsFor(data, { now: new Date(), audience: dctx.audience, viewerId: dctx.me?.id })
@@ -198,7 +199,39 @@ async function loadExtras(dctx, found) {
     materials: materials ? materialsFor(materials, { sessionId: found.session.id }) : null,
     homework: items,
     google,
+    rule,
   };
+}
+
+// The weekly rule of a series (only series made since repeats became open
+// ended have one), or null; a failure only makes the Series line less exact
+async function loadRule(seriesId) {
+  const { data, error } = await sb.from('session_series').select('id, until, last_date').eq('id', seriesId).maybeSingle();
+  if (error) console.error(error);
+  return data ?? null;
+}
+
+// Whether a session has later ones in its series, so actions ask which
+function hasFollowing(found) {
+  return Boolean(found.session.series_id) && followingInSeries(found.sessions, found.session).length > 1;
+}
+
+// Google Calendar's question for a repeating session: 'this', 'following' or null
+function askScope({ title, body }) {
+  return choiceDialog({
+    title,
+    body,
+    choices: [{ value: 'following', label: 'This and following' }, { value: 'this', label: 'This session', primary: true }],
+  });
+}
+
+// Before cancelling or deleting this and following: the series stops making
+// new sessions from this one's day on. Returns an error message or null.
+async function endSeries(session) {
+  const { error } = await sb.rpc('end_session_series', { p_session: session.id });
+  if (!error) return null;
+  console.error(error);
+  return error.code === '42501' ? GONE : 'We couldn’t stop the repeat. Try again.';
 }
 
 // '#/calendar?...&open=new&kind=assignment&due=...&session=12': the create
@@ -374,9 +407,18 @@ export function renderSessionDetail(dctx) {
 
   // Cancelling keeps the session on the calendar, struck through, so families
   // see what happened. scope: 'this' or 'following' (the rest of a series).
-  function cancelSession(scope = 'this') {
+  async function cancelSession(scope = null) {
     const found = state.found;
-    if (!found) return;
+    if (!found || working) return;
+    if (!scope) {
+      scope = hasFollowing(found)
+        ? await askScope({
+          title: 'Cancel repeating session?',
+          body: 'Cancel only this session, or this one and every session after it? Cancelling this and following also ends the repeat. Cancelled sessions stay on the calendar so the family can see what changed.',
+        })
+        : 'this';
+      if (!scope || !dctx.alive()) return;
+    }
     const targets = scope === 'following'
       ? followingInSeries(found.sessions, found.session).filter((s) => !isCancelled(s))
       : [found.session];
@@ -386,9 +428,15 @@ export function renderSessionDetail(dctx) {
     }
     const patch = { status: 'cancelled' };
     return write({
-      run: () => (targets.length === 1
+      run: async () => {
+        if (scope === 'following') {
+          const problem = await endSeries(found.session);
+          if (problem) return { error: { message: problem } };
+        }
+        return targets.length === 1
         ? sb.from('sessions').update(patch).eq('id', targets[0].id).select('id')
-        : sb.from('sessions').update(patch).in('id', targets.map((s) => s.id)).select('id')),
+          : sb.from('sessions').update(patch).in('id', targets.map((s) => s.id)).select('id');
+      },
       failed: 'We couldn’t cancel that session. Try again.',
       done: (n) => sessionsToast(n, 'cancelled'),
     });
@@ -404,23 +452,35 @@ export function renderSessionDetail(dctx) {
     });
   }
 
-  async function remove(scope = 'this') {
+  async function remove() {
     const found = state.found;
     if (!found || working) return;
+    const who = found.student ? `${firstName(displayName(found.student))}’s` : 'the student’s';
+    let scope = 'this';
+    if (hasFollowing(found)) {
+      // One question, like Google Calendar: which sessions (it is the confirmation too)
+      scope = await askScope({
+        title: 'Delete repeating session?',
+        body: `Delete only this session, or this one and every session after it? Deleting this and following also ends the repeat. They will be removed from ${who} calendar, which can’t be undone. Cancel instead to keep a record.`,
+      });
+      if (!scope || !dctx.alive()) return;
+    } else {
+      const ok = await dctx.confirm({
+        title: 'Delete this session?',
+        body: `It will be removed from ${who} calendar. This can’t be undone. Cancel it instead to keep a record.`,
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      });
+      if (!ok || !dctx.alive()) return;
+    }
     const targets = scope === 'following' ? followingInSeries(found.sessions, found.session) : [found.session];
     const n = targets.length;
-    const who = found.student ? `${firstName(displayName(found.student))}’s` : 'the student’s';
-    const ok = await dctx.confirm({
-      title: n > 1 ? `Delete ${n} sessions?` : 'Delete this session?',
-      body: n > 1
-        ? `They will be removed from ${who} calendar. This can’t be undone. Cancel them instead to keep a record.`
-        : `It will be removed from ${who} calendar. This can’t be undone. Cancel it instead to keep a record.`,
-      confirmLabel: n > 1 ? `Delete ${n} sessions` : 'Delete',
-      tone: 'danger',
-    });
-    if (!ok || !dctx.alive()) return;
     await write({
       run: async () => {
+        if (scope === 'following') {
+          const problem = await endSeries(found.session);
+          if (problem) return { error: { message: problem } };
+        }
         const files = await filesOn({ sessionIds: targets.map((s) => s.id) });
         const result = await (n === 1
           ? sb.from('sessions').delete().eq('id', targets[0].id).select('id')
@@ -477,11 +537,9 @@ function buildDetail(dctx, found, { now, names, actions }) {
         { separator: true },
         cancelled
           ? { label: 'Restore session', icon: 'arrow-counter-clockwise', onSelect: actions.restore }
-          : { label: 'Cancel session', icon: 'x-circle', onSelect: () => actions.cancel('this') },
-        inSeries ? { label: 'Cancel this and following', icon: 'x-circle', onSelect: () => actions.cancel('following') } : null,
+          : { label: 'Cancel session', icon: 'x-circle', onSelect: () => actions.cancel() },
         { separator: true },
-        { label: 'Delete session', icon: 'trash', tone: 'danger', onSelect: () => actions.remove('this') },
-        inSeries ? { label: 'Delete this and following', icon: 'trash', tone: 'danger', onSelect: () => actions.remove('following') } : null,
+        { label: 'Delete session', icon: 'trash', tone: 'danger', onSelect: () => actions.remove() },
       ],
     });
     const trigger = menuEl.querySelector('[aria-haspopup="menu"]');
@@ -520,7 +578,7 @@ function buildDetail(dctx, found, { now, names, actions }) {
   if (!where.length) where.push(h('span', { class: 'ses-muted' }, 'Not set yet'));
   fact('Where', ...where);
 
-  const series = seriesLeftText(sessions, session);
+  const series = seriesLeftText(sessions, session, found.rule);
   if (series) fact('Series', series);
 
   const head = h('div', { class: cancelled ? 'ses-head is-cancelled' : 'ses-head' },

@@ -15,7 +15,10 @@
    Drawer forms (create, edit, session notes)
      div.ses-form-wrap > h2.drawer-title + p.ses-form-sub + form.ses-form > div.field ...
        div.ses-times > two fields (Start, End) ; segmented.ses-durations (quick lengths)
-       div.ses-repeat > label.check + div.field (weeks)
+       p.note.ses-series-note                edit of a repeating session
+       div.ses-repeat > div.field (Repeat select) + div.ses-repeat-ends >
+         div.field (Ends: Never, On a date, After) + div.field (Last day)
+         + div.field (Number of sessions) + p.field-hint.ses-repeat-hint
        div.ses-clash > div.callout.tone-warning.ses-clash-callout[role=status] >
          ... ul.ses-callout-list
        div.ses-form-errors > div.callout.tone-danger[role=alert]
@@ -176,7 +179,15 @@ input[type="time"].input { font-variant-numeric: tabular-nums; }
   flex-direction: column;
   gap: var(--s-3);
 }
+.ses-repeat-ends {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
+}
+.ses-repeat-ends[hidden] { display: none; }
+.ses-repeat-hint:empty { display: none; }
 .ses-weeks-input { max-width: 120px; }
+.ses-series-note { margin: 0; }
 
 .ses-clash:empty,
 .ses-form-errors:empty { display: none; }
