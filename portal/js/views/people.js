@@ -139,7 +139,8 @@ export function mount(ctx) {
   const pendingTab = h('a', { class: 'tab', href: '#/pending', 'aria-current': view === 'pending' ? 'page' : undefined }, 'Waiting for approval');
   const tabs = h('nav', { class: 'tabs', 'aria-label': 'People' },
     pendingTab,
-    h('a', { class: 'tab', href: '#/everyone', 'aria-current': view === 'everyone' ? 'page' : undefined }, 'Everyone'));
+    h('a', { class: 'tab', href: '#/everyone', 'aria-current': view === 'everyone' ? 'page' : undefined }, 'Everyone'),
+    h('a', { class: 'tab', href: '#/referrals' }, 'Referrals'));
   ctx.setHeader({ title: 'People', tabs });
 
   function setPendingCount(n) {

@@ -653,3 +653,35 @@
   .ppl-message-slot { border: 1px solid CanvasText; }
 }
 .callout + .stu-toolbar { margin-top: var(--s-4); }
+
+/* People: Referrals ---------------------------------------------------------- */
+
+.ref-root { display: flex; flex-direction: column; gap: var(--s-6); }
+.ref-group { display: flex; flex-direction: column; gap: var(--s-3); }
+.ref-group-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font: 600 14px/20px var(--font-ui);
+  color: var(--text-2);
+}
+.ref-group-count { font: var(--t-meta); color: var(--text-3); }
+.ref-empty { font: var(--t-meta); color: var(--text-3); }
+.ref-contacts { display: flex; flex-wrap: wrap; gap: 2px var(--s-3); min-width: 0; }
+.ref-contact {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font: var(--t-meta);
+  color: var(--accent-text);
+  text-decoration: none;
+}
+.ref-contact:hover { text-decoration: underline; }
+.ref-contact > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.ref-contact > .icon { width: 14px; height: 14px; flex: none; }
+.ref-referrer { font: 400 14px/20px var(--font-ui); color: var(--text-2); overflow-wrap: anywhere; }
+.ref-referrer a { color: inherit; }
+.ref-pills { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.ref-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.ref-card.is-contacted { opacity: 0.85; }
