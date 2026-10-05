@@ -114,6 +114,36 @@ export async function copyMaterialFiles({ studentId, rows, owners }) {
   return { added, problems };
 }
 
+// The files on sessions or assignments about to be deleted: deleting one
+// removes its material rows, but not the files they point to.
+// -> [{ path, owner }] (owner: the session or assignment id), or [] when
+// they cannot be read (the files then stay, as they did before)
+export async function filesOn({ sessionIds = [], taskIds = [] } = {}) {
+  const column = taskIds.length ? 'task_id' : 'session_id';
+  const ids = taskIds.length ? taskIds : sessionIds;
+  if (!ids.length) return [];
+  const { data, error } = await sb.from('materials').select('storage_path, session_id, task_id').in(column, ids);
+  if (error) {
+    console.error(error);
+    return [];
+  }
+  return (data ?? []).filter((m) => m.storage_path).map((m) => ({ path: m.storage_path, owner: m[column] }));
+}
+
+// Removes the files of the owners that were deleted (deletedIds), a hundred
+// at a time. Storage lets staff remove only files no material row uses, so a
+// file still in use is never removed. A failure leaves the file behind,
+// unseen, and is not reported.
+export async function removeFilesOf(files, deletedIds) {
+  const gone = new Set([...deletedIds].map(String));
+  const paths = files.filter((f) => gone.has(String(f.owner))).map((f) => f.path);
+  const bucket = sb.storage.from(MATERIALS_BUCKET);
+  for (let i = 0; i < paths.length; i += 100) {
+    await Promise.resolve(bucket.remove(paths.slice(i, i + 100))).catch(() => {});
+  }
+  return paths.length;
+}
+
 // One toast line for files that were not added
 export function problemsText(problems) {
   return problems.length === 1 ? `Not added. ${problems[0]}` : `${problems.length} files were not added. ${problems[0]}`;
