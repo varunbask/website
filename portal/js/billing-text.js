@@ -58,7 +58,7 @@ export function statementText(ctx, f, { previousCents = 0 } = {}) {
     for (const l of list) {
       const what = [dayText(l.day), l.subject || 'Tutoring', `with ${ctx.nameOf(l.session.tutor_id)}`, `${hoursText(l.minutes)} hr`].join(', ');
       const note = l.paidBy ? ` (paid by ${l.paidBy})` : noteFor(l);
-      lines.push(`  ${what}${note}: ${money(l.paidBy ? 0 : l.familyRealized || l.familyExpected)}`);
+      lines.push(`  ${what}${note}: ${money(l.paidBy ? 0 : (l.state === 'expected' ? l.familyExpected : l.familyRealized))}`);
     }
   }
   for (const a of f.adjustments) lines.push(`${labelText(a.label)}${a.note ? ` (${a.note})` : ''}: ${money(a.amount_cents)}`);

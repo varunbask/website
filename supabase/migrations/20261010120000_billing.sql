@@ -450,6 +450,25 @@ create trigger parent_students_payer before insert on public.parent_students
   for each row execute function private.parent_students_payer();
 
 grant update (bills) on public.parent_students to authenticated;
+
+-- Moves a student's bill to another linked parent in one statement (admin)
+create function public.set_payer(p_student uuid, p_parent uuid)
+returns void
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  if not private.is_admin() then
+    raise exception 'admin only' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.parent_students where student_id = p_student and parent_id = p_parent) then
+    raise exception 'that parent is not linked to the student' using errcode = '22023';
+  end if;
+  update public.parent_students set bills = false where student_id = p_student and bills and parent_id <> p_parent;
+  update public.parent_students set bills = true where student_id = p_student and parent_id = p_parent;
+end
+$$;
+revoke execute on function public.set_payer(uuid, uuid) from public, anon;
+grant execute on function public.set_payer(uuid, uuid) to authenticated;
 create policy "admin picks the payer" on public.parent_students
   for update to authenticated
   using ((select private.is_admin())) with check ((select private.is_admin()));
@@ -483,36 +502,47 @@ $$;
 -- Runs before sessions_mark_pending and sessions_touch (triggers fire by name),
 -- so a refused change never reaches them. Only signed-in people other than the
 -- admin are guarded: the Google sync and the sweep (service role), the Supabase
--- dashboard and account deletion carry no auth.uid() and pass.
+-- dashboard and account deletion carry no auth.uid() and pass. Sessions still
+-- to come are never locked: a family may pay ahead, a period may be paid early.
+-- Errcodes: VP001 a session that happened, VP002 a paid month or pay period.
 create function private.sessions_guard()
 returns trigger
 language plpgsql security definer set search_path = ''
 as $$
+declare
+  tz constant text := 'America/Los_Angeles';
+  retimed boolean;
 begin
   if auth.uid() is null or private.is_service_request() or private.is_admin() then
     return coalesce(new, old);
   end if;
   if tg_op = 'DELETE' then
     if old.ends_at <= now() then
-      raise exception 'a session that happened is cancelled, not deleted' using errcode = '42501';
+      raise exception 'A session that already happened can be cancelled, not deleted' using errcode = 'VP001';
     end if;
     return old;
   end if;
-  if old.ends_at <= now()
-     and (new.starts_at is distinct from old.starts_at or new.ends_at is distinct from old.ends_at) then
-    raise exception 'only an admin can change the time of a session that happened' using errcode = '42501';
+  if tg_op = 'INSERT' then
+    if new.ends_at <= now() and private.day_is_paid(new.tutor_id, new.student_id, (new.starts_at at time zone tz)::date) then
+      raise exception 'That day is in a month or pay period that has been paid; ask the admin' using errcode = 'VP002';
+    end if;
+    return new;
   end if;
-  if (new.starts_at is distinct from old.starts_at or new.ends_at is distinct from old.ends_at
-      or new.status is distinct from old.status or new.attendance is distinct from old.attendance)
-     and private.day_is_paid(old.tutor_id, old.student_id, (old.starts_at at time zone 'America/Los_Angeles')::date) then
-    raise exception 'this session is in a paid period; ask the admin' using errcode = '42501';
+  retimed := new.starts_at is distinct from old.starts_at or new.ends_at is distinct from old.ends_at;
+  if retimed and (old.ends_at <= now() or new.ends_at <= now()) then
+    raise exception 'Only the admin can change the time of a session that already happened, or move one into the past' using errcode = 'VP001';
+  end if;
+  if old.ends_at <= now()
+     and (new.status is distinct from old.status or new.attendance is distinct from old.attendance)
+     and private.day_is_paid(old.tutor_id, old.student_id, (old.starts_at at time zone tz)::date) then
+    raise exception 'This session is in a month or pay period that has been paid; ask the admin' using errcode = 'VP002';
   end if;
   return new;
 end
 $$;
 revoke execute on function private.sessions_guard() from public;
 create trigger sessions_guard
-  before update or delete on public.sessions
+  before insert or update or delete on public.sessions
   for each row execute function private.sessions_guard();
 
 -- Only the four columns money depends on are recorded, so the sync's own
@@ -548,7 +578,8 @@ create trigger sessions_audit
   for each row execute function private.sessions_audit();
 
 -- "This and following" never reaches back past now: a series edited from a
--- session that already happened changes only the ones still to come
+-- session that already happened changes the ones still to come (and, for the
+-- admin, that session itself)
 create or replace function public.edit_following_sessions(
   p_session bigint, p_shift integer, p_start_delta integer, p_end_delta integer, p_fields jsonb default '{}'::jsonb)
 returns integer
@@ -583,7 +614,8 @@ begin
      where x.series_id = s.series_id
        and x.tutor_id = s.tutor_id
        and x.student_id = s.student_id
-       and x.starts_at >= greatest(s.starts_at, now())
+       and ((x.id = s.id and (x.ends_at > now() or private.is_admin()))
+            or x.starts_at >= greatest(s.starts_at, now()))
   )
   update public.sessions x
      set starts_at = t.new_start, ends_at = t.new_end, subject = t.new_subject,

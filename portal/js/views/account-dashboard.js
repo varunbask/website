@@ -189,7 +189,8 @@ export function mount(ctx) {
       out.push(button({ label: 'Charge 100%', size: 'sm', variant: 'ghost', onClick: () => act(ctx, () => saveSessionBilling(id, { charge_pct: 100, pay_pct: 100, reason: 'late_cancel' }), { done: 'Late cancellation charged in full.' }) }));
       out.push(button({ label: 'Forgive', size: 'sm', variant: 'ghost', onClick: () => act(ctx, () => saveSessionBilling(id, { reviewed_at: new Date().toISOString(), reviewed_by: ctx.me.id }), { done: 'Not charged.' }) }));
     } else if (kind === 'overlap') {
-      const key = (r.subject || 'Group').slice(0, 40);
+      // One key per lesson: the subject and its start time, so two group lessons on a day stay apart
+      const key = `${r.subject || 'Group'} ${timeRange(r.session).split(' to ')[0]}`.slice(0, 40);
       out.push(button({ label: 'Mark as group', size: 'sm', onClick: () => markGroup(b, r, key) }));
       out.push(accept);
     } else if (kind === 'unpriced') {

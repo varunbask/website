@@ -1599,6 +1599,16 @@ describe('a series edited in Google', () => {
     expect(s.state.sessions.map((r) => r.status)).toEqual(['scheduled', 'scheduled', 'scheduled', 'scheduled', 'scheduled', 'cancelled', 'scheduled']);
   });
 
+  test('a past instance with a new id (after an edit in Google) is not added again', async () => {
+    const pastWeek = { starts_at: '2026-09-21T17:00:00+00:00', ends_at: '2026-09-21T18:00:00+00:00' };
+    const s = setup({ sessions: [syncedSession({ id: 1, google_event_id: 'M1_old', google_recurring_id: 'M1', ...pastWeek })] });
+    s.g.seed(CAL, master('M1'));
+    s.g.seedInstances('M1', [event({ id: 'M1_new', recurringEventId: 'M1', ...mayaInvited, start: { dateTime: '2026-09-21T17:00:00Z' }, end: { dateTime: '2026-09-21T18:00:00Z' }, etag: undefined })]);
+    await pull(s);
+    expect(s.state.sessions.filter((r) => r.status !== 'cancelled')).toHaveLength(1);
+    expect(s.state.sessions[0].google_event_id).toBe('M1_old');
+  });
+
   test('a series whose instances are all gone from the window cancels the rows it had there', async () => {
     const s = setup({ sessions: [row(1, 'M1_a', 'M1', 0), row(2, 'M1_b', 'M1', 1)] });
     s.g.seed(CAL, master('M1'));

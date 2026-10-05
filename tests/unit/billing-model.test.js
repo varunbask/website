@@ -3,7 +3,7 @@ import {
   money, signedMoney, hoursText, parseMoney, amountFor, monthOf, monthParam, addMonths, monthEnd, monthName,
   payPeriodStart, payPeriodEnd, payDay, periodsOverlapping, periodText, policyFor, familyRateFor, tutorRateFor,
   stateOf, buildContext, groupSlots, familyMonth, familyRows, familyBalance, familyStatus, allOutstanding,
-  tutorPeriod, periodRows, carriedInto, referralLine, rangeTotals, allocatePayout, needsAttention, flagsFor,
+  tutorPeriod, periodRows, periodStatus, carriedInto, referralLine, rangeTotals, allocatePayout, needsAttention, flagsFor,
   familyBlockers, tutorBlockers, familySnapshot, tutorSnapshot, billingFact, inPaidPeriod, statementNumber,
   dueDate, yearToDate, isAccepted, dayText,
 } from '../../portal/js/billing-model.js';
@@ -241,6 +241,24 @@ describe('one session', () => {
 });
 
 describe('groups', () => {
+  test('two group lessons with the same key on one day stay two slots', () => {
+    const a = session('2026-11-10', '15:00', '16:00', { student_id: 'kevin', attendance: 'present' });
+    const b = session('2026-11-10', '15:00', '16:00', { student_id: 'amy', attendance: 'present' });
+    const c = session('2026-11-10', '18:00', '19:00', { student_id: 'kevin', attendance: 'present' });
+    const d = session('2026-11-10', '18:00', '19:00', { student_id: 'amy', attendance: 'present' });
+    const sb = [a, b, c, d].map((x) => ({ session_id: x.id, group_key: 'Math' }));
+    const slots = groupSlots(ctxOf([a, b, c, d], { sessionBilling: sb }).rows);
+    expect(slots).toHaveLength(2);
+    expect(slots.reduce((t, x) => t + x.tutorRealized, 0)).toBe(6000);
+  });
+
+  test('a cancelled member adds no hours to its group', () => {
+    const a = session('2026-11-10', '15:00', '16:00', { student_id: 'kevin', attendance: 'present' });
+    const b = session('2026-11-10', '15:00', '17:00', { student_id: 'amy', status: 'cancelled' });
+    const slots = groupSlots(ctxOf([a, b], { sessionBilling: [{ session_id: a.id, group_key: 'G' }, { session_id: b.id, group_key: 'G' }] }).rows);
+    expect(slots[0].minutes).toBe(60);
+  });
+
   test('a group is paid once for the longest member; strangers at the same time are paid twice', () => {
     const a = session('2026-11-10', '15:00', '16:00', { student_id: 'kevin', attendance: 'present' });
     const b = session('2026-11-10', '15:00', '16:30', { student_id: 'amy', attendance: 'present' });
@@ -323,15 +341,36 @@ describe('families', () => {
     expect(dueDate(ctx, '2026-11-01', '2026-12-01')).toBe('2026-12-15');
   });
 
-  test('a session already paid by the previous family is not billed again', () => {
-    const s = session('2026-11-03', '16:00', '17:00', { attendance: 'present' });
-    const ctx = ctxOf([s], {
-      parentLinks: [{ parent_id: 'ryan', student_id: 'kevin', bills: true }],
-      payments: [{ id: 1, parent_id: 'alan', payer_name: 'Alan Wang', period: '2026-11-01', amount_cents: 4500, received_on: '2026-11-05', created_at: 'a', owed_cents: 4500, lines: [{ session_id: String(s.id), amount_cents: 4500 }] }],
+  test('moving the bill to another parent never moves a month that was already paid', () => {
+    const nov = session('2026-11-03', '16:00', '17:00', { attendance: 'present' });
+    const dec = session('2026-12-01', '16:00', '17:00', { attendance: 'present' });
+    const later = new Date(zonedIso('2026-12-20', '12:00'));
+    const ctx = buildContext({
+      sessions: [nov, dec],
+      now: later,
+      billing: billing({
+        // Alan paid November; the bill then moved to Ryan
+        parentLinks: [{ parent_id: 'alan', student_id: 'kevin', bills: false }, { parent_id: 'ryan', student_id: 'kevin', bills: true }],
+        payments: [{ id: 1, parent_id: 'alan', payer_name: 'Alan Wang', period: '2026-11-01', amount_cents: 4500, received_on: '2026-11-05', created_at: 'a', owed_cents: 4500, lines: [{ session_id: String(nov.id), amount_cents: 4500 }] }],
+      }),
     });
-    const f = familyMonth(ctx, 'ryan', '2026-11-01');
-    expect(f.lines[0].paidBy).toBe('Alan Wang');
-    expect(f.owedCents).toBe(0);
+    expect(familyMonth(ctx, 'alan', '2026-11-01')).toMatchObject({ owedCents: 4500, paidCents: 4500, changedSincePayment: false });
+    expect(familyMonth(ctx, 'ryan', '2026-11-01').lines).toEqual([]);
+    expect(familyBalance(ctx, 'alan')).toBe(0);
+    expect(familyMonth(ctx, 'ryan', '2026-12-01').owedCents).toBe(4500);
+  });
+
+  test('a credit covers later months: not overdue, shown as covered', () => {
+    const list = [session('2026-11-03', '16:00', '17:00', { attendance: 'present' }), session('2026-12-01', '16:00', '17:00', { attendance: 'present' })];
+    const ctx = buildContext({
+      sessions: list,
+      now: new Date(zonedIso('2027-01-20', '12:00')),
+      billing: billing({ payments: [{ id: 1, parent_id: 'alan', period: null, amount_cents: 20000, received_on: '2026-11-02', created_at: 'a', owed_cents: 0, lines: [] }] }),
+    });
+    const dec = familyMonth(ctx, 'alan', '2026-12-01');
+    expect(dec.balanceThrough).toBeLessThan(0);
+    expect(familyStatus(ctx, dec).key).toBe('covered');
+    expect(needsAttention(ctx, '2027-01-01', '2027-01-31').byKind.get('overdue')).toBeUndefined();
   });
 });
 
@@ -350,17 +389,22 @@ describe('tutors', () => {
     expect(tutorPeriod(ctx, 'ethan', '2026-11-15').owedCents).toBe(3000);
   });
 
-  test('a later change to a paid period is carried into the next one', () => {
+  test('a later change to a paid period is carried into the next period only, once', () => {
     const payout = { id: 1, kind: 'tutor', tutor_id: 'ethan', period_start: '2026-11-01', amount_cents: 6000, paid_on: '2026-11-20', created_at: 'a', owed_cents: 6000, lines: [] };
     const ctx = ctxOf(list(), { payouts: [payout] });
     const first = tutorPeriod(ctx, 'ethan', '2026-11-01');
-    expect(first.changedSincePayout).toBe(true);
-    expect(first.dueCents).toBe(1500);
+    expect(first).toMatchObject({ changedSincePayout: true, dueCents: 0, differenceCents: 1500, settledLater: false });
+    expect(periodStatus(ctx, first).label).toBe('Paid; +$15.00 carried to the next period');
     expect(carriedInto(ctx, 'ethan', '2026-11-15')).toBe(1500);
-    expect(tutorPeriod(ctx, 'ethan', '2026-11-15').owedCents).toBe(3000 + 1500);
-    // once the next period is paid in full, nothing more is carried
-    const paid2 = { ...payout, id: 2, period_start: '2026-11-15', amount_cents: 4500, owed_cents: 4500 };
-    expect(carriedInto(ctxOf(list(), { payouts: [payout, paid2] }), 'ethan', '2026-11-29')).toBe(0);
+    expect(carriedInto(ctx, 'ethan', '2026-11-29')).toBe(0);
+    expect(tutorPeriod(ctx, 'ethan', '2026-11-15')).toMatchObject({ ownCents: 3000, owedCents: 4500, dueCents: 4500 });
+    // the next period paid with the difference: settled everywhere
+    const paid2 = { ...payout, id: 2, period_start: '2026-11-15', amount_cents: 4500, owed_cents: 3000 };
+    const after = ctxOf(list(), { payouts: [payout, paid2] });
+    expect(carriedInto(after, 'ethan', '2026-11-29')).toBe(0);
+    expect(periodStatus(after, tutorPeriod(after, 'ethan', '2026-11-01')).key).toBe('settled');
+    expect(tutorPeriod(after, 'ethan', '2026-11-15').changedSincePayout).toBe(false);
+    expect(needsAttention(after, '2026-11-01', '2026-11-30').byKind.get('changed_paid')).toBeUndefined();
   });
 
   test('year to date counts the opening balance, not referral payouts', () => {
@@ -435,18 +479,28 @@ describe('needs attention and the gates', () => {
   test('added late, lengthened late, altered after it ended, short notice', () => {
     const late = session('2026-11-10', '16:00', '17:00', { attendance: 'present', created_at: at('2026-11-11', '09:00') });
     const longer = session('2026-11-11', '16:00', '18:00', { attendance: 'present', series_id: 'r1' });
+    const movedBack = session('2026-11-14', '16:00', '17:00', { attendance: 'present' });
     const cancelledLater = session('2026-11-12', '16:00', '17:00', { status: 'cancelled', cancelled_at: at('2026-11-13', '09:00') });
     const shortNotice = session('2026-11-13', '16:00', '17:00', { status: 'cancelled', cancelled_at: at('2026-11-13', '10:00') });
-    const ctx = ctxOf([late, longer, cancelledLater, shortNotice], {
-      edits: [{ session_id: cancelledLater.id, action: 'update', at: at('2026-11-13', '09:00'), editor: 'ethan',
-        old_starts_at: cancelledLater.starts_at, new_starts_at: cancelledLater.starts_at, old_ends_at: cancelledLater.ends_at,
-        new_ends_at: cancelledLater.ends_at, old_status: 'scheduled', new_status: 'cancelled' }],
-    }, { rules: [{ id: 'r1', start_time: '16:00:00', end_time: '17:00:00' }] });
+    const ctx = ctxOf([late, longer, cancelledLater, shortNotice, movedBack], {
+      edits: [
+        { session_id: cancelledLater.id, action: 'update', at: at('2026-11-13', '09:00'), editor: 'ethan',
+          old_starts_at: cancelledLater.starts_at, new_starts_at: cancelledLater.starts_at, old_ends_at: cancelledLater.ends_at,
+          new_ends_at: cancelledLater.ends_at, old_status: 'scheduled', new_status: 'cancelled' },
+        // made an hour longer a week before it happened
+        { session_id: longer.id, action: 'update', at: at('2026-11-04', '09:00'), editor: 'ethan',
+          old_starts_at: longer.starts_at, new_starts_at: longer.starts_at, old_ends_at: at('2026-11-11', '17:00'), new_ends_at: longer.ends_at },
+        // a December session moved back into a past day of November
+        { session_id: movedBack.id, action: 'update', at: at('2026-11-16', '09:00'), editor: 'ethan',
+          old_starts_at: at('2026-12-05', '16:00'), new_starts_at: movedBack.starts_at, old_ends_at: at('2026-12-05', '17:00'), new_ends_at: movedBack.ends_at },
+      ],
+    });
     const flags = ctx.rows.map((r) => flagsFor(ctx, r));
     expect(flags[0]).toContain('added_late');
     expect(flags[1]).toContain('longer');
     expect(flags[2]).toContain('altered');
     expect(flags[3]).toContain('short_notice');
+    expect(flags[4]).toContain('altered');
     // the admin's own change is not flagged as altered
     const byAdmin = ctxOf([cancelledLater], { edits: [{ ...ctx.edits[0], editor: 'varun' }] });
     expect(flagsFor(byAdmin, byAdmin.rows[0])).not.toContain('altered');

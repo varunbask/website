@@ -400,7 +400,9 @@ export function renderSessionDetail(dctx) {
     }
     if (result.error) {
       console.error(result.error);
-      if (dctx.alive()) showActionError(failed);
+      // The billing guard says why (a session that happened, a paid period)
+      const guard = result.error.code === 'VP001' || result.error.code === 'VP002';
+      if (dctx.alive()) showActionError(guard ? `${String(result.error.message).replace(/\.?$/, '.')}` : failed);
       return;
     }
     if (!result.data?.length) {
@@ -454,13 +456,15 @@ export function renderSessionDetail(dctx) {
     const patch = { status: 'cancelled' };
     return write({
       run: async () => {
-        if (scope === 'following') {
+        // The sessions first; the repeat ends only once they are cancelled
+        const result = await (targets.length === 1
+          ? sb.from('sessions').update(patch).eq('id', targets[0].id).select('id')
+          : sb.from('sessions').update(patch).in('id', targets.map((s) => s.id)).select('id'));
+        if (scope === 'following' && !result.error && result.data?.length) {
           const problem = await endSeries(found.session);
           if (problem) return { error: { message: problem } };
         }
-        return targets.length === 1
-        ? sb.from('sessions').update(patch).eq('id', targets[0].id).select('id')
-          : sb.from('sessions').update(patch).in('id', targets.map((s) => s.id)).select('id');
+        return result;
       },
       failed: 'We couldn’t cancel that session. Try again.',
       done: (n) => sessionsToast(n, 'cancelled'),
@@ -498,10 +502,21 @@ export function renderSessionDetail(dctx) {
       });
       if (!ok || !dctx.alive()) return;
     }
-    const targets = scope === 'following' ? followingInSeries(found.sessions, found.session, { now: new Date() }) : [found.session];
+    // Sessions that already happened are records (only the admin deletes them):
+    // "this and following" from one of them deletes the ones still to come
+    const now = new Date();
+    const admin = dctx.me?.role === 'admin';
+    const targets = (scope === 'following' ? followingInSeries(found.sessions, found.session, { now }) : [found.session])
+      .filter((s) => admin || scope === 'this' || Date.parse(s.ends_at) > now.getTime());
     const n = targets.length;
+    if (!n) {
+      showActionError('Sessions that already happened can be cancelled, not deleted.');
+      return;
+    }
     await write({
       run: async () => {
+        // end_session_series needs the session row, so the repeat ends first; the
+        // targets are only sessions this person may delete, so the delete follows through
         if (scope === 'following') {
           const problem = await endSeries(found.session);
           if (problem) return { error: { message: problem } };

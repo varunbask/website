@@ -615,17 +615,9 @@ export function mount(ctx) {
       return input;
     }
 
-    // One payer per student: clear the current one, then set the new one
-    async function makePayer(parentId) {
-      const current = data.parentLinks.find((l) => l.student_id === student.id && l.bills);
-      if (current) {
-        const off = await sb.from('parent_students').update({ bills: false }).eq('parent_id', current.parent_id).eq('student_id', student.id).select('parent_id');
-        if (off.error || !off.data?.length) {
-          act(Promise.resolve(off.error ? off : { data: [] }), '', { key: `pays-${student.id}-${parentId}` });
-          return;
-        }
-      }
-      act(sb.from('parent_students').update({ bills: true }).eq('parent_id', parentId).eq('student_id', student.id).select('parent_id'),
+    // One payer per student, switched in one statement (set_payer)
+    function makePayer(parentId) {
+      act(sb.rpc('set_payer', { p_student: student.id, p_parent: parentId }),
         `${nameOf(parentId)} now gets ${studentName}’s bill. Change payers on the first of a month so each month has one payer.`,
         { key: `pays-${student.id}-${parentId}` });
     }

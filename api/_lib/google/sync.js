@@ -417,6 +417,10 @@ async function applyEvent(ctx, e, recurringId) {
   // (deleted, or another tutor's) the event is never turned into a new one
   if (e.extendedProperties?.private?.vpSessionId) return skip();
 
+  // A past instance of a series edited in Google keeps its old row (those are no
+  // longer cancelled); adding one more would put the week on the calendar twice
+  if (recurringId && Date.parse(fields.ends_at) < ctx.now.getTime() - SETTLED_MS) return skip();
+
   ctx.students ??= await repo.linkedStudents(conn.user_id);
   const student = matchStudent(e, ctx.students);
   if (!student) return skip();

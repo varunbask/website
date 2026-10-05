@@ -321,8 +321,9 @@ const inRange = (row, from, to) => row.day >= from && row.day <= to;
 // Tutor pay: groups are paid once
 
 // Rows of one tutor -> slots. Sessions with the same group key on the same day
-// are one slot: paid once, for the longest payable member, at the highest
-// percentage. Everything else is its own slot.
+// whose times overlap are one slot: paid once, for the longest payable member,
+// at the highest percentage. Everything else is its own slot (two separate
+// group lessons on one day stay two slots even with the same key).
 export function groupSlots(rows) {
   const slots = [];
   const groups = new Map();
@@ -338,7 +339,22 @@ export function groupSlots(rows) {
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(r);
   }
-  for (const [k, members] of groups) {
+  const clusters = [];
+  for (const [k, list] of groups) {
+    const sorted = [...list].sort((a, b) => ms(a.session.starts_at) - ms(b.session.starts_at));
+    let current = null;
+    let end = -Infinity;
+    for (const r of sorted) {
+      if (!current || ms(r.session.starts_at) >= end) {
+        current = [];
+        clusters.push([`${k}|${r.id}`, current]);
+        end = -Infinity;
+      }
+      current.push(r);
+      end = Math.max(end, ms(r.session.ends_at));
+    }
+  }
+  for (const [k, members] of clusters) {
     const rate = members.find((m) => m.tutorRate)?.tutorRate?.rate_cents ?? 0;
     const longest = (list) => list.reduce((t, m) => Math.max(t, m.minutes), 0);
     const maxPct = (list, f) => list.reduce((t, m) => Math.max(t, f(m)), 0);
@@ -347,7 +363,8 @@ export function groupSlots(rows) {
     slots.push({
       key: k,
       rows: members,
-      minutes: longest(members),
+      // cancelled members do not add hours
+      minutes: longest(exp.length ? exp : members),
       tutorExpected: exp.length ? amountFor(longest(exp), rate, maxPct(exp, (m) => m.pct.tutorExpected)) : 0,
       tutorRealized: real.length ? amountFor(longest(real), rate, maxPct(real, (m) => m.pct.tutorRealized)) : 0,
       payableMinutes: real.length ? longest(real) : 0,
@@ -370,22 +387,26 @@ export function familyPayments(ctx, parentId, month) {
     && (p.period === month || (!p.period && p.received_on >= from && p.received_on <= to)));
 }
 
-// Session ids already paid by another family's payment for the month (after a relink)
-function paidElsewhere(ctx, parentId, month) {
-  const map = new Map();
-  for (const p of ctx.payments) {
-    if (same(p.parent_id, parentId) || p.period !== month) continue;
-    for (const l of p.lines ?? []) if (l.session_id !== undefined) map.set(String(l.session_id), p.payer_name || ctx.nameOf(p.parent_id));
+// Who a session is billed to. A payment's lines say who paid for which
+// sessions in its month, so moving the bill to another parent later never
+// moves a month that was already paid; everything else goes to the student's
+// current payer.
+export function payerFor(ctx, row) {
+  ctx.billedTo ??= new Map();
+  if (!ctx.billedTo.has(row.month)) {
+    const map = new Map();
+    const paid = ctx.payments.filter((p) => p.period === row.month).sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')));
+    for (const p of paid) for (const l of p.lines ?? []) if (l.session_id !== undefined && l.session_id !== null) map.set(String(l.session_id), String(p.parent_id));
+    ctx.billedTo.set(row.month, map);
   }
-  return map;
+  return ctx.billedTo.get(row.month).get(row.id) ?? row.payerId;
 }
 
 // One family's month
 export function familyMonth(ctx, parentId, month) {
-  const elsewhere = paidElsewhere(ctx, parentId, month);
-  const rows = ctx.rows.filter((r) => r.month === month && same(r.payerId, parentId));
-  const lines = rows.map((r) => ({ ...r, paidBy: elsewhere.get(r.id) ?? null }));
-  const counted = lines.filter((l) => !l.paidBy);
+  const rows = ctx.rows.filter((r) => r.month === month && same(payerFor(ctx, r), parentId));
+  const lines = rows.map((r) => ({ ...r, paidBy: null }));
+  const counted = lines;
   const adjustments = familyAdjustments(ctx, parentId, month);
   const payments = familyPayments(ctx, parentId, month);
   const adjustmentCents = sum(adjustments, (a) => a.amount_cents);
@@ -415,6 +436,8 @@ export function familyMonth(ctx, parentId, month) {
     lastPayment,
     snapshot,
     changedSincePayment: Boolean(snapshot) && snapshot.owed_cents !== owedCents,
+    // Everything owed through this month, after every payment (loose ones too)
+    balanceThrough: familyBalance(ctx, parentId, month),
     sentOn: ctx.statements.find((s) => same(s.parent_id, parentId) && s.period === month)?.sent_on ?? null,
     contact: ctx.contacts.get(String(parentId)) ?? null,
   };
@@ -423,7 +446,7 @@ export function familyMonth(ctx, parentId, month) {
 // Every paying parent with something in the month (sessions, adjustments or payments)
 export function familyRows(ctx, month) {
   const ids = new Set();
-  for (const r of ctx.rows) if (r.month === month && r.payerId) ids.add(r.payerId);
+  for (const r of ctx.rows) if (r.month === month && payerFor(ctx, r)) ids.add(payerFor(ctx, r));
   for (const a of ctx.adjustments) if (a.party === 'family' && a.period === month) ids.add(String(a.party_id));
   for (const p of ctx.payments) if (p.period === month) ids.add(String(p.parent_id));
   return [...ids].map((id) => {
@@ -436,7 +459,7 @@ export function familyRows(ctx, month) {
 // (positive = owes us, negative = credit)
 export function familyBalance(ctx, parentId, throughMonth = monthOf(dayKey(ctx.now))) {
   const months = new Set();
-  for (const r of ctx.rows) if (same(r.payerId, parentId) && r.month <= throughMonth) months.add(r.month);
+  for (const r of ctx.rows) if (r.month <= throughMonth && same(payerFor(ctx, r), parentId)) months.add(r.month);
   for (const a of ctx.adjustments) if (a.party === 'family' && same(a.party_id, parentId) && a.period <= throughMonth) months.add(a.period);
   const owed = sum([...months], (m) => familyMonthOwed(ctx, parentId, m));
   const paid = sum(ctx.payments.filter((p) => same(p.parent_id, parentId)
@@ -445,8 +468,7 @@ export function familyBalance(ctx, parentId, throughMonth = monthOf(dayKey(ctx.n
 }
 
 function familyMonthOwed(ctx, parentId, month) {
-  const elsewhere = paidElsewhere(ctx, parentId, month);
-  return sum(ctx.rows.filter((r) => r.month === month && same(r.payerId, parentId) && !elsewhere.has(r.id)), (r) => r.familyRealized)
+  return sum(ctx.rows.filter((r) => r.month === month && same(payerFor(ctx, r), parentId)), (r) => r.familyRealized)
     + sum(familyAdjustments(ctx, parentId, month), (a) => a.amount_cents);
 }
 
@@ -470,6 +492,7 @@ export function familyStatus(ctx, f) {
     if (f.dueCents < 0) return { key: 'credit', label: `Credit ${money(-f.dueCents)}`, tone: 'info' };
     return { key: 'paid', label: f.lastPayment ? `Paid ${shortDate(f.lastPayment.received_on, today)}` : 'Paid', tone: 'success' };
   }
+  if (f.owedCents > 0 && f.balanceThrough <= 0) return { key: 'covered', label: 'Covered by credit', tone: 'success' };
   if (f.paidCents > 0) return { key: 'partial', label: `Paid ${money(f.paidCents)} of ${money(f.owedCents)}`, tone: 'warning' };
   if (f.owedCents <= 0 && f.expectedCents > 0) return { key: 'upcoming', label: 'Upcoming', tone: 'neutral' };
   if (f.owedCents <= 0) return { key: 'nothing', label: 'Nothing owed', tone: 'neutral' };
@@ -480,7 +503,7 @@ export function familyStatus(ctx, f) {
 
 // Total owed by every family across all months (credits do not offset others' debts)
 export function allOutstanding(ctx) {
-  const ids = new Set(ctx.rows.map((r) => r.payerId).filter(Boolean));
+  const ids = new Set(ctx.rows.map((r) => payerFor(ctx, r)).filter(Boolean));
   for (const p of ctx.payments) ids.add(String(p.parent_id));
   for (const a of ctx.adjustments) if (a.party === 'family') ids.add(String(a.party_id));
   return sum([...ids], (id) => Math.max(0, familyBalance(ctx, id)));
@@ -489,7 +512,7 @@ export function allOutstanding(ctx) {
 // Students whose sessions have no paying parent
 export function studentsWithoutPayer(ctx, from, to) {
   const ids = new Set();
-  for (const r of ctx.rows) if (inRange(r, from, to) && !r.payerId && r.state !== 'cancelled') ids.add(String(r.session.student_id));
+  for (const r of ctx.rows) if (inRange(r, from, to) && !payerFor(ctx, r) && r.state !== 'cancelled') ids.add(String(r.session.student_id));
   return [...ids];
 }
 
@@ -509,11 +532,17 @@ function periodOwed(ctx, tutorId, periodStart) {
   return sum(groupSlots(rows), (s) => s.tutorRealized) + sum(tutorAdjustments(ctx, tutorId, periodStart), (a) => a.amount_cents);
 }
 
-// The difference left by earlier paid periods (paid less or more than they
-// came to), carried into this one
+function paidStarts(ctx, tutorId) {
+  return [...new Set(ctx.payouts.filter((p) => p.kind === 'tutor' && same(p.tutor_id, tutorId)).map((p) => p.period_start))].sort();
+}
+
+// Whatever paid periods came to beyond (or short of) what was paid for them,
+// carried into the one period after the latest paid period, and nowhere else.
+// Paying that period (carry included) settles it, so nothing is carried twice.
 export function carriedInto(ctx, tutorId, periodStart) {
-  const paidStarts = new Set(ctx.payouts.filter((p) => p.kind === 'tutor' && same(p.tutor_id, tutorId) && p.period_start < periodStart).map((p) => p.period_start));
-  return sum([...paidStarts], (start) => periodOwed(ctx, tutorId, start) - sum(tutorPayouts(ctx, tutorId, start), (p) => p.amount_cents));
+  const starts = paidStarts(ctx, tutorId);
+  if (!starts.length || periodStart !== addDays(starts.at(-1), 14)) return 0;
+  return sum(starts, (start) => periodOwed(ctx, tutorId, start) - sum(tutorPayouts(ctx, tutorId, start), (p) => p.amount_cents));
 }
 
 export function tutorPeriod(ctx, tutorId, periodStart) {
@@ -522,13 +551,16 @@ export function tutorPeriod(ctx, tutorId, periodStart) {
   const adjustments = tutorAdjustments(ctx, tutorId, periodStart);
   const payouts = tutorPayouts(ctx, tutorId, periodStart);
   const adjustmentCents = sum(adjustments, (a) => a.amount_cents);
-  const carriedCents = carriedInto(ctx, tutorId, periodStart);
+  const paid = payouts.length > 0;
+  const carriedCents = paid ? 0 : carriedInto(ctx, tutorId, periodStart);
   const realizedCents = sum(slots, (s) => s.tutorRealized);
   const expectedCents = sum(slots, (s) => s.tutorExpected);
-  const owedCents = realizedCents + adjustmentCents + carriedCents;
+  const ownCents = realizedCents + adjustmentCents;
+  const owedCents = ownCents + carriedCents;
   const paidCents = sum(payouts, (p) => p.amount_cents);
   const rate = tutorRateFor(tutorId, payPeriodEnd(periodStart), ctx.tutorRates);
   const snapshot = payouts.reduce((best, p) => (!best || p.created_at > best.created_at ? p : best), null);
+  const later = paidStarts(ctx, tutorId).some((st) => st > periodStart);
   return {
     tutorId: String(tutorId),
     name: ctx.nameOf(tutorId),
@@ -544,11 +576,15 @@ export function tutorPeriod(ctx, tutorId, periodStart) {
     realizedCents,
     adjustmentCents,
     carriedCents,
+    ownCents,
     owedCents,
     paidCents,
-    dueCents: owedCents - paidCents,
+    // A paid period owes nothing more here: any difference moves to the next period
+    dueCents: paid ? 0 : owedCents - paidCents,
+    differenceCents: paid ? ownCents - paidCents : 0,
+    settledLater: later,
     snapshot,
-    changedSincePayout: Boolean(snapshot) && snapshot.owed_cents !== owedCents,
+    changedSincePayout: Boolean(snapshot) && snapshot.owed_cents !== ownCents,
   };
 }
 
@@ -558,15 +594,17 @@ export function periodRows(ctx, periodStart) {
   for (const r of ctx.rows) if (r.periodStart === periodStart) ids.add(String(r.session.tutor_id));
   for (const a of ctx.adjustments) if (a.party === 'tutor' && a.period === periodStart) ids.add(String(a.party_id));
   for (const p of ctx.payouts) if (p.kind === 'tutor' && p.period_start === periodStart) ids.add(String(p.tutor_id));
+  // a tutor with a difference carried into this period shows even without sessions in it
+  for (const p of ctx.payouts) if (p.kind === 'tutor' && carriedInto(ctx, p.tutor_id, periodStart)) ids.add(String(p.tutor_id));
   return [...ids].map((id) => tutorPeriod(ctx, id, periodStart)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function periodStatus(ctx, t) {
   const today = dayKey(ctx.now);
   if (t.periodStart > today) return { key: 'future', label: 'Upcoming', tone: 'neutral' };
-  if (t.changedSincePayout) return { key: 'changed', label: 'Changed since payout', tone: 'danger' };
-  if (t.payouts.length && t.dueCents === 0) return { key: 'paid', label: `Paid ${shortDate(t.payouts.at(-1).paid_on, today)}`, tone: 'success' };
-  if (t.payouts.length) return { key: 'partial', label: `Paid ${money(t.paidCents)} of ${money(t.owedCents)}`, tone: 'warning' };
+  if (t.payouts.length && t.differenceCents === 0) return { key: 'paid', label: `Paid ${shortDate(t.payouts.at(-1).paid_on, today)}`, tone: 'success' };
+  if (t.payouts.length && t.settledLater) return { key: 'settled', label: 'Paid; difference settled later', tone: 'success' };
+  if (t.payouts.length) return { key: 'carried', label: `Paid; ${signedMoney(t.differenceCents)} carried to the next period`, tone: 'warning' };
   if (t.owedCents === 0 && t.payableMinutes === 0) return { key: 'nothing', label: 'Nothing owed', tone: 'neutral' };
   if (payPeriodEnd(t.periodStart) >= today) return { key: 'open', label: 'In progress', tone: 'neutral' };
   return { key: 'unpaid', label: 'Unpaid', tone: 'neutral' };
@@ -625,7 +663,7 @@ export function referralLine(ctx, periodStart) {
     const fee = tutorRateFor(tutorId, payPeriodEnd(periodStart), ctx.tutorRates)?.referral_cents ?? 0;
     if (!fee) continue;
     for (const s of groupSlots(list)) {
-      const realizedMin = s.tutorRealized > 0 ? s.minutes : 0;
+      const realizedMin = s.payableMinutes;
       const expectedMin = s.tutorExpected > 0 ? s.minutes : 0;
       minutes += realizedMin;
       expectedMinutes += expectedMin;
@@ -678,7 +716,7 @@ export function allocatePayout(payout) {
 // for that month's bills (plus payments not tied to a month received in it);
 // for any other range it is what came in on those days. The referral fee of a
 // pay period counts in the range holding the period's last day.
-export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) && to === monthEnd(from) } = {}) {
+export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) && to === monthEnd(from), cash = false } = {}) {
   const rows = ctx.rows.filter((r) => inRange(r, from, to));
   const byTutor = new Map();
   for (const r of rows) {
@@ -691,13 +729,17 @@ export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) &&
   const tutorAdj = sum(ctx.adjustments.filter((a) => a.party === 'tutor' && payPeriodEnd(a.period) >= from && a.period <= to), (a) => a.amount_cents);
   const revenueExpected = sum(rows, (r) => r.familyExpected) + familyAdj;
   const revenueRealized = sum(rows, (r) => r.familyRealized) + familyAdj;
-  const collected = byMonth
+  const collected = byMonth && !cash
     ? sum(ctx.payments.filter((p) => p.period === from || (!p.period && p.received_on >= from && p.received_on <= to)), (p) => p.amount_cents)
     : sum(ctx.payments.filter((p) => p.received_on >= from && p.received_on <= to), (p) => p.amount_cents);
   const tutorExpected = sum(slots, (s) => s.tutorExpected) + tutorAdj;
   const tutorRealized = sum(slots, (s) => s.tutorRealized) + tutorAdj;
   let paidOut = 0;
   for (const p of ctx.payouts.filter((x) => x.kind === 'tutor')) {
+    if (cash) {
+      if (p.paid_on >= from && p.paid_on <= to) paidOut += p.amount_cents;
+      continue;
+    }
     for (const [day, cents] of allocatePayout(p)) if (day >= from && day <= to) paidOut += cents;
   }
   const periods = periodsOverlapping(from, to, ctx.settings.payroll_anchor);
@@ -710,9 +752,11 @@ export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) &&
     const line = referralLine(ctx, p);
     if (!line) continue;
     referralExpected += line.expectedCents;
-    referralRealized += line.owedCents;
+    // a period still running has only earned what was taught so far; the minimum applies once it ends
+    referralRealized += end < dayKey(ctx.now) ? line.owedCents : line.computedCents;
     referralPaid += line.paidCents;
   }
+  if (cash) referralPaid = sum(ctx.payouts.filter((p) => p.kind === 'referral' && p.paid_on >= from && p.paid_on <= to), (p) => p.amount_cents);
   const studentMinutes = sum(rows.filter((r) => r.familyExpected > 0), (r) => r.minutes);
   const slotMinutes = sum(slots.filter((s) => s.tutorExpected > 0), (s) => s.minutes);
   const netExpected = revenueExpected - tutorExpected - referralExpected;
@@ -742,7 +786,7 @@ export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) &&
 export function yearRows(ctx, year) {
   return Array.from({ length: 12 }, (_, i) => {
     const month = `${year}-${String(i + 1).padStart(2, '0')}-01`;
-    const t = rangeTotals(ctx, month, monthEnd(month));
+    const t = rangeTotals(ctx, month, monthEnd(month), { cash: true });
     return { month, ...t };
   });
 }
@@ -784,16 +828,18 @@ export function flagsFor(ctx, row) {
   if (row.state === 'unconfirmed') flags.push('unconfirmed');
   if (row.state === 'conflict') flags.push('conflict');
   if (s.created_at && ms(s.created_at) > ms(s.ends_at) && row.state !== 'cancelled') flags.push('added_late');
-  const rule = s.series_id ? ctx.rules.get(String(s.series_id)) : null;
-  const ruleMinutes = rule ? timeMinutes(rule.end_time) - timeMinutes(rule.start_time) : null;
   const edits = editsOf(ctx, row.id);
   const byAdmin = (e) => Boolean(e.editor) && ctx.adminIds.has(String(e.editor));
-  const lengthenedLate = edits.some((e) => e.action === 'update' && e.old_ends_at && e.new_ends_at && !byAdmin(e)
-    && ms(e.new_ends_at) > ms(e.old_ends_at) && ms(e.at) > ms(e.old_ends_at));
-  if (row.state !== 'cancelled' && ((ruleMinutes && row.minutes > ruleMinutes) || lengthenedLate)) flags.push('longer');
-  const alteredLate = edits.some((e) => e.action === 'update' && e.old_ends_at && ms(e.at) > ms(e.old_ends_at) && !byAdmin(e)
-    && ((e.new_status && e.new_status !== e.old_status)
-      || ms(e.new_starts_at) !== ms(e.old_starts_at) || ms(e.new_ends_at) !== ms(e.old_ends_at)));
+  const span = (a, b) => ms(b) - ms(a);
+  // made longer by someone other than the admin (before or after it happened)
+  const lengthened = edits.some((e) => e.action === 'update' && !byAdmin(e) && e.old_ends_at && e.new_ends_at
+    && span(e.new_starts_at, e.new_ends_at) > span(e.old_starts_at, e.old_ends_at));
+  if (row.state !== 'cancelled' && lengthened) flags.push('longer');
+  const retimed = (e) => ms(e.new_starts_at) !== ms(e.old_starts_at) || ms(e.new_ends_at) !== ms(e.old_ends_at);
+  const alteredLate = edits.some((e) => e.action === 'update' && e.old_ends_at && !byAdmin(e)
+    && ((ms(e.at) > ms(e.old_ends_at) && ((e.new_status && e.new_status !== e.old_status) || retimed(e)))
+      // moved so that it had already ended when the change was made
+      || (retimed(e) && e.new_ends_at && ms(e.new_ends_at) <= ms(e.at))));
   if (alteredLate) flags.push('altered');
   if ((row.state === 'cancelled' || row.state === 'conflict') && s.cancelled_at
     && ms(s.cancelled_at) > ms(s.starts_at) - SHORT_NOTICE_HOURS * HOUR_MS
@@ -805,10 +851,6 @@ export function flagsFor(ctx, row) {
   return flags;
 }
 
-function timeMinutes(t) {
-  const [h, m] = String(t ?? '0:0').split(':').map(Number);
-  return h * 60 + m;
-}
 
 // Payable sessions of one tutor that overlap without sharing a group key
 export function overlapsOf(rows) {
@@ -837,7 +879,7 @@ export function needsAttention(ctx, from, to, { sessionsOnly = false } = {}) {
   for (const r of rows) {
     if (isAccepted(ctx, r)) continue;
     for (const kind of flagsFor(ctx, r)) {
-      items.push({ kind, rowId: r.id, row: r, tutorId: String(r.session.tutor_id), studentId: String(r.session.student_id), parentId: r.payerId });
+      items.push({ kind, rowId: r.id, row: r, tutorId: String(r.session.tutor_id), studentId: String(r.session.student_id), parentId: payerFor(ctx, r) });
     }
   }
   const byTutor = new Map();
@@ -849,7 +891,7 @@ export function needsAttention(ctx, from, to, { sessionsOnly = false } = {}) {
   for (const [tutorId, list] of byTutor) {
     for (const id of overlapsOf(list)) {
       const r = list.find((x) => x.id === id);
-      if (!isAccepted(ctx, r)) items.push({ kind: 'overlap', rowId: id, row: r, tutorId, studentId: String(r.session.student_id), parentId: r.payerId });
+      if (!isAccepted(ctx, r)) items.push({ kind: 'overlap', rowId: id, row: r, tutorId, studentId: String(r.session.student_id), parentId: payerFor(ctx, r) });
     }
     if (list.some((r) => r.noTutorRate && r.state !== 'cancelled')) items.push({ kind: 'no_tutor_rate', tutorId });
   }
@@ -859,13 +901,15 @@ export function needsAttention(ctx, from, to, { sessionsOnly = false } = {}) {
   const today = dayKey(ctx.now);
   for (let m = monthOf(ctx.settings.ledger_start); m < monthOf(today); m = addMonths(m, 1)) {
     for (const f of familyRows(ctx, m)) {
-      if (f.dueCents > 0 && today > dueDate(ctx, m, f.sentOn)) items.push({ kind: 'overdue', parentId: f.parentId, month: m, cents: f.dueCents });
+      if (f.dueCents > 0 && f.balanceThrough > 0 && today > dueDate(ctx, m, f.sentOn)) {
+        items.push({ kind: 'overdue', parentId: f.parentId, month: m, cents: Math.min(f.dueCents, f.balanceThrough) });
+      }
       if (f.changedSincePayment) items.push({ kind: 'changed_paid', parentId: f.parentId, month: m, cents: f.owedCents - f.snapshot.owed_cents });
     }
   }
   for (const start of new Set(ctx.payouts.filter((p) => p.kind === 'tutor').map((p) => p.period_start))) {
     for (const t of periodRows(ctx, start)) {
-      if (t.changedSincePayout) items.push({ kind: 'changed_paid', tutorId: t.tutorId, periodStart: start, cents: t.owedCents - t.snapshot.owed_cents });
+      if (t.changedSincePayout && !t.settledLater) items.push({ kind: 'changed_paid', tutorId: t.tutorId, periodStart: start, cents: t.ownCents - t.snapshot.owed_cents });
     }
   }
   const older = ctx.rows.filter((r) => r.day < from && r.state === 'unconfirmed' && !isAccepted(ctx, r)).length;
@@ -955,7 +999,8 @@ export function billingFact(ctx, session, role) {
   if (row.state === 'expected') parts.push(`Upcoming: ${money(row.familyExpected)} family, ${money(row.tutorExpected)} tutor`);
   else if (row.state === 'cancelled' && !row.familyRealized && !row.tutorRealized) parts.push('Cancelled: not billed, not paid');
   else parts.push(`Counted in ${monthName(row.month)}: ${money(row.familyRealized)} family, ${money(row.tutorRealized)} tutor`);
-  const familyPaid = row.payerId && ctx.payments.find((p) => same(p.parent_id, row.payerId) && p.period === row.month);
+  const payer = payerFor(ctx, row);
+  const familyPaid = payer && ctx.payments.find((p) => same(p.parent_id, payer) && p.period === row.month);
   if (familyPaid) parts.push(`family paid ${money(familyPaid.amount_cents)} on ${shortDate(familyPaid.received_on)}`);
   const tutorPaid = ctx.payouts.find((p) => p.kind === 'tutor' && same(p.tutor_id, row.session.tutor_id) && p.period_start === row.periodStart);
   if (tutorPaid) parts.push(`tutor paid ${shortDate(tutorPaid.paid_on)}`);
@@ -968,7 +1013,8 @@ export function billingFact(ctx, session, role) {
 export function inPaidPeriod(ctx, session) {
   const row = ctx?.rows?.find((r) => same(r.id, session.id));
   if (!row) return false;
-  return ctx.payments.some((p) => same(p.parent_id, row.payerId) && p.period === row.month)
+  const payer = payerFor(ctx, row);
+  return ctx.payments.some((p) => same(p.parent_id, payer) && p.period === row.month)
     || ctx.payouts.some((p) => p.kind === 'tutor' && same(p.tutor_id, row.session.tutor_id) && p.period_start === row.periodStart);
 }
 

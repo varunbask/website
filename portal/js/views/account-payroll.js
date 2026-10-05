@@ -144,7 +144,7 @@ export function mount(ctx) {
           h('span', { class: 'acct-line-amount num' }, money(future ? s.tutorExpected : s.tutorRealized)));
       });
       const changed = t.changedSincePayout
-        ? note(`Paid ${money(t.snapshot.amount_cents)} when the period came to ${money(t.snapshot.owed_cents)}; it now comes to ${money(t.owedCents)} (${signedMoney(t.owedCents - t.snapshot.owed_cents)}). The difference is carried into the next period.`, 'warning-circle')
+        ? note(`Paid ${money(t.snapshot.amount_cents)} when the period came to ${money(t.snapshot.owed_cents)}; it now comes to ${money(t.ownCents)} (${signedMoney(t.ownCents - t.snapshot.owed_cents)}). ${t.settledLater ? 'A later payout settled the difference.' : 'The difference is carried into the next period.'}`, 'warning-circle')
         : null;
       const due = t.dueCents;
       return h('div', { class: 'acct-details' },
@@ -163,13 +163,13 @@ export function mount(ctx) {
           changed,
           future ? note('This period has not started; pay is shown as expected.')
             : !gate.ok ? blockedNote(gate.items)
-              : due !== 0 || (t.payableMinutes > 0 && !t.payouts.length) ? markPaidForm({
+              : !t.payouts.length && (due !== 0 || t.payableMinutes > 0) ? markPaidForm({
                 label: `Mark ${t.name} paid`,
                 amountCents: due,
                 allowZero: t.payableMinutes > 0,
                 onSave: (fields) => sb.from('payouts').insert({
                   ...fields, kind: 'tutor', tutor_id: t.tutorId, period_start: t.periodStart,
-                  minutes: t.payableMinutes, owed_cents: t.owedCents, lines: tutorSnapshot(t),
+                  minutes: t.payableMinutes, owed_cents: t.ownCents, lines: tutorSnapshot(t),
                 }).select('id'),
                 done: (c) => `${money(c)} to ${t.name} recorded.`,
               }) : null,
