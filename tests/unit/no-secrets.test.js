@@ -1,7 +1,11 @@
-import { test, expect } from 'vitest';
+import { test, expect, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// These tests read the portal's files from disk. The first full run after a
+// checkout reads freshly written files slowly, which once pushed them past
+// the 5 s default; give the whole file room.
+vi.setConfig({ testTimeout: 30_000 });
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SKIP = new Set(['node_modules', '.git', '.vercel', '.worktrees', 'tests', 'docs', 'supabase']);
