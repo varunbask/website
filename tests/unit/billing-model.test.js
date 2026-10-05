@@ -3,7 +3,7 @@ import {
   money, signedMoney, hoursText, parseMoney, amountFor, monthOf, monthParam, addMonths, monthEnd, monthName,
   payPeriodStart, payPeriodEnd, payDay, periodsOverlapping, periodText, policyFor, familyRateFor, tutorRateFor,
   stateOf, buildContext, groupSlots, familyMonth, familyRows, familyBalance, familyStatus, allOutstanding,
-  tutorPeriod, periodRows, periodStatus, carriedInto, referralLine, rangeTotals, allocatePayout, needsAttention, flagsFor,
+  tutorPeriod, periodRows, periodStatus, carriedInto, rangeTotals, allocatePayout, needsAttention, flagsFor,
   familyBlockers, tutorBlockers, familySnapshot, tutorSnapshot, billingFact, inPaidPeriod, statementNumber,
   dueDate, yearToDate, isAccepted, dayText,
 } from '../../portal/js/billing-model.js';
@@ -18,7 +18,7 @@ const at = (day, time) => zonedIso(day, time);
 
 const SETTINGS = {
   business_name: 'VP Education Group', payroll_anchor: '2026-11-01', pay_lag_days: 6, due_day: 15,
-  ledger_start: '2026-11-01', referral_payee: 'Matt', referral_min_cents: 15000, pay_note: 'Zelle: pay@vp.test',
+  ledger_start: '2026-11-01', pay_note: 'Zelle: pay@vp.test',
 };
 const POLICY = { effective_from: '2026-11-01', absent_family_pct: 100, absent_tutor_pct: 100, count_unconfirmed: true };
 
@@ -31,7 +31,7 @@ const session = (day, start, end, extra = {}) => ({
 const rate = (student, cents, extra = {}) => ({
   id: nextId++, student_id: student, subject: 'Math', tutor_id: null, rate_cents: cents, effective_from: '2026-11-01', voided_at: null, ...extra,
 });
-const trate = (tutor, cents, extra = {}) => ({ id: nextId++, tutor_id: tutor, rate_cents: cents, referral_cents: 0, effective_from: '2026-11-01', voided_at: null, ...extra });
+const trate = (tutor, cents, extra = {}) => ({ id: nextId++, tutor_id: tutor, rate_cents: cents, effective_from: '2026-11-01', voided_at: null, ...extra });
 
 const NAMES = new Map([['kevin', 'Kevin Wang'], ['amy', 'Amy Li'], ['alan', 'Alan Wang'], ['ryan', 'Ryan Li'],
   ['ethan', 'Ethan Poon'], ['varun', 'Varun Baskaran'], ['jayden', 'Jayden Chu'], ['stella', 'Stella Chu']]);
@@ -407,25 +407,14 @@ describe('tutors', () => {
     expect(needsAttention(after, '2026-11-01', '2026-11-30').byKind.get('changed_paid')).toBeUndefined();
   });
 
-  test('year to date counts the opening balance, not referral payouts', () => {
+  test('year to date counts the opening balance', () => {
     const ctx = ctxOf([], {
       payouts: [
         { kind: 'opening', tutor_id: 'ethan', period_start: '2026-11-01', amount_cents: 100000, paid_on: '2026-11-01' },
         { kind: 'tutor', tutor_id: 'ethan', period_start: '2026-11-01', amount_cents: 6000, paid_on: '2026-11-20' },
-        { kind: 'referral', tutor_id: null, period_start: '2026-11-01', amount_cents: 15000, paid_on: '2026-11-20' },
       ],
     });
     expect(yearToDate(ctx, 'ethan')).toBe(106000);
-  });
-
-  test('referral: $5 per taught hour of referred tutors, $150 minimum', () => {
-    const ctx = ctxOf(list(), { tutorRates: [trate('ethan', 3000, { referral_cents: 500 }), trate('varun', 0)] });
-    const line = referralLine(ctx, '2026-11-01');
-    expect(line.minutes).toBe(150);
-    expect(line.computedCents).toBe(1250);
-    expect(line.minimumApplies).toBe(true);
-    expect(line.owedCents).toBe(15000);
-    expect(referralLine(ctxOf(list(), { settings: { ...SETTINGS, referral_payee: null } }), '2026-11-01')).toBeNull();
   });
 
   test('a payout is allocated to months by its lines', () => {
@@ -435,7 +424,7 @@ describe('tutors', () => {
 });
 
 describe('totals', () => {
-  test('expected, realized, collected, paid out, referral and net', () => {
+  test('expected, realized, collected, paid out and net', () => {
     const list = [
       session('2026-11-03', '16:00', '17:00', { attendance: 'present' }),
       session('2026-11-24', '16:00', '17:00'),
@@ -450,11 +439,10 @@ describe('totals', () => {
     expect(t.collected).toBe(6000);
     expect(t.tutorExpected).toBe(9000);
     expect(t.tutorRealized).toBe(6000);
-    // periods ending Nov 14 and Nov 28 count in November, at the $150 minimum each
-    expect(t.referralExpected).toBe(30000);
     // a custom range counts payments by the day they arrived
     expect(rangeTotals(ctx, '2026-11-07', '2026-11-30').collected).toBe(0);
-    expect(t.netExpected).toBe(t.revenueExpected - t.tutorExpected - t.referralExpected);
+    expect(t.netExpected).toBe(t.revenueExpected - t.tutorExpected);
+    expect(t.netRealized).toBe(10500 - 6000);
     expect(t.studentMinutes).toBe(180);
   });
 });

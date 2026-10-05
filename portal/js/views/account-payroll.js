@@ -1,7 +1,6 @@
 // Account > Payroll (account.html, admin). Tutors are paid every two weeks,
 // Sunday to Saturday from the anchor in Settings. One card per pay period
-// that overlaps the month: the referral fee, then one row per tutor with the
-// sessions behind the amount, bonuses and deductions, differences carried
+// that overlaps the month, with one row per tutor: the sessions behind the amount, bonuses and deductions, differences carried
 // from earlier periods, and Mark paid (blocked while the period has open items).
 
 import { sb } from '../supabase.js';
@@ -12,7 +11,7 @@ import { todayKey } from '../dates.js';
 import { timeRange } from '../sessions-model.js';
 import {
   money, signedMoney, hoursText, parseMoney, monthEnd, periodsOverlapping, payPeriodEnd, payDay, periodText,
-  periodRows, periodStatus, referralLine, tutorBlockers, tutorSnapshot, yearToDate, dayText, shortDate, ATTENTION,
+  periodRows, periodStatus, tutorBlockers, tutorSnapshot, yearToDate, dayText, shortDate, ATTENTION,
 } from '../billing-model.js';
 import { payoutText, payrollCsv, labelText, methodText, stateText, METHODS, LABELS } from '../billing-text.js';
 import {
@@ -58,14 +57,12 @@ export function mount(ctx) {
       const current = start <= today && end >= today;
       const gateAll = rows.map((t) => tutorBlockers(b, t.tutorId, start)).flatMap((g) => g.items);
       const total = (k) => rows.reduce((s, t) => s + t[k], 0);
-      const ref = referralLine(b, start);
       return h('section', { class: 'card acct-card acct-period', 'aria-label': `Pay period ${periodText(start)}` },
         h('div', { class: 'card-head' },
           h('h2', { class: 'card-title' }, `${dayText(start)} to ${dayText(end, start)}`),
           h('span', { class: 'card-meta' }, `Pays ${dayText(payDay(start, b.settings.pay_lag_days))}${future ? ', upcoming' : current ? ', in progress' : ''}`),
           h('div', { class: 'card-actions' }, csvButton(ctx, `payroll-${start}.csv`, () => payrollCsv(rows)))),
         !future && gateAll.length ? blockedNote(gateAll) : null,
-        ref ? referralWell(ref, future) : null,
         rows.length ? table({
           label: `Tutors, ${periodText(start)}`,
           columns: [
@@ -108,27 +105,6 @@ export function mount(ctx) {
         h('div', { class: 'callout-body' },
           h('p', { class: 'callout-title' }, `${items.length} ${items.length === 1 ? 'item needs' : 'items need'} a decision before these tutors can be marked paid`),
           h('p', { class: 'callout-text' }, kinds.join('; '), '. ', h('a', { href: tabHref('dashboard', month) }, 'Open Needs attention'), '.')));
-    }
-
-    function referralWell(ref, future) {
-      const hoursPart = `${hoursText(future ? ref.expectedMinutes : ref.minutes)} hours taught by referred tutors`;
-      const minPart = ref.minimumCents ? `, ${money(ref.minimumCents)} minimum` : '';
-      const text = ref.minimumApplies ? `${hoursPart}: ${money(ref.computedCents)}${minPart} applies.` : `${hoursPart}: ${money(ref.computedCents)}.`;
-      const action = future || ref.dueCents <= 0
-        ? (ref.paidCents ? pill({ label: `Paid ${shortDate(ref.payouts.at(-1).paid_on, today)}`, tone: 'success' }) : null)
-        : h('details', { class: 'acct-pay-toggle' },
-          h('summary', { class: 'btn btn-secondary btn-sm' }, icon('check'), h('span', { class: 'btn-label' }, `Mark ${ref.payee} paid`)),
-          markPaidForm({
-            label: `Mark ${ref.payee} paid`,
-            amountCents: ref.dueCents,
-            onSave: (fields) => sb.from('payouts').insert({ ...fields, kind: 'referral', tutor_id: null, period_start: ref.periodStart, owed_cents: ref.owedCents }).select('id'),
-            done: (c) => `${money(c)} to ${ref.payee} recorded.`,
-          }));
-      return h('div', { class: 'well acct-referral' },
-        h('div', {},
-          h('p', { class: 'acct-referral-title' }, `Owed to ${ref.payee}: `, h('span', { class: 'num' }, money(future ? ref.expectedCents : ref.owedCents))),
-          h('p', { class: 'card-meta' }, text)),
-        action);
     }
 
     function details(t, future) {

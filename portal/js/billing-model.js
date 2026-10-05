@@ -640,55 +640,7 @@ export function tutorRangeRows(ctx, from, to) {
 
 // Paid to a tutor this year: payouts by paid_on, opening balance included
 export function yearToDate(ctx, tutorId, year = parseKey(dayKey(ctx.now)).y) {
-  return sum(ctx.payouts.filter((p) => p.kind !== 'referral' && same(p.tutor_id, tutorId) && p.paid_on.startsWith(`${year}-`)), (p) => p.amount_cents);
-}
-
-// The referral fee for a period: taught (paid) minutes of tutors with a
-// referral rate, by slot, at their per-hour fee, with the minimum applied
-export function referralLine(ctx, periodStart) {
-  const payee = ctx.settings.referral_payee;
-  if (!payee) return null;
-  const rows = ctx.rows.filter((r) => r.periodStart === periodStart);
-  const byTutor = new Map();
-  for (const r of rows) {
-    const k = String(r.session.tutor_id);
-    if (!byTutor.has(k)) byTutor.set(k, []);
-    byTutor.get(k).push(r);
-  }
-  let minutes = 0;
-  let expectedMinutes = 0;
-  let computed = 0;
-  let expectedComputed = 0;
-  for (const [tutorId, list] of byTutor) {
-    const fee = tutorRateFor(tutorId, payPeriodEnd(periodStart), ctx.tutorRates)?.referral_cents ?? 0;
-    if (!fee) continue;
-    for (const s of groupSlots(list)) {
-      const realizedMin = s.payableMinutes;
-      const expectedMin = s.tutorExpected > 0 ? s.minutes : 0;
-      minutes += realizedMin;
-      expectedMinutes += expectedMin;
-      computed += amountFor(realizedMin, fee);
-      expectedComputed += amountFor(expectedMin, fee);
-    }
-  }
-  const min = ctx.settings.referral_min_cents ?? 0;
-  const payouts = ctx.payouts.filter((p) => p.kind === 'referral' && p.period_start === periodStart);
-  const owedCents = Math.max(computed, min);
-  const paidCents = sum(payouts, (p) => p.amount_cents);
-  return {
-    payee,
-    periodStart,
-    minutes,
-    expectedMinutes,
-    computedCents: computed,
-    minimumCents: min,
-    minimumApplies: computed < min,
-    owedCents,
-    expectedCents: Math.max(expectedComputed, min),
-    paidCents,
-    dueCents: owedCents - paidCents,
-    payouts,
-  };
+  return sum(ctx.payouts.filter((p) => same(p.tutor_id, tutorId) && p.paid_on.startsWith(`${year}-`)), (p) => p.amount_cents);
 }
 
 // ---------------------------------------------------------------------------
@@ -714,8 +666,7 @@ export function allocatePayout(payout) {
 
 // Totals for [from, to]. For a whole month (byMonth), Collected is what came in
 // for that month's bills (plus payments not tied to a month received in it);
-// for any other range it is what came in on those days. The referral fee of a
-// pay period counts in the range holding the period's last day.
+// for any other range it is what came in on those days.
 export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) && to === monthEnd(from), cash = false } = {}) {
   const rows = ctx.rows.filter((r) => inRange(r, from, to));
   const byTutor = new Map();
@@ -742,25 +693,10 @@ export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) &&
     }
     for (const [day, cents] of allocatePayout(p)) if (day >= from && day <= to) paidOut += cents;
   }
-  const periods = periodsOverlapping(from, to, ctx.settings.payroll_anchor);
-  let referralExpected = 0;
-  let referralRealized = 0;
-  let referralPaid = 0;
-  for (const p of periods) {
-    const end = payPeriodEnd(p);
-    if (end < from || end > to || end < ctx.settings.ledger_start) continue;
-    const line = referralLine(ctx, p);
-    if (!line) continue;
-    referralExpected += line.expectedCents;
-    // a period still running has only earned what was taught so far; the minimum applies once it ends
-    referralRealized += end < dayKey(ctx.now) ? line.owedCents : line.computedCents;
-    referralPaid += line.paidCents;
-  }
-  if (cash) referralPaid = sum(ctx.payouts.filter((p) => p.kind === 'referral' && p.paid_on >= from && p.paid_on <= to), (p) => p.amount_cents);
   const studentMinutes = sum(rows.filter((r) => r.familyExpected > 0), (r) => r.minutes);
   const slotMinutes = sum(slots.filter((s) => s.tutorExpected > 0), (s) => s.minutes);
-  const netExpected = revenueExpected - tutorExpected - referralExpected;
-  const netRealized = revenueRealized - tutorRealized - referralRealized;
+  const netExpected = revenueExpected - tutorExpected;
+  const netRealized = revenueRealized - tutorRealized;
   return {
     from,
     to,
@@ -770,9 +706,6 @@ export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) &&
     tutorExpected,
     tutorRealized,
     paidOut,
-    referralExpected,
-    referralRealized,
-    referralPaid,
     netExpected,
     netRealized,
     marginPct: revenueExpected > 0 ? Math.round((netExpected / revenueExpected) * 100) : null,

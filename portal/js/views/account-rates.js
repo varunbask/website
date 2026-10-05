@@ -186,15 +186,13 @@ export function mount(ctx) {
         const current = tutorRateFor(t.id, today, b.tutorRates);
         const history = b.tutorRates.filter((r) => String(r.tutor_id) === String(t.id)).sort((a, c) => c.effective_from.localeCompare(a.effective_from));
         const rate = h('input', { class: 'input acct-money-input', inputmode: 'decimal', placeholder: current ? (current.rate_cents / 100).toFixed(2) : '25', 'aria-label': `New rate for ${displayName(t)}` });
-        const fee = h('input', { class: 'input acct-money-input', inputmode: 'decimal', placeholder: current ? (current.referral_cents / 100).toFixed(2) : '0', 'aria-label': `Referral fee per hour for ${displayName(t)}` });
         const from = h('input', { type: 'date', class: 'input', value: defaultFrom, 'aria-label': 'Applies from' });
         const save = button({ label: 'Set rate', size: 'sm' });
         save.addEventListener('click', () => busy(save, 'Saving…', async () => {
           const cents = parseMoney(rate.value, { allowZero: true, max: 100000 });
-          const feeCents = fee.value.trim() ? parseMoney(fee.value, { allowZero: true, max: 10000 }) : (current?.referral_cents ?? 0);
-          if (cents === null || feeCents === null) { ctx.toast({ text: 'Enter the pay per hour (and the referral fee, if any), like 25 or 5.' }); return; }
+          if (cents === null) { ctx.toast({ text: 'Enter the pay per hour, like 25.' }); return; }
           if (!KEY_RE.test(from.value)) { ctx.toast({ text: 'Pick the date it applies from.' }); return; }
-          await act(ctx, () => sb.from('tutor_rates').insert({ tutor_id: t.id, rate_cents: cents, referral_cents: feeCents, effective_from: from.value }).select('id'), {
+          await act(ctx, () => sb.from('tutor_rates').insert({ tutor_id: t.id, rate_cents: cents, effective_from: from.value }).select('id'), {
             done: `${displayName(t)}: ${money(cents)} an hour from ${shortDate(from.value)}.`,
             failed: 'That rate didn’t save. Is there already one from that date?',
           });
@@ -203,24 +201,23 @@ export function mount(ctx) {
           cells: {
             name: displayName(t),
             rate: current ? money(current.rate_cents) : h('span', { class: 'acct-missing' }, 'Not set'),
-            fee: current?.referral_cents ? money(current.referral_cents) : '',
             from: current ? shortDate(current.effective_from, today) : '',
-            set: h('div', { class: 'acct-inline-form is-tight' }, rate, fee, from, save),
+            set: h('div', { class: 'acct-inline-form is-tight' }, rate, from, save),
           },
           after: history.length > 1 ? h('details', { class: 'acct-history' }, h('summary', {}, `${history.length} rates`),
             h('ul', {}, history.map((r) => h('li', { class: r.voided_at ? 'is-voided' : null },
-              `${money(r.rate_cents)} an hour${r.referral_cents ? `, referral ${money(r.referral_cents)}` : ''}, from ${shortDate(r.effective_from, today)}${r.voided_at ? ` (voided: ${r.void_reason})` : ''} `,
+              `${money(r.rate_cents)} an hour, from ${shortDate(r.effective_from, today)}${r.voided_at ? ` (voided: ${r.void_reason})` : ''} `,
               r.voided_at ? null : button({ label: 'Void', size: 'sm', variant: 'ghost', onClick: () => voidRate('tutor_rates', r) }))))) : null,
         };
       });
       return card({
         title: 'Tutor pay rates',
-        meta: 'Per hour taught. The referral fee is what you owe the referral payee per hour this tutor teaches.',
+        meta: 'Per hour taught.',
         body: [table({
           label: 'Tutor pay rates',
           columns: [
-            { key: 'name', label: 'Tutor' }, { key: 'rate', label: 'Per hour', num: true }, { key: 'fee', label: 'Referral', num: true },
-            { key: 'from', label: 'Since' }, { key: 'set', label: 'New rate, referral fee, from' },
+            { key: 'name', label: 'Tutor' }, { key: 'rate', label: 'Per hour', num: true },
+            { key: 'from', label: 'Since' }, { key: 'set', label: 'New rate, from' },
           ],
           rows,
         })],
@@ -260,8 +257,6 @@ export function mount(ctx) {
       const anchor = h('input', { type: 'date', class: 'input', value: s.payroll_anchor, disabled: frozen, 'aria-label': 'First pay period starts' });
       const lag = h('input', { type: 'number', class: 'input acct-num-input', min: '0', max: '7', value: String(s.pay_lag_days), 'aria-label': 'Days after the period ends' });
       const due = h('input', { type: 'number', class: 'input acct-num-input', min: '1', max: '28', value: String(s.due_day), 'aria-label': 'Day of the month bills are due' });
-      const payee = h('input', { class: 'input', value: s.referral_payee ?? '', maxlength: '80', placeholder: 'Matt', 'aria-label': 'Referral payee' });
-      const min = h('input', { class: 'input acct-money-input', inputmode: 'decimal', value: s.referral_min_cents ? (s.referral_min_cents / 100).toFixed(2) : '', placeholder: '150', 'aria-label': 'Referral minimum per pay period' });
       const payNote = h('textarea', { class: 'input textarea', rows: '3', maxlength: '2000', 'aria-label': 'How to pay, printed on statements' }, s.pay_note ?? '');
       const preview = h('p', { class: 'field-hint' });
       const showPeriods = () => {
@@ -279,14 +274,10 @@ export function mount(ctx) {
       const save = button({ label: 'Save settings', variant: 'primary', size: 'sm' });
       save.addEventListener('click', () => busy(save, 'Saving…', async () => {
         if (!KEY_RE.test(anchor.value) || weekday(anchor.value) !== 0) { ctx.toast({ text: 'The first pay period has to start on a Sunday.' }); return; }
-        const minCents = min.value.trim() ? parseMoney(min.value, { allowZero: true, max: 1000000 }) : 0;
-        if (minCents === null) { ctx.toast({ text: 'Enter the referral minimum in dollars, like 150.' }); return; }
         const fields = {
           business_name: name.value.trim() || 'VP Education Group',
           pay_lag_days: Math.min(7, Math.max(0, Number(lag.value) || 0)),
           due_day: Math.min(28, Math.max(1, Number(due.value) || 15)),
-          referral_payee: payee.value.trim() || null,
-          referral_min_cents: minCents,
           pay_note: payNote.value.trim() || null,
         };
         if (!frozen) fields.payroll_anchor = anchor.value;
@@ -301,8 +292,6 @@ export function mount(ctx) {
             preview,
             field({ label: 'Pay day, days after a period ends', control: lag }),
             field({ label: 'Family bills due on day', control: due, hint: 'Of the month after the billed month.' }),
-            field({ label: 'Referral payee', control: payee, optional: true, hint: 'Leave blank to hide the referral fee.' }),
-            field({ label: 'Referral minimum per pay period', control: min, optional: true }),
             field({ label: 'How to pay', control: payNote, optional: true, hint: 'Printed at the bottom of every statement, like your Zelle email.' }),
             h('p', { class: 'card-meta' }, `Billing starts ${shortDate(s.ledger_start, today)}; sessions before it are left out.`)),
           save,

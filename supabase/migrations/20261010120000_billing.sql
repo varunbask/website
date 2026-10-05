@@ -29,8 +29,6 @@ create table public.billing_settings (
   pay_lag_days       smallint not null default 6 check (pay_lag_days between 0 and 7),
   due_day            smallint not null default 15 check (due_day between 1 and 28),   -- of the month after the billed one
   ledger_start       date not null default '2026-11-01' check (extract(day from ledger_start) = 1),
-  referral_payee     text check (char_length(btrim(referral_payee)) between 1 and 80),
-  referral_min_cents integer not null default 0 check (referral_min_cents between 0 and 1000000),  -- per pay period
   pay_note           text check (char_length(pay_note) <= 2000),                       -- printed on statements
   updated_by         uuid references public.profiles (id) on delete set null,
   updated_at         timestamptz not null default now()
@@ -74,13 +72,11 @@ create unique index family_rates_key on public.family_rates
   where voided_at is null;
 create index family_rates_student_idx on public.family_rates (student_id, effective_from desc);
 
--- What a tutor (or a teaching admin, at $0) earns per hour, with the referral
--- fee per taught hour owed to billing_settings.referral_payee
+-- What a tutor (or a teaching admin, at $0) earns per hour
 create table public.tutor_rates (
   id             bigint generated always as identity primary key,
   tutor_id       uuid not null references public.profiles (id) on delete cascade,
   rate_cents     integer not null check (rate_cents between 0 and 100000),
-  referral_cents integer not null default 0 check (referral_cents between 0 and 10000),
   effective_from date not null,
   note           text check (char_length(note) <= 200),
   created_by     uuid default auth.uid() references public.profiles (id) on delete set null,
@@ -158,13 +154,13 @@ create table public.payments (
 );
 create index payments_parent_idx on public.payments (parent_id, period);
 
--- Paid to a tutor for a pay period, to the referral payee, or an opening
--- balance for what was paid this year before the portal
+-- Paid to a tutor for a pay period, or an opening balance for what was paid
+-- this year before the portal
 create table public.payouts (
   id           bigint generated always as identity primary key,
   client_key   uuid not null unique,
-  kind         text not null default 'tutor' check (kind in ('tutor', 'referral', 'opening')),
-  tutor_id     uuid references public.profiles (id) on delete restrict,   -- null only for kind = 'referral'
+  kind         text not null default 'tutor' check (kind in ('tutor', 'opening')),
+  tutor_id     uuid not null references public.profiles (id) on delete restrict,
   payee_name   text not null default '',                                  -- copied by trigger
   period_start date not null,
   amount_cents integer not null check (abs(amount_cents) <= 10000000),
@@ -179,7 +175,6 @@ create table public.payouts (
   created_at   timestamptz not null default now(),
   voided_at    timestamptz,
   void_reason  text check (char_length(btrim(void_reason)) between 1 and 300),
-  constraint payouts_payee check ((kind = 'referral') = (tutor_id is null)),
   constraint payouts_zero  check (amount_cents <> 0 or (kind = 'tutor' and minutes > 0)),
   constraint payouts_void  check ((voided_at is null) = (void_reason is null))
 );
@@ -390,11 +385,7 @@ returns trigger
 language plpgsql security definer set search_path = ''
 as $$
 begin
-  if new.kind = 'referral' then
-    new.payee_name := coalesce((select s.referral_payee from public.billing_settings s where s.id = 1), 'Referral');
-  else
-    new.payee_name := coalesce((select p.full_name from public.profiles p where p.id = new.tutor_id), '');
-  end if;
+  new.payee_name := coalesce((select p.full_name from public.profiles p where p.id = new.tutor_id), '');
   return new;
 end
 $$;
@@ -657,13 +648,13 @@ grant select on public.billing_settings, public.billing_policies, public.family_
                 public.session_billing, public.session_edits, public.payments, public.payouts,
                 public.billing_adjustments, public.billing_contacts, public.statements
   to authenticated;
-grant update (business_name, payroll_anchor, pay_lag_days, due_day, ledger_start, referral_payee,
-              referral_min_cents, pay_note) on public.billing_settings to authenticated;
+grant update (business_name, payroll_anchor, pay_lag_days, due_day, ledger_start, pay_note)
+  on public.billing_settings to authenticated;
 grant insert (effective_from, absent_family_pct, absent_tutor_pct, count_unconfirmed)
   on public.billing_policies to authenticated;
 grant insert (student_id, subject, tutor_id, rate_cents, effective_from, note) on public.family_rates to authenticated;
 grant update (note, voided_at, void_reason) on public.family_rates to authenticated;
-grant insert (tutor_id, rate_cents, referral_cents, effective_from, note) on public.tutor_rates to authenticated;
+grant insert (tutor_id, rate_cents, effective_from, note) on public.tutor_rates to authenticated;
 grant update (note, voided_at, void_reason) on public.tutor_rates to authenticated;
 grant delete on public.session_billing to authenticated;
 grant insert (session_id, charge_pct, pay_pct, reason, group_key, note, reviewed_at, reviewed_by)
@@ -739,7 +730,7 @@ create policy "admin voids payments" on public.payments for update to authentica
   using ((select private.is_admin())) with check ((select private.is_admin()));
 create policy "admin records payouts" on public.payouts for insert to authenticated
   with check ((select private.is_admin())
-              and (tutor_id is null or private.has_role(tutor_id, 'tutor') or private.has_role(tutor_id, 'admin')));
+              and (private.has_role(tutor_id, 'tutor') or private.has_role(tutor_id, 'admin')));
 create policy "admin voids payouts" on public.payouts for update to authenticated
   using ((select private.is_admin())) with check ((select private.is_admin()));
 create policy "admin records adjustments" on public.billing_adjustments for insert to authenticated

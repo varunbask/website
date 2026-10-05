@@ -63,10 +63,10 @@ export function mount(ctx) {
         ], ranged ? `${hoursText(t.studentMinutes)} student hours` : `Families owe ${money(outstandingMonth)} this month, ${money(allOutstanding(b))} in all. ${hoursText(t.studentMinutes)} student hours.`),
         tile('Tutor pay', 'users-three', [
           ['Expected', t.tutorExpected], ['Realized', t.tutorRealized], ['Paid', t.paidOut],
-        ], `${hoursText(t.slotMinutes)} hours taught${b.settings.referral_payee ? `. Referral fee to ${b.settings.referral_payee}: ${money(t.referralRealized)}` : ''}.`),
+        ], `${hoursText(t.slotMinutes)} hours taught.`),
         tile('Net', 'chart-line-up', [
           ['Expected', t.netExpected], ['Realized', t.netRealized],
-        ], `${t.marginPct === null ? 'No revenue yet' : `${t.marginPct}% margin`}. Revenue less tutor pay${b.settings.referral_payee ? ' and the referral fee' : ''}; no other expenses are tracked.`, true)),
+        ], `${t.marginPct === null ? 'No revenue yet' : `${t.marginPct}% margin`}. Revenue less tutor pay; no other expenses are tracked.`, true)),
       rangeCard(),
       attentionCard(b, attention),
       h('div', { class: 'grid-12' },
@@ -287,18 +287,17 @@ export function mount(ctx) {
           label: `Month by month, ${y}`,
           columns: [
             { key: 'month', label: 'Month' }, { key: 'rev', label: 'Revenue', num: true }, { key: 'col', label: 'Collected', num: true },
-            { key: 'pay', label: 'Tutor pay', num: true }, { key: 'out', label: 'Paid out', num: true }, { key: 'ref', label: 'Referral', num: true },
-            { key: 'net', label: 'Net', num: true },
+            { key: 'pay', label: 'Tutor pay', num: true }, { key: 'out', label: 'Paid out', num: true }, { key: 'net', label: 'Net', num: true },
           ],
           rows: rows.map((r) => ({
             cells: {
               month: h('a', { href: `#/dashboard?month=${r.month.slice(0, 7)}` }, monthName(r.month).split(' ')[0]),
-              rev: cents(r.revenueRealized), col: cents(r.collected), pay: cents(r.tutorRealized), out: cents(r.paidOut), ref: cents(r.referralRealized), net: cents(r.netRealized),
+              rev: cents(r.revenueRealized), col: cents(r.collected), pay: cents(r.tutorRealized), out: cents(r.paidOut), net: cents(r.netRealized),
             },
           })),
           foot: {
             month: 'Total', rev: cents(total('revenueRealized')), col: cents(total('collected')), pay: cents(total('tutorRealized')),
-            out: cents(total('paidOut')), ref: cents(total('referralRealized')), net: cents(total('netRealized')),
+            out: cents(total('paidOut')), net: cents(total('netRealized')),
           },
         })],
       }));

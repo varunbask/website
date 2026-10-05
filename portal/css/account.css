@@ -13,7 +13,7 @@
          ul.acct-lines > li.acct-line(.is-cancelled) > a.acct-line-what + .pill + span.acct-line-rate + span.acct-line-amount
          dl.acct-summary > div.acct-summary-row(.is-total) > dt + dd
          div.acct-pay-form, div.acct-inline-form(.is-tight) > label.acct-inline-field > span + control
-     section.card.acct-period > div.well.acct-referral
+     section.card.acct-period
      article.acct-statement                                                    statement and pay slip (prints alone)
 */
 
@@ -136,11 +136,6 @@ a.acct-line-what:hover .acct-line-when { text-decoration: underline; }
 /* Payroll */
 .acct-periods { display: flex; flex-direction: column; gap: var(--s-4); }
 .acct-period .card-actions { margin-left: auto; }
-.acct-referral { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-3); }
-.acct-referral-title { font: 500 15px/22px var(--font-ui); }
-.acct-pay-toggle > summary { list-style: none; cursor: pointer; }
-.acct-pay-toggle > summary::-webkit-details-marker { display: none; }
-.acct-pay-toggle[open] > summary { margin-bottom: var(--s-2); }
 
 /* Rates */
 .acct-section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3); }

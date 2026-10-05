@@ -165,9 +165,9 @@ export function sessionsCsv(ctx, rows) {
 
 export function yearCsv(rows) {
   return csvText(
-    ['Month', 'Revenue expected', 'Revenue realized', 'Collected', 'Tutor pay', 'Paid out', 'Referral', 'Net'],
+    ['Month', 'Revenue expected', 'Revenue realized', 'Collected', 'Tutor pay', 'Paid out', 'Net'],
     rows.map((r) => [monthName(r.month), dollars(r.revenueExpected), dollars(r.revenueRealized), dollars(r.collected),
-      dollars(r.tutorRealized), dollars(r.paidOut), dollars(r.referralRealized), dollars(r.netRealized)]),
+      dollars(r.tutorRealized), dollars(r.paidOut), dollars(r.netRealized)]),
   );
 }
 
