@@ -265,7 +265,30 @@
 .asg-file-meta { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
 
 .asg-submit-form textarea.input { min-height: 64px; }
-.asg-submit-form textarea.asg-answer-input { min-height: 180px; resize: vertical; }
+/* Your answer: a preview card that opens the editor */
+.asg-answer {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+.asg-answer-preview {
+  max-height: 240px;
+  overflow: hidden;
+  padding: var(--s-3) var(--s-4);
+  -webkit-mask-image: linear-gradient(to bottom, #000 75%, transparent);
+  mask-image: linear-gradient(to bottom, #000 75%, transparent);
+}
+.asg-answer.is-empty .asg-answer-preview { -webkit-mask-image: none; mask-image: none; }
+.asg-answer-placeholder { color: var(--text-3); }
+.asg-answer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  padding: var(--s-2) var(--s-4) var(--s-3);
+  border-top: 1px solid var(--line);
+}
+.asg-answer-meta { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
 .asg-attach { display: flex; flex-direction: column; gap: var(--s-2); }
 .asg-attach .asg-dropzone { min-height: 88px; padding: var(--s-4); }
 .asg-submit-error:empty { display: none; }
@@ -457,3 +480,176 @@
 .asg-attach-size { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
 .asg-attach-actions { display: flex; gap: var(--s-2); }
 .asg-attach-problem:empty { display: none; }
+
+
+/* A formatted answer --------------------------------------------------------
+   .doc-view shows one (the submit card, history, review page); .doc-page is
+   the editor's page. Only the tags rich-doc.js allows ever appear inside. */
+
+.doc-view, .doc-page { color: var(--text); overflow-wrap: anywhere; }
+.doc-view > * + *, .doc-page > * + * { margin-top: .65em; }
+.doc-view h2, .doc-page h2 { margin-top: 1.1em; font: 600 20px/28px var(--font-ui); letter-spacing: -0.01em; }
+.doc-view h3, .doc-page h3 { margin-top: 1em; font: 600 16px/24px var(--font-ui); }
+.doc-view > :first-child, .doc-page > :first-child { margin-top: 0; }
+.doc-view blockquote, .doc-page blockquote {
+  padding-left: var(--s-3);
+  border-left: 3px solid var(--line-strong);
+  color: var(--text-2);
+}
+.doc-view ul, .doc-page ul { padding-left: 1.4em; list-style: disc; }
+.doc-view ol, .doc-page ol { padding-left: 1.6em; list-style: decimal; }
+.doc-view li + li, .doc-page li + li { margin-top: .2em; }
+.doc-view a, .doc-page a { color: var(--accent); text-decoration: underline; }
+.doc-view u, .doc-page u { text-decoration: underline; }
+.doc-view s, .doc-page s { text-decoration: line-through; }
+.doc-view sup, .doc-page sup,
+.doc-view sub, .doc-page sub { font-size: .72em; line-height: 0; }
+.doc-view strong, .doc-page strong, .doc-view b, .doc-page b { font-weight: 650; }
+.doc-view em, .doc-page em, .doc-view i, .doc-page i { font-style: italic; }
+
+/* The editor: a full-screen page with a toolbar */
+.doc-editor {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--frame);
+  color: var(--text);
+}
+.doc-editor::backdrop { background: rgb(0 0 0 / .32); }
+.doc-editor-inner { display: flex; flex-direction: column; height: 100%; }
+.doc-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+  padding: var(--s-3) var(--s-6);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.doc-head-title { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.doc-eyebrow { font: 500 12px/16px var(--font-ui); color: var(--text-3); }
+.doc-title {
+  overflow: hidden;
+  font: 600 16px/22px var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.doc-status { font: 400 13px/18px var(--font-ui); color: var(--text-3); white-space: nowrap; }
+.doc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--s-2) var(--s-6);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.doc-style {
+  flex: none;
+  height: 32px;
+  padding: 0 var(--s-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: 500 13px/1 var(--font-ui);
+}
+.doc-tool {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font: 600 14px/1 var(--font-ui);
+}
+.doc-tool:hover { background: var(--hover); color: var(--text); }
+.doc-tool[aria-pressed="true"], .doc-tool[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
+.doc-tool.is-redo svg { transform: scaleX(-1); }
+.doc-glyph.is-bold { font-weight: 800; }
+.doc-glyph.is-italic { font-style: italic; font-weight: 500; }
+.doc-glyph.is-underline { text-decoration: underline; }
+.doc-glyph.is-strike { text-decoration: line-through; }
+.doc-sep { flex: none; width: 1px; height: 20px; margin: 0 6px; background: var(--line); }
+.doc-panel {
+  padding: var(--s-2) var(--s-6);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.doc-symbols { display: flex; flex-wrap: wrap; gap: 4px; }
+.doc-symbol {
+  min-width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: 400 16px/1 var(--font-ui);
+}
+.doc-symbol:hover { border-color: var(--accent); color: var(--accent); }
+.doc-linkbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.input.doc-link-input { width: min(420px, 100%); height: 32px; }
+.doc-link-error { color: var(--danger-text); font: 400 13px/18px var(--font-ui); }
+.doc-scroll { flex: 1; overflow: auto; padding: var(--s-8) var(--s-4); }
+.doc-page {
+  position: relative;
+  max-width: 816px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 56px 64px;
+  border-radius: var(--r-xs);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  font: var(--t-read);
+  outline: none;
+}
+.doc-page:focus-visible { box-shadow: var(--shadow-pop), 0 0 0 2px var(--accent); }
+.doc-page.is-empty::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  top: 56px;
+  right: 64px;
+  left: 64px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.doc-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: var(--s-3) var(--s-6);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.doc-meta { display: flex; flex-wrap: wrap; gap: var(--s-3); font: 400 13px/18px var(--font-ui); color: var(--text-3); }
+.doc-limit { color: var(--text-3); }
+.doc-actions { display: flex; gap: var(--s-2); }
+
+@media (max-width: 767.98px) {
+  .doc-head, .doc-toolbar, .doc-panel, .doc-foot { padding-inline: var(--s-4); }
+  .doc-eyebrow { display: none; }
+  .doc-status { font-size: 12px; }
+  .doc-scroll { padding: 0; }
+  .doc-page { min-height: 100%; padding: 20px; border-radius: 0; box-shadow: none; }
+  .doc-page.is-empty::before { top: 20px; right: 20px; left: 20px; }
+  .doc-actions { width: 100%; }
+  .doc-actions > .btn { flex: 1; }
+}
+
+/* Messages shown while the editor is open sit above its footer, never on its buttons */
+.doc-editor > .toasts { bottom: 84px; }
+@media (max-width: 767.98px) {
+  .doc-editor > .toasts { bottom: calc(env(safe-area-inset-bottom) + 132px); }
+}
+.asg-answer-meta.is-warning { color: var(--warning-text); }
+.asg-sub-answer > .doc-view { margin-top: var(--s-2); }
+.doc-limit.is-over { color: var(--danger-text); }

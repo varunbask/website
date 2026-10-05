@@ -31,6 +31,7 @@ import { materialsFor, lessonLabel } from './materials-model.js';
 import { toneClass } from './sessions-model.js';
 import { renderSessionCreate, renderSessionDetail } from './session-drawer.js';
 import { sb } from './supabase.js';
+import { answerView } from './rich-doc-dom.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SUBMITTED = 'Work submitted. Your tutor will review it soon.';
@@ -644,7 +645,7 @@ function historySection(item, { staff, isStudent, now, live }) {
     const typed = !staff && typeof sub.body === 'string' && sub.body.trim()
       ? h('details', { class: 'asg-sub-answer' },
         h('summary', {}, isStudent ? 'Your answer' : 'Answer'),
-        h('p', { class: 'read is-pre' }, sub.body))
+        answerView(sub))
       : null;
     const extra = [
       typed,
