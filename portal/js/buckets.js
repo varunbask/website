@@ -195,14 +195,23 @@ export function groupTasks(items, now) {
   };
 }
 
+// Whether an item counts as work to do now: a copy of a repeating item counts
+// once it is due within the next 7 days (or overdue), so a long series does
+// not fill the badges. The lists still show every copy.
+export function countsNow(item, now = new Date()) {
+  const due = item.task?.due_at;
+  if (!item.task?.series_id || !due) return true;
+  return dayKey(due) <= addDays(todayKey(now), 6);
+}
+
 // Badge counts, derived from the same items the lists show
-export function navCounts(items, { audience = 'family' } = {}) {
-  const todo = items.filter((i) => i.bucket === 'todo');
+export function navCounts(items, { audience = 'family', now = new Date() } = {}) {
+  const todo = items.filter((i) => i.bucket === 'todo' && countsNow(i, now));
   const inReview = items.filter((i) => i.bucket === 'in-review');
   return {
     todo: todo.length,
     todoOverdue: todo.filter((i) => i.dueState === 'overdue').length,
     inReview: audience === 'staff' ? inReview.filter((i) => ACTIONABLE.has(staffGroupOf(i))).length : inReview.length,
-    tasksOpen: items.filter((i) => i.task.kind === 'task' && !i.task.completed_at).length,
+    tasksOpen: items.filter((i) => i.task.kind === 'task' && !i.task.completed_at && countsNow(i, now)).length,
   };
 }

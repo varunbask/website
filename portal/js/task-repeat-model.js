@@ -113,23 +113,32 @@ export function followingText(rows, task) {
 }
 
 // What saving an edit writes, as [{ id, values }]. apply 'this' changes only
-// this copy. 'following' gives every copy from this one on the new title and
-// instructions, and moves their due dates by as many days as this one moved
-// (clearing this one's due date clears theirs; giving this one its first due
-// date moves no others). A copy's due_at is sent only when it changes, so the
-// copies that keep theirs share one update.
+// this copy. 'following' passes on only what changed on this copy: a new title
+// or new instructions go to every copy after it (so a later copy's own
+// instructions survive a date change), and their due dates move by as many
+// days as this one moved (clearing this one's due date clears theirs; giving
+// this one its first due date moves no others). A copy with nothing to change
+// is left out, and copies that only get the same text share one update.
 export function seriesUpdates({ task, rows, values, apply = 'this' }) {
   if (apply !== 'following' || !rows?.length) return [{ id: task.id, values }];
+  const text = {};
+  if (values.title !== task.title) text.title = values.title;
+  if ((values.details ?? null) !== (task.details ?? null)) text.details = values.details ?? null;
   const before = task.due_at ? dayKey(task.due_at) : null;
   const after = values.due_at ? dayKey(values.due_at) : null;
   const moved = before && after ? daysBetween(before, after) : 0;
-  return rows.map((row) => {
-    if (String(row.id) === String(task.id)) return { id: row.id, values };
-    const next = { title: values.title, details: values.details };
+  const out = [];
+  for (const row of rows) {
+    if (String(row.id) === String(task.id)) {
+      out.push({ id: row.id, values });
+      continue;
+    }
+    const next = { ...text };
     if (before && !after && row.due_at) next.due_at = null;
     else if (moved && row.due_at) next.due_at = shiftedDueAt(row.due_at, moved);
-    return { id: row.id, values: next };
-  });
+    if (Object.keys(next).length) out.push({ id: row.id, values: next });
+  }
+  return out;
 }
 
 // The updates grouped by what they write: [{ ids, values }], one request each

@@ -4,8 +4,10 @@
 // itemForm(dctx, { task = null, kind, due, studentOptions, selectedStudent, series, onCancel, onSaved }) -> HTMLElement
 //   task            the task being edited, or null to create one
 //   series          editing a copy of a repeating item: it and the copies
-//                   after it (task-repeat-model.js followingInTaskSeries); the
-//                   form then asks whether the changes apply to the rest too
+//                   after it that can still change (task-repeat-model.js
+//                   followingInTaskSeries, less copies with submitted work);
+//                   the form then asks whether the changes apply to them too
+//   seriesKept      how many later copies were left out for their work
 //   kind            'assignment' | 'task' (create; editing uses task.kind)
 //   due             'YYYY-MM-DD' to prefill the due date (create)
 //   studentOptions  profiles for the Student select, shown only when no student
@@ -31,8 +33,8 @@ import { dueDateToIso, isoToDateInput, displayName } from './format.js';
 import { sb } from './supabase.js';
 import { lessonLabel, MATERIAL_ACCEPT, materialType, validateMaterialFile, materialIcon, sizeText } from './materials-model.js';
 import { uploadMaterialFiles, copyMaterialFiles, problemsText, namePastedImage } from './materials-ui.js';
-import { todayKey } from './dates.js';
-import { newSeriesId } from './sessions-model.js';
+import { todayKey, dayKey } from './dates.js';
+import { newSeriesId, shortDayText } from './sessions-model.js';
 import {
   REPEATS, MIN_REPEAT_COUNT, checkRepeat, repeatSummary, repeatRows, followingText, seriesUpdates, groupUpdates, itemNoun,
 } from './task-repeat-model.js';
@@ -52,11 +54,21 @@ function submitLabel(kind, editing, copies = 1) {
 }
 
 // "Assignment created with 2 files.", "8 tasks created, each with 1 file."
-function createdText(kind, count, files) {
+// (every copy got every file) or "8 tasks created." (a file problem toast follows)
+function createdText(kind, count, files, { everyCopy = true } = {}) {
   const what = count > 1 ? `${count} ${itemNoun(kind, count)} created` : (kind === 'task' ? 'Task created' : 'Assignment created');
-  if (!files) return `${what}.`;
+  if (!files || !everyCopy) return `${what}.`;
   const fileText = files === 1 ? '1 file' : `${files} files`;
   return count > 1 ? `${what}, each with ${fileText}.` : `${what} with ${fileText}.`;
+}
+
+// "2 later copies were not changed (due Mon, Oct 12 and Tue, Oct 13). Edit them on their own."
+function missedText(missed, kind) {
+  const days = missed.map((t) => (t.due_at ? shortDayText(dayKey(t.due_at)) : null)).filter(Boolean);
+  const shown = days.length > 3 ? `${days.slice(0, 3).join(', ')} and ${days.length - 3} more` : days.join(' and ');
+  const n = missed.length;
+  const which = n === 1 ? `1 later ${itemNoun(kind, 1)} was` : `${n} later ${itemNoun(kind, n)} were`;
+  return `${which} not changed${shown ? ` (due ${shown})` : ''}. Edit ${n === 1 ? 'it' : 'them'} on ${n === 1 ? 'its' : 'their'} own.`;
 }
 
 function instructionsHint(kind) {
@@ -78,7 +90,8 @@ function dangerCallout(title, text) {
 // lesson: the session homework is set in (create only); it fixes the student
 // and is saved as tasks.session_id
 export function itemForm(dctx, {
-  task = null, kind, due, studentOptions = null, selectedStudent = null, lesson = null, series = null, onCancel, onSaved,
+  task = null, kind, due, studentOptions = null, selectedStudent = null, lesson = null, series = null, seriesKept = 0,
+  onCancel, onSaved,
 } = {}) {
   const editing = Boolean(task);
   let currentKind = (editing ? task.kind : kind) === 'task' ? 'task' : 'assignment';
@@ -168,7 +181,7 @@ export function itemForm(dctx, {
       min: String(MIN_REPEAT_COUNT), max: String(REPEATS.weekly.max), value: String(REPEATS.weekly.start),
     });
     countField = field({ label: 'How many times', control: countInput });
-    repeatHint = h('p', { class: 'field-hint asg-repeat-hint' });
+    repeatHint = h('p', { class: 'field-hint asg-repeat-hint', 'aria-live': 'polite' });
     repeatFields = h('div', { class: 'asg-repeat-fields', hidden: true },
       h('div', { class: 'asg-repeat-row' }, field({ label: 'Repeats', control: everyWrap }), countField),
       repeatHint);
@@ -194,8 +207,11 @@ export function itemForm(dctx, {
       value: 'this',
       onChange: (value) => {
         apply = value;
+        const kept = seriesKept
+          ? ` ${seriesKept === 1 ? 'One later copy has' : `${seriesKept} later copies have`} submitted work and ${seriesKept === 1 ? 'stays' : 'stay'} as ${seriesKept === 1 ? 'it is' : 'they are'}.`
+          : '';
         applyHint.textContent = value === 'following'
-          ? `${followingText(rows, task)}. Due dates move by as many days as this one.`
+          ? `${followingText(rows, task)}. Due dates move by as many days as this one.${kept}`
           : `Changes only this ${task.kind === 'task' ? 'task' : 'assignment'}.`;
       },
     });
@@ -342,9 +358,16 @@ export function itemForm(dctx, {
     const label = submit.querySelector('.btn-label');
     if (label) label.textContent = submitLabel(currentKind, editing, copies);
     if (!repeatHint) return;
-    repeatHint.textContent = !raw.repeat ? ''
-      : (!check.values.due ? 'Pick the first due date above. Each copy is due on its own day after it.'
-        : repeatSummary(raw, currentKind) || ' ');
+    // A repeat needs the due date, so it stops being optional
+    const optional = dueField.querySelector('.field-optional');
+    if (optional) optional.hidden = raw.repeat;
+    let text = '';
+    if (raw.repeat) {
+      if (check.errors.count) text = check.errors.count;
+      else if (!check.values.due) text = 'Pick the first due date above. Each copy is due on its own day after it.';
+      else text = repeatSummary(raw, currentKind);
+    }
+    repeatHint.textContent = text;
   }
   if (repeatBox) {
     repeatBox.addEventListener('change', () => {
@@ -392,32 +415,46 @@ export function itemForm(dctx, {
   studentSelect?.addEventListener('change', () => setFieldError(studentField, ''));
 
   // An edit: this item, or (Apply to: This and following) the copies after it
-  // too. A copy that fails is reported; this one failing stops the edit.
+  // too, a few requests at a time. A copy that fails is named (by its due day)
+  // so it can be fixed on its own; this one failing stops the edit.
   async function saveEdit(values) {
     const updates = seriesUpdates({ task, rows, values, apply: rows ? apply : 'this' });
     const groups = groupUpdates(updates);
-    const results = await Promise.all(groups.map((g) => sb.from('tasks').update(g.values).in('id', g.ids).select('id')));
-    const own = groups.findIndex((g) => g.ids.some((id) => String(id) === String(task.id)));
-    const mine = results[own];
+    const results = new Array(groups.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < groups.length) {
+        const at = next++;
+        const g = groups[at];
+        try {
+          results[at] = await sb.from('tasks').update(g.values).in('id', g.ids).select('id');
+        } catch (error) {
+          results[at] = { error, data: null };
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(6, groups.length) }, worker));
+    for (const r of results) if (r.error) console.error(r.error);
+    const savedIds = new Set(results.flatMap((r) => (r.data ?? []).map((row) => String(row.id))));
+    // Anything written is shown, even if the drawer has closed meanwhile
+    if (savedIds.size) dctx.store.invalidate(task.student_id);
     if (dctx.alive?.() === false) return;
-    if (mine.error) {
-      console.error(mine.error);
+    const own = results[groups.findIndex((g) => g.ids.some((id) => String(id) === String(task.id)))];
+    if (own.error) {
       errorSlot.append(dangerCallout('We couldn’t save your changes.', 'Check your connection and try again.'));
       errorSlot.scrollIntoView?.({ block: 'nearest' });
       return;
     }
     // An edit that matched no row: the item was deleted or moved elsewhere
-    if (!mine.data?.some((r) => String(r.id) === String(task.id))) {
+    if (!savedIds.has(String(task.id))) {
       errorSlot.append(dangerCallout('We couldn’t save your changes.', 'This item was changed or removed. Refresh the page and try again.'));
       errorSlot.scrollIntoView?.({ block: 'nearest' });
       return;
     }
-    const saved = results.reduce((n, r) => n + (r.data?.length ?? 0), 0);
-    const missed = updates.length - saved;
-    for (const r of results) if (r.error) console.error(r.error);
-    dctx.store.invalidate(task.student_id);
+    const missed = (rows ?? []).filter((r) => updates.some((u) => String(u.id) === String(r.id)) && !savedIds.has(String(r.id)));
+    const saved = savedIds.size;
     dctx.toast({ text: updates.length > 1 ? `Changes saved to ${saved} ${itemNoun(task.kind, saved)}.` : 'Changes saved.' });
-    if (missed > 0) dctx.toast({ text: `${missed === 1 ? '1 later copy' : `${missed} later copies`} could not be changed. Try again from ${missed === 1 ? 'it' : 'them'}.` });
+    if (missed.length) dctx.toast({ text: missedText(missed, task.kind) });
     onSaved?.();
   }
 
@@ -500,9 +537,12 @@ export function itemForm(dctx, {
         }
         // Invalidate first, so what renders next reads the saved values
         dctx.store.invalidate(studentId);
-        dctx.toast({ text: createdText(currentKind, made.length, attached.added) });
+        const everyCopy = copied.added === attached.rows.length * (made.length - 1);
+        dctx.toast({ text: createdText(currentKind, made.length, attached.added, { everyCopy }) });
         const problems = [...attached.problems, ...copied.problems];
         if (problems.length) dctx.toast({ text: problemsText(problems) });
+        // The drawer may have closed (or moved on) while the files went up
+        if (dctx.alive?.() === false) return;
         if (lesson) {
           // Homework from a lesson opens right away, so a worksheet can be added
           dctx.go(drawerHref(typeof location === 'undefined' ? '' : location.hash, first.id), { replace: true });

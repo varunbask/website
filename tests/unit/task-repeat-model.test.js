@@ -5,6 +5,8 @@ import {
 } from '../../portal/js/task-repeat-model.js';
 import { dueDateToIso } from '../../portal/js/format.js';
 import { dayKey } from '../../portal/js/dates.js';
+import { countsNow, navCounts } from '../../portal/js/buckets.js';
+import { tasksLede } from '../../portal/js/views/tasks.js';
 
 const due = (key) => dueDateToIso(key);
 
@@ -143,11 +145,25 @@ describe('saving an edit', () => {
   test('following, same due date: the others keep theirs and share one update', () => {
     const values = { title: 'New', details: null, due_at: due('2026-10-13') };
     const updates = seriesUpdates({ task, rows, values, apply: 'following' });
-    expect(updates[1].values).toEqual({ title: 'New', details: null });
+    expect(updates[1].values).toEqual({ title: 'New' });
     expect(groupUpdates(updates)).toEqual([
       { ids: [2], values },
-      { ids: [3, 4], values: { title: 'New', details: null } },
+      { ids: [3, 4], values: { title: 'New' } },
     ]);
+  });
+
+  test('following, only the date moved: a later copy keeps its own title and instructions', () => {
+    const own = [T(2, '2026-10-13'), T(3, '2026-10-20', { title: 'Sheet, part 2', details: 'Only page 3' })];
+    const values = { title: 'Sheet', details: null, due_at: due('2026-10-14') };
+    expect(seriesUpdates({ task: own[0], rows: own, values, apply: 'following' })).toEqual([
+      { id: 2, values },
+      { id: 3, values: { due_at: due('2026-10-21') } },
+    ]);
+  });
+
+  test('following, nothing changed: only this copy is saved', () => {
+    const values = { title: 'Sheet', details: null, due_at: due('2026-10-13') };
+    expect(seriesUpdates({ task, rows, values, apply: 'following' })).toEqual([{ id: 2, values }]);
   });
 
   test('following, due date cleared: theirs are cleared too', () => {
@@ -160,7 +176,30 @@ describe('saving an edit', () => {
     const list = [undated, T(6, '2026-10-20')];
     for (const dueAt of [null, due('2026-10-09')]) {
       const values = { title: 'New', details: null, due_at: dueAt };
-      expect(seriesUpdates({ task: undated, rows: list, values, apply: 'following' })[1].values).toEqual({ title: 'New', details: null });
+      expect(seriesUpdates({ task: undated, rows: list, values, apply: 'following' })[1].values).toEqual({ title: 'New' });
     }
+  });
+});
+
+describe('counts with a long series', () => {
+  const NOW = new Date('2026-10-06T19:00:00Z');   // Tue Oct 6, noon Pacific
+  const item = (id, key, extra = {}) => ({ task: { id, kind: 'task', series_id: 'abc', completed_at: null, due_at: key ? due(key) : null, ...extra }, bucket: 'todo', dueState: 'upcoming' });
+
+  test('a copy counts once it is due within 7 days; other items always count', () => {
+    expect(countsNow(item(1, '2026-10-12'), NOW)).toBe(true);
+    expect(countsNow(item(2, '2026-10-13'), NOW)).toBe(false);
+    expect(countsNow(item(3, '2026-10-30', { series_id: null }), NOW)).toBe(true);
+    expect(countsNow(item(4, null), NOW)).toBe(true);
+    expect(countsNow(item(5, '2026-10-01'), NOW)).toBe(true);
+  });
+
+  test('badges and the tasks lede leave later copies out', () => {
+    const items = ['2026-10-06', '2026-10-07', '2026-10-20', '2026-10-21'].map((k, i) => item(i + 1, k));
+    const counts = navCounts(items, { audience: 'family', now: NOW });
+    expect(counts.todo).toBe(2);
+    expect(counts.tasksOpen).toBe(2);
+    expect(tasksLede(items, NOW)).toBe('2 tasks to do. Plus 2 later repeats.');
+    expect(tasksLede(items.slice(2), NOW)).toBe('Plus 2 later repeats.');
+    expect(tasksLede(items.slice(0, 1), NOW)).toBe('1 task to do.');
   });
 });

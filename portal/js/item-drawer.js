@@ -339,9 +339,14 @@ function renderItem(dctx) {
     const status = itemStatus(found.item, { audience: dctx.audience });
     dctx.header.replaceChildren(pill(status));
     dctx.headerActions.replaceChildren();
+    // Later copies with submitted work are left as they are
+    const following = followingInTaskSeries(found.data?.tasks, found.task);
+    const hasWork = (t) => (found.data?.subsByTask?.get(t.id) ?? []).length > 0;
+    const series = following.filter((t) => sameId(t.id, found.task.id) || !hasWork(t));
     const form = itemForm(dctx, {
       task: found.task,
-      series: followingInTaskSeries(found.data?.tasks, found.task),
+      series,
+      seriesKept: following.length - series.length,
       onCancel: backToDetail,
       onSaved: backToDetail,
     });

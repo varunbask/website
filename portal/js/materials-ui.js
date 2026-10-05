@@ -82,22 +82,24 @@ export async function copyMaterialFiles({ studentId, rows, owners }) {
   const jobs = owners.flatMap((owner) => rows.map((row) => ({ owner, row })));
   const failed = new Map();   // title -> copies that failed
   const fail = (row) => failed.set(row.title, (failed.get(row.title) ?? 0) + 1);
-  const made = [];
+  const done = new Array(jobs.length);   // kept in job order, so every copy lists its files alike
   // A few at a time, so a long series does not flood storage with requests
   let next = 0;
   async function worker() {
     while (next < jobs.length) {
-      const { owner, row } = jobs[next++];
+      const at = next++;
+      const { owner, row } = jobs[at];
       const path = materialPath(studentId, row.file_type);
-      const copy = await bucket.copy(row.storage_path, path).catch((error) => ({ error }));
+      const copy = await Promise.resolve(bucket.copy(row.storage_path, path)).catch((error) => ({ error }));
       if (copy.error) {
         fail(row);
         continue;
       }
-      made.push({ ...row, ...owner, storage_path: path });
+      done[at] = { ...row, ...owner, storage_path: path };
     }
   }
   await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, worker));
+  const made = done.filter(Boolean);
   let added = 0;
   if (made.length) {
     const ins = await sb.from('materials').insert(made).select('id');
