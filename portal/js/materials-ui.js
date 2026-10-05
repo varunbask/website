@@ -34,9 +34,10 @@ async function sign(material) {
 // Uploads files to the materials bucket and adds a material row for each, on
 // a session ({ session_id }) or an assignment ({ task_id }). A file that fails
 // is reported, never half added: its upload is removed when the row fails.
-// -> { added, problems: ['name: what went wrong'] }
+// -> { added, problems: ['name: what went wrong'], rows: [the rows added] }
 export async function uploadMaterialFiles({ studentId, owner, files }) {
   const problems = [];
+  const rows = [];
   let added = 0;
   for (const file of files) {
     const message = validateMaterialFile(file);
@@ -65,7 +66,49 @@ export async function uploadMaterialFiles({ studentId, owner, files }) {
       continue;
     }
     added += 1;
+    rows.push(row);
   }
+  return { added, problems, rows };
+}
+
+// Copies files already added (rows from uploadMaterialFiles) onto more
+// assignments: the copies of a repeating one. Each copy is its own file,
+// copied inside storage (nothing uploads again), so removing one assignment
+// or its file never touches the others. A copy that fails is reported; its
+// file is removed when its row cannot be added.
+// owners: [{ task_id }]  -> { added, problems: ['name: what went wrong'] }
+export async function copyMaterialFiles({ studentId, rows, owners }) {
+  const bucket = sb.storage.from(MATERIALS_BUCKET);
+  const jobs = owners.flatMap((owner) => rows.map((row) => ({ owner, row })));
+  const failed = new Map();   // title -> copies that failed
+  const fail = (row) => failed.set(row.title, (failed.get(row.title) ?? 0) + 1);
+  const made = [];
+  // A few at a time, so a long series does not flood storage with requests
+  let next = 0;
+  async function worker() {
+    while (next < jobs.length) {
+      const { owner, row } = jobs[next++];
+      const path = materialPath(studentId, row.file_type);
+      const copy = await bucket.copy(row.storage_path, path).catch((error) => ({ error }));
+      if (copy.error) {
+        fail(row);
+        continue;
+      }
+      made.push({ ...row, ...owner, storage_path: path });
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, jobs.length) }, worker));
+  let added = 0;
+  if (made.length) {
+    const ins = await sb.from('materials').insert(made).select('id');
+    if (ins.error || (ins.data?.length ?? 0) !== made.length) {
+      bucket.remove(made.map((m) => m.storage_path)).catch(() => {});
+      for (const m of made) fail(m);
+    } else {
+      added = made.length;
+    }
+  }
+  const problems = [...failed].map(([title, n]) => `${title}: ${n === 1 ? '1 copy' : `${n} copies`} could not be added.`);
   return { added, problems };
 }
 
