@@ -24,7 +24,7 @@
      div#people.ppl-root
        Waiting: ul.ppl-cards > li.card.ppl-card
          div.ppl-card-head (avatar 40, .ppl-id, time.ppl-signed)
-         div.ppl-card-body (pill, blockquote.quote.ppl-note)
+         div.ppl-card-body (pill, blockquote.quote.ppl-note, div.callout.ppl-dupe)
          div.ppl-approve (label, .select, .btn)
        Everyone: div.ppl-toolbar (.ppl-search, .ppl-filter-wrap > .segmented.ppl-filter)
          div.ppl-everyone > section.ppl-group > (.group-header) + ul.ppl-list > li.ppl-person
@@ -757,3 +757,5 @@
 .ppl-list-title.is-warning { color: var(--warning-text); }
 .ppl-list-plan > .btn { margin-top: var(--s-2); }
 .ppl-links.is-parent { grid-template-columns: minmax(0, 1fr); }
+/* A sign-up that may be someone already added without a login */
+.ppl-dupe { align-self: stretch; }

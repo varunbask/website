@@ -88,7 +88,14 @@ async function start() {
   document.getElementById('join-name').textContent = copy.first;
   document.getElementById('join-lede').textContent = copy.lede;
   show('join');
-  document.getElementById('join-email').focus();
+  // A link emailed to them: that address, so they only choose a password
+  const email = document.getElementById('join-email');
+  if (typeof body.email === 'string' && body.email.includes('@')) {
+    email.value = body.email;
+    document.getElementById('join-password').focus();
+  } else {
+    email.focus();
+  }
 }
 
 form.addEventListener('submit', (event) => {

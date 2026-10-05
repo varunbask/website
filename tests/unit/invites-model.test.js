@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   newInviteToken, inviteLink, inviteMessage, namesText, readToken, joinCopy, joinProblem, joinError, inviteState,
-  parseFamilyLines, planFamilies,
+  parseFamilyLines, planFamilies, signupMatches,
 } from '../../portal/js/invites-model.js';
 
 describe('invite links', () => {
@@ -110,5 +110,34 @@ describe('adding families from a list', () => {
       { parent: 'new:parent:sunny', student: 'new:student:mason' },
       { parent: 'id:p2', student: 'new:student:gordon' },
     ]);
+  });
+});
+
+describe('a sign-up that may be someone added without a login', () => {
+  const people = [
+    { id: 'a', full_name: 'Amy', role: 'student', no_login: true },
+    { id: 'b', full_name: 'Amy Chen', role: 'student', no_login: true },
+    { id: 'c', full_name: 'Mary', role: 'parent', no_login: true },
+    { id: 'd', full_name: 'Mary', role: 'student', no_login: true },
+    { id: 'e', full_name: 'Leo Park', role: 'student', no_login: false },
+    { id: 'f', full_name: 'Sunny', role: 'tutor', no_login: true },
+  ];
+  const ids = (signup) => signupMatches(signup, people).map((m) => `${m.person.id}${m.exact ? '!' : ''}`);
+
+  test('same full name first, then a first name against a first name only', () => {
+    expect(ids({ id: 'x', full_name: 'Amy Chen', requested_role: 'student' })).toEqual(['b!', 'a']);
+    expect(ids({ id: 'x', full_name: '  amy ', requested_role: null })).toEqual(['a!', 'b']);
+  });
+
+  test('two different surnames never match', () => {
+    expect(ids({ id: 'x', full_name: 'Amy Park', requested_role: 'student' })).toEqual(['a']);
+  });
+
+  test('only the role they asked for, and never tutors, admins or people who already sign in', () => {
+    expect(ids({ id: 'x', full_name: 'Mary Smith', requested_role: 'parent' })).toEqual(['c']);
+    expect(ids({ id: 'x', full_name: 'Mary', requested_role: null })).toEqual(['c!', 'd!']);
+    expect(ids({ id: 'x', full_name: 'Sunny', requested_role: 'tutor' })).toEqual([]);
+    expect(ids({ id: 'x', full_name: 'Leo Park', requested_role: 'student' })).toEqual([]);
+    expect(ids({ id: 'x', full_name: '', requested_role: 'student' })).toEqual([]);
   });
 });

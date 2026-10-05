@@ -26,7 +26,7 @@
 import { sb } from '../supabase.js';
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
-import { newInviteToken, inviteLink, inviteMessage, inviteState, parseFamilyLines, planFamilies } from '../invites-model.js';
+import { newInviteToken, inviteLink, inviteMessage, inviteState, parseFamilyLines, planFamilies, signupMatches } from '../invites-model.js';
 import {
   avatar, button, iconButton, busy, pill, select, emptyState, errorCallout, skeletonRows,
   segmented, setSegmented, groupHeader, badgeText, visuallyHidden,
@@ -424,11 +424,78 @@ export function mount(ctx) {
         signedUp),
       h('div', { class: 'ppl-card-body' },
         asked,
-        person.signup_note ? h('blockquote', { class: 'quote ppl-note' }, person.signup_note) : null),
+        person.signup_note ? h('blockquote', { class: 'quote ppl-note' }, person.signup_note) : null,
+        duplicateWarning(person, name)),
       h('div', { class: 'ppl-approve' },
         h('label', { class: 'ppl-approve-label', for: selectId }, 'Approve as'),
         choice,
         approve));
+  }
+
+  // A sign-up that may be someone already added without a login: approving it
+  // would make a second, empty account (their lessons and bills are on the
+  // first, and the sign-up holds their email). "Use X's account" removes the
+  // sign-up and emails them a link to set a password on the first one.
+  function duplicateWarning(signup, name) {
+    const matches = signupMatches(signup, data.people);
+    if (!matches.length) return null;
+    const label = (p) => `${displayName(p)} (${roleWord(p.role)})`;
+    const [top] = matches;
+    const title = matches.length > 1
+      ? `This may be ${matches.map(({ person }) => label(person)).join(' or ')}, added without a login`
+      : top.exact
+        ? `${label(top.person)} is already in the portal, added without a login`
+        : `This may be ${label(top.person)}, added without a login`;
+    const to = signup.email ?? 'their email';
+    const warnIcon = icon('warning-circle', { size: 20 });
+    warnIcon.classList.add('callout-icon');
+    const actions = matches.map(({ person: p, exact }) => {
+      const pname = displayName(p);
+      const use = button({
+        label: `Use ${pname}’s account`,
+        size: 'sm',
+        variant: exact && matches.length === 1 ? 'primary' : 'secondary',
+        icon: 'envelope-simple',
+        focusKey: `use-${signup.id}-${p.id}`,
+        onClick: async () => {
+          const same = pname.toLowerCase() === name.toLowerCase();
+          const ok = await ctx.confirm({
+            title: same ? `Use the account you set up for ${name}?` : `Use ${pname}’s account for ${name}?`,
+            body: `This sign-up will be removed, and ${to} gets an email with a link to set a password on ${same ? 'the account you set up' : `${pname}’s account`}, where their lessons and bills already are.`,
+            confirmLabel: 'Remove sign-up and email the link',
+          });
+          if (!ok || !ctx.alive()) return;
+          const li = use.closest('li');
+          const near = li?.nextElementSibling ?? li?.previousElementSibling;
+          const focus = { key: `invite-${p.id}`, fallback: near?.querySelector('button[data-focus-key^="approve-"]')?.dataset.focusKey ?? null };
+          await busy(use, 'Sending…', async () => {
+            const { status, body } = await peopleApi({ action: 'use_signup', signup_id: signup.id, profile_id: p.id });
+            if (!ctx.alive()) return;
+            if (status === 200) {
+              say(`Removed ${name}’s sign-up and emailed ${body.to ?? to} a link to ${pname}’s account. Once they choose a password, they sign in there.`, 'success');
+            } else if (status === 502) {
+              say(`Removed ${name}’s sign-up, but the email didn’t send. Use Invite on ${pname}’s row under Everyone to send a new link.`, 'error');
+            } else {
+              const why = status === 409 ? 'this changed since the page loaded. Refresh and try again.'
+                : status === 503 ? 'email is not set up, so nothing was changed.'
+                  : status === 401 ? 'sign in again as an admin.' : 'please try again.';
+              say(`That didn’t work: ${why}`, 'error');
+              return;
+            }
+            await render(focus);
+            syncCounts();
+          });
+        },
+      });
+      use.setAttribute('aria-label', `Use ${pname}’s account for ${name}`);
+      return use;
+    });
+    return h('div', { class: 'callout tone-warning ppl-dupe', role: 'note' },
+      warnIcon,
+      h('div', { class: 'callout-body' },
+        h('p', { class: 'callout-title' }, title),
+        h('p', { class: 'callout-text' }, `Their lessons and bills are on that account, so approving this sign-up would give them a second, empty one. Use their account instead: this sign-up is removed and ${to} gets a link to set a password on it. If it’s someone else, approve as usual.`),
+        h('div', { class: 'callout-actions' }, ...actions)));
   }
 
   // -------------------------------------------------------------------------
