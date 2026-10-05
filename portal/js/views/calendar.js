@@ -962,7 +962,7 @@ export function mount(ctx) {
       Promise.resolve(ctx.store.getSessions(s.student_id)).catch((error) => { console.error(error); return []; }),
       Promise.resolve(ctx.store.getWorkspace()).catch((error) => { console.error(error); return null; }),
     ]);
-    const rows = s.series_id ? followingInSeries(mergeSessions(siblings, [s]), s) : [s];
+    const rows = s.series_id ? followingInSeries(mergeSessions(siblings, [s]), s, { now: clock() }) : [s];
     const series = rows.length > 1;
     const fits = series && followingFits({ session: s, rows, date, start });
     const tutorsOwn = (list) => (list ?? []).filter((x) => String(x.tutor_id) === String(s.tutor_id));

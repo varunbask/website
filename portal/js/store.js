@@ -11,6 +11,7 @@ import { one, displayName } from './format.js';
 import { deriveItems } from './buckets.js';
 import { loadUpdates } from './updates-feed.js';
 import { rememberSubjects } from './sessions-model.js';
+import { zonedIso } from './dates.js';
 
 const students = new Map();   // studentId -> Promise<StudentData>
 const updates = new Map();    // studentId -> Promise<Update[]>
@@ -20,6 +21,7 @@ const materials = new Map();  // studentId -> Promise<Material[]>
 const children = new Map();   // parentId -> Promise<Profile[]>
 let workspace = null;         // Promise<Workspace> | null
 let pending = null;           // Promise<number> | null
+let billing = null;           // Promise<Billing> | null (admin's Account page)
 
 const listeners = new Set();
 let queued = null;            // ids changed since the last emit ('*' for everything)
@@ -230,6 +232,86 @@ export function getPendingCount() {
 }
 
 // ---------------------------------------------------------------------------
+// Billing (the admin's Account page; every table is admin only)
+
+// Sessions as billing reads them: cancelled_at is the column the billing
+// migration adds, so only this query asks for it
+const BILLING_SESSION_FIELDS = 'id, student_id, tutor_id, series_id, subject, starts_at, ends_at, status, attendance, cancelled_at, created_at';
+
+async function loadBilling() {
+  const settings = await sb.from('billing_settings').select('*').eq('id', 1).maybeSingle();
+  if (settings.error) throw settings.error;
+  if (!settings.data) throw new Error('Billing is not set up yet.');
+  const from = zonedIso(settings.data.ledger_start, '00:00');
+  const all = (table, fields, order = 'id') => selectAll(() => sb.from(table).select(fields).order(order));
+  const [
+    policies, familyRates, tutorRates, sessionBilling, edits, payments, payouts, adjustments, contacts,
+    statements, parentLinks, links, rules, people, sess,
+  ] = await Promise.all([
+    all('billing_policies', '*', 'effective_from'),
+    all('family_rates', '*'),
+    all('tutor_rates', '*'),
+    all('session_billing', '*', 'session_id'),
+    selectAll(() => sb.from('session_edits').select('*').gte('at', from).order('id')),
+    all('payments', '*'),
+    all('payouts', '*'),
+    all('billing_adjustments', '*'),
+    all('billing_contacts', '*', 'parent_id'),
+    selectAll(() => sb.from('statements').select('*').order('parent_id').order('period')),
+    selectAll(() => sb.from('parent_students').select('parent_id, student_id, bills, created_at').order('student_id').order('parent_id')),
+    selectAll(() => sb.from('tutor_students').select('tutor_id, student_id, subject').order('student_id').order('tutor_id')),
+    all('session_series', 'id, student_id, tutor_id, start_time, end_time, until'),
+    all('profiles', 'id, full_name, email, role'),
+    selectAll(() => sb.from('sessions').select(BILLING_SESSION_FIELDS).gte('starts_at', from).order('starts_at').order('id')),
+  ]);
+  for (const r of [policies, familyRates, tutorRates, sessionBilling, edits, payments, payouts, adjustments, contacts,
+    statements, parentLinks, links, rules, people, sess]) {
+    if (r.error) throw r.error;
+  }
+  const profiles = people.data ?? [];
+  return {
+    loadedAt: Date.now(),
+    billing: {
+      settings: settings.data,
+      policies: policies.data ?? [],
+      familyRates: familyRates.data ?? [],
+      tutorRates: tutorRates.data ?? [],
+      sessionBilling: sessionBilling.data ?? [],
+      edits: edits.data ?? [],
+      payments: payments.data ?? [],
+      payouts: payouts.data ?? [],
+      adjustments: adjustments.data ?? [],
+      contacts: contacts.data ?? [],
+      statements: statements.data ?? [],
+      parentLinks: parentLinks.data ?? [],
+      names: new Map(profiles.map((p) => [String(p.id), displayName(p)])),
+    },
+    sessions: sess.data ?? [],
+    links: links.data ?? [],
+    rules: rules.data ?? [],
+    people: profiles,
+    adminIds: profiles.filter((p) => p.role === 'admin').map((p) => String(p.id)),
+  };
+}
+
+// { loadedAt, billing, sessions, links, rules, people, adminIds } for
+// billing-model's buildContext (admin only)
+export function getBilling() {
+  if (!billing) {
+    const promise = loadBilling();
+    billing = promise;
+    promise.catch(() => { if (billing === promise) billing = null; });
+  }
+  return billing;
+}
+
+// After a billing write: reload the Account page's data and emit a change
+export function invalidateBilling() {
+  billing = null;
+  emit(['billing']);
+}
+
+// ---------------------------------------------------------------------------
 // Invalidation and change events
 
 // Several invalidations in one task emit a single change
@@ -261,6 +343,8 @@ export function invalidate(studentId) {
     materials.delete(String(studentId));
   }
   workspace = null;
+  // Sessions changed: their money did too
+  billing = null;
   emit([studentId === null || studentId === undefined ? '*' : String(studentId)]);
 }
 
@@ -281,6 +365,7 @@ export function invalidateAll() {
   children.clear();
   workspace = null;
   pending = null;
+  billing = null;
   emit(['*']);
 }
 

@@ -205,12 +205,16 @@ export function recentChanges(list, since, now = new Date()) {
 }
 
 // The rest of a weekly series from this session on (this one included). The
-// tutor and student must match too: series_id comes from the browser.
-export function followingInSeries(list, session) {
+// tutor and student must match too: series_id comes from the browser. With
+// `now`, later sessions that already started are left out (they happened; the
+// database's edit_following_sessions skips them the same way).
+export function followingInSeries(list, session, { now = null } = {}) {
   if (!session?.series_id) return [session];
+  const from = now ? Math.max(ms(session.starts_at), (now instanceof Date ? now : new Date(now)).getTime()) : ms(session.starts_at);
   return sortSessions(list).filter((s) => s.series_id === session.series_id
     && String(s.tutor_id) === String(session.tutor_id)
     && String(s.student_id) === String(session.student_id)
+    && (String(s.id) === String(session.id) || ms(s.starts_at) >= from)
     && ms(s.starts_at) >= ms(session.starts_at));
 }
 

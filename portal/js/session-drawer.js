@@ -213,7 +213,7 @@ async function loadRule(seriesId) {
 
 // Whether a session has later ones in its series, so actions ask which
 function hasFollowing(found) {
-  return Boolean(found.session.series_id) && followingInSeries(found.sessions, found.session).length > 1;
+  return Boolean(found.session.series_id) && followingInSeries(found.sessions, found.session, { now: new Date() }).length > 1;
 }
 
 // Google Calendar's question for a repeating session: 'this', 'following' or null
@@ -420,7 +420,7 @@ export function renderSessionDetail(dctx) {
       if (!scope || !dctx.alive()) return;
     }
     const targets = scope === 'following'
-      ? followingInSeries(found.sessions, found.session).filter((s) => !isCancelled(s))
+      ? followingInSeries(found.sessions, found.session, { now: new Date() }).filter((s) => !isCancelled(s))
       : [found.session];
     if (!targets.length) {
       dctx.toast({ text: 'Those sessions are already cancelled' });
@@ -473,7 +473,7 @@ export function renderSessionDetail(dctx) {
       });
       if (!ok || !dctx.alive()) return;
     }
-    const targets = scope === 'following' ? followingInSeries(found.sessions, found.session) : [found.session];
+    const targets = scope === 'following' ? followingInSeries(found.sessions, found.session, { now: new Date() }) : [found.session];
     const n = targets.length;
     await write({
       run: async () => {
@@ -499,7 +499,7 @@ export function renderSessionDetail(dctx) {
   function calendar(series) {
     const found = state.found;
     if (!found) return;
-    const list = series ? followingInSeries(found.sessions, found.session) : [found.session];
+    const list = series ? followingInSeries(found.sessions, found.session, { now: new Date() }) : [found.session];
     downloadIcs(list, { names: state.names, fileName: icsFileName(found.session, { series }), host: dctx.body });
     dctx.toast({ text: 'Calendar file downloaded' });
   }
@@ -523,7 +523,7 @@ function buildDetail(dctx, found, { now, names, actions }) {
   const started = Date.parse(session.starts_at) <= now.getTime();
   const tutorName = names?.get?.(String(session.tutor_id)) || null;
   const title = sessionTitle(session);
-  const following = followingInSeries(sessions, session);
+  const following = followingInSeries(sessions, session, { now });
   const inSeries = Boolean(session.series_id) && following.length > 1;
 
   // Bar: state pill; the staff menu

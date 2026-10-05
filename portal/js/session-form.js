@@ -264,7 +264,7 @@ export function sessionForm(dctx, {
 
   // Editing a session of a series asks, on save, whether the change is for
   // this session or this and following (Google Calendar asks the same)
-  const rows = editing ? followingInSeries(siblings, session) : null;
+  const rows = editing ? followingInSeries(siblings, session, { now }) : null;
   const inSeries = Boolean(editing && session.series_id && rows.length > 1);
 
   const zoneHint = viewerIsInBusinessZone(now) ? null : h('p', { class: 'field-hint ses-zone-hint' }, 'Times are Pacific time (PT).');
