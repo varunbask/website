@@ -1,8 +1,12 @@
-import { test, expect } from 'vitest';
+import { test, expect, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SUPABASE_URL } from '../../portal/js/config.js';
+// These tests read the portal's files from disk. The first full run after a
+// checkout reads freshly written files slowly, which once pushed them past
+// the 5 s default; give the whole file room.
+vi.setConfig({ testTimeout: 30_000 });
 
 // Integration checks for the redesigned portal shell (spec 11.3 step 2).
 const PORTAL = fileURLToPath(new URL('../../portal', import.meta.url));

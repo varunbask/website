@@ -1,7 +1,11 @@
-import { test, expect } from 'vitest';
+import { test, expect, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// These tests read the portal's files from disk. The first full run after a
+// checkout reads freshly written files slowly, which once pushed them past
+// the 5 s default; give the whole file room.
+vi.setConfig({ testTimeout: 30_000 });
 
 const PORTAL = fileURLToPath(new URL('../../portal', import.meta.url));
 const SUPABASE_TAG = '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" integrity="sha384-Rj26LVGvoeRVR6+mwQmFfcR3QOBEwT+ZmuCWpuiqeTzJpCs0ER4ITAWGb4Hiy3Ok" crossorigin="anonymous" defer></script>';
