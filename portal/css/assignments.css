@@ -419,6 +419,15 @@
 .asg-date { max-width: 240px; }
 .asg-form-errors:empty { display: none; }
 
+/* Repeat (create): a checkbox, then the pattern and how many times */
+.asg-repeat { display: flex; flex-direction: column; gap: var(--s-3); margin-top: calc(-1 * var(--s-2)); }
+.asg-repeat > .check { align-self: flex-start; }
+.asg-repeat-fields { display: flex; flex-direction: column; gap: var(--s-2); }
+.asg-repeat-row { display: flex; flex-wrap: wrap; gap: var(--s-4); }
+.asg-repeat-row > .field { flex: 0 1 200px; min-width: 0; }
+.asg-repeat-count { max-width: 120px; }
+.asg-repeat-hint:empty { display: none; }
+
 
 /* Phones ---------------------------------------------------------------------- */
 

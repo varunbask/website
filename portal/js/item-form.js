@@ -1,8 +1,13 @@
 // Create and edit form for assignments and tasks, shown in the item drawer
 // (spec 5.7). Staff only.
 //
-// itemForm(dctx, { task = null, kind, due, studentOptions, selectedStudent, onCancel, onSaved }) -> HTMLElement
+// itemForm(dctx, { task = null, kind, due, studentOptions, selectedStudent, series, onCancel, onSaved }) -> HTMLElement
 //   task            the task being edited, or null to create one
+//   series          editing a copy of a repeating item: it and the copies
+//                   after it that can still change (task-repeat-model.js
+//                   followingInTaskSeries, less copies with submitted work);
+//                   the form then asks whether the changes apply to them too
+//   seriesKept      how many later copies were left out for their work
 //   kind            'assignment' | 'task' (create; editing uses task.kind)
 //   due             'YYYY-MM-DD' to prefill the due date (create)
 //   studentOptions  profiles for the Student select, shown only when no student
@@ -13,18 +18,26 @@
 //                   back to the lesson for homework set in one)
 //   onSaved         after a successful edit (create closes the drawer)
 //
+// Creating (outside a lesson) offers Repeat: every day or every week, a
+// number of times; every copy is created at once with its own due date, and
+// attached files go on each copy.
+//
 // The form puts its title in an h2.drawer-title and its buttons in the drawer
 // footer (dctx.setFooter). The caller inserts the element into dctx.body and
 // then calls dctx.setTitle(el.dataset.title) to name the dialog.
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
-import { button, iconButton, field, select, setFieldError, busy, drawerHref } from './ui.js';
+import { button, iconButton, field, select, segmented, setFieldError, busy, drawerHref } from './ui.js';
 import { dueDateToIso, isoToDateInput, displayName } from './format.js';
 import { sb } from './supabase.js';
 import { lessonLabel, MATERIAL_ACCEPT, materialType, validateMaterialFile, materialIcon, sizeText } from './materials-model.js';
-import { uploadMaterialFiles, problemsText, namePastedImage } from './materials-ui.js';
-import { todayKey } from './dates.js';
+import { uploadMaterialFiles, copyMaterialFiles, problemsText, namePastedImage } from './materials-ui.js';
+import { todayKey, dayKey } from './dates.js';
+import { newSeriesId, shortDayText } from './sessions-model.js';
+import {
+  REPEATS, MIN_REPEAT_COUNT, checkRepeat, repeatSummary, repeatRows, followingText, seriesUpdates, groupUpdates, itemNoun,
+} from './task-repeat-model.js';
 
 const KIND_LABEL = { assignment: 'Assignment', task: 'Task' };
 const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -34,9 +47,28 @@ function titleFor(kind, editing) {
   return `${editing ? 'Edit' : 'New'} ${kind === 'task' ? 'task' : 'assignment'}`;
 }
 
-function submitLabel(kind, editing) {
+function submitLabel(kind, editing, copies = 1) {
   if (editing) return 'Save changes';
+  if (copies > 1) return `Create ${copies} ${itemNoun(kind, copies)}`;
   return kind === 'task' ? 'Create task' : 'Create assignment';
+}
+
+// "Assignment created with 2 files.", "8 tasks created, each with 1 file."
+// (every copy got every file) or "8 tasks created." (a file problem toast follows)
+function createdText(kind, count, files, { everyCopy = true } = {}) {
+  const what = count > 1 ? `${count} ${itemNoun(kind, count)} created` : (kind === 'task' ? 'Task created' : 'Assignment created');
+  if (!files || !everyCopy) return `${what}.`;
+  const fileText = files === 1 ? '1 file' : `${files} files`;
+  return count > 1 ? `${what}, each with ${fileText}.` : `${what} with ${fileText}.`;
+}
+
+// "2 later copies were not changed (due Mon, Oct 12 and Tue, Oct 13). Edit them on their own."
+function missedText(missed, kind) {
+  const days = missed.map((t) => (t.due_at ? shortDayText(dayKey(t.due_at)) : null)).filter(Boolean);
+  const shown = days.length > 3 ? `${days.slice(0, 3).join(', ')} and ${days.length - 3} more` : days.join(' and ');
+  const n = missed.length;
+  const which = n === 1 ? `1 later ${itemNoun(kind, 1)} was` : `${n} later ${itemNoun(kind, n)} were`;
+  return `${which} not changed${shown ? ` (due ${shown})` : ''}. Edit ${n === 1 ? 'it' : 'them'} on ${n === 1 ? 'its' : 'their'} own.`;
 }
 
 function instructionsHint(kind) {
@@ -57,7 +89,10 @@ function dangerCallout(title, text) {
 
 // lesson: the session homework is set in (create only); it fixes the student
 // and is saved as tasks.session_id
-export function itemForm(dctx, { task = null, kind, due, studentOptions = null, selectedStudent = null, lesson = null, onCancel, onSaved } = {}) {
+export function itemForm(dctx, {
+  task = null, kind, due, studentOptions = null, selectedStudent = null, lesson = null, series = null, seriesKept = 0,
+  onCancel, onSaved,
+} = {}) {
   const editing = Boolean(task);
   let currentKind = (editing ? task.kind : kind) === 'task' ? 'task' : 'assignment';
   const formId = uid('item-form');
@@ -124,6 +159,67 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
     value: editing ? isoToDateInput(task.due_at) : (KEY_RE.test(due ?? '') ? due : ''),
   });
   const dueField = field({ label: 'Due date', optional: true, hint: 'Due at 11:59 pm Pacific time on this date.', control: dueInput });
+
+  // Repeat (create, outside a lesson): every copy made at once
+  let repeatBox = null;
+  let everySelect = null;
+  let countInput = null;
+  let countField = null;
+  let repeatFields = null;
+  let repeatHint = null;
+  let repeatGroup = null;
+  if (!editing && !lesson) {
+    repeatBox = h('input', { type: 'checkbox', class: 'checkbox', name: 'repeat' });
+    const everyWrap = select({
+      name: 'every',
+      options: Object.entries(REPEATS).map(([value, p]) => ({ value, label: p.label })),
+      value: 'weekly',
+    });
+    everySelect = everyWrap.querySelector('select');
+    countInput = h('input', {
+      type: 'number', class: 'input asg-repeat-count', name: 'count', inputmode: 'numeric',
+      min: String(MIN_REPEAT_COUNT), max: String(REPEATS.weekly.max), value: String(REPEATS.weekly.start),
+    });
+    countField = field({ label: 'How many times', control: countInput });
+    repeatHint = h('p', { class: 'field-hint asg-repeat-hint', 'aria-live': 'polite' });
+    repeatFields = h('div', { class: 'asg-repeat-fields', hidden: true },
+      h('div', { class: 'asg-repeat-row' }, field({ label: 'Repeats', control: everyWrap }), countField),
+      repeatHint);
+    repeatGroup = h('div', { class: 'asg-repeat' },
+      h('label', { class: 'check' }, repeatBox, h('span', {}, 'Repeat')),
+      repeatFields);
+  }
+  const readRepeat = () => ({
+    repeat: Boolean(repeatBox?.checked), every: everySelect?.value, count: countInput?.value, due: dueInput.value,
+  });
+
+  // Apply to (editing a copy of a repeating item)
+  const rows = editing && Array.isArray(series) && series.length > 1 ? series : null;
+  let apply = 'this';
+  let applyField = null;
+  if (rows) {
+    const one = task.kind === 'task' ? 'This task' : 'This assignment';
+    const applyHint = h('p', { class: 'field-hint' }, `Changes only this ${task.kind === 'task' ? 'task' : 'assignment'}.`);
+    const group = segmented({
+      label: 'Apply to',
+      block: true,
+      options: [{ value: 'this', label: one }, { value: 'following', label: 'This and following' }],
+      value: 'this',
+      onChange: (value) => {
+        apply = value;
+        const kept = seriesKept
+          ? ` ${seriesKept === 1 ? 'One later copy has' : `${seriesKept} later copies have`} submitted work and ${seriesKept === 1 ? 'stays' : 'stay'} as ${seriesKept === 1 ? 'it is' : 'they are'}.`
+          : '';
+        applyHint.textContent = value === 'following'
+          ? `${followingText(rows, task)}. Due dates move by as many days as this one.${kept}`
+          : `Changes only this ${task.kind === 'task' ? 'task' : 'assignment'}.`;
+      },
+    });
+    applyField = h('div', { class: 'field' },
+      h('span', { class: 'field-label', 'aria-hidden': 'true' }, 'Apply to'),
+      group,
+      applyHint);
+  }
 
   const errorSlot = h('div', { class: 'asg-form-errors' });
 
@@ -206,7 +302,7 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
     : null;
 
   const form = h('form', { class: 'asg-form', id: formId, novalidate: true },
-    lessonNote, typeField, studentField, titleField, detailsField, dueField, attachField, errorSlot);
+    lessonNote, applyField, typeField, studentField, titleField, detailsField, dueField, repeatGroup, attachField, errorSlot);
 
   // A screenshot pasted anywhere in the form is attached (pasted text still
   // goes into the field being typed in)
@@ -249,11 +345,60 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
     heading.textContent = titleFor(currentKind, editing);
     root.dataset.title = heading.textContent;
     dctx.setTitle(heading.textContent);
-    const label = submit.querySelector('.btn-label');
-    if (label) label.textContent = submitLabel(currentKind, editing);
     const hint = detailsField.querySelector('.field-hint');
     if (hint) hint.textContent = instructionsHint(currentKind);
+    paintRepeat();
   });
+
+  // The repeat summary and the button say how many will be made
+  function paintRepeat() {
+    const raw = readRepeat();
+    const check = checkRepeat(raw);
+    const copies = raw.repeat && !check.errors.due && !check.errors.count ? check.values.count : 1;
+    const label = submit.querySelector('.btn-label');
+    if (label) label.textContent = submitLabel(currentKind, editing, copies);
+    if (!repeatHint) return;
+    // A repeat needs the due date, so it stops being optional
+    const optional = dueField.querySelector('.field-optional');
+    if (optional) optional.hidden = raw.repeat;
+    let text = '';
+    if (raw.repeat) {
+      if (check.errors.count) text = check.errors.count;
+      else if (!check.values.due) text = 'Pick the first due date above. Each copy is due on its own day after it.';
+      else text = repeatSummary(raw, currentKind);
+    }
+    repeatHint.textContent = text;
+  }
+  if (repeatBox) {
+    repeatBox.addEventListener('change', () => {
+      repeatFields.hidden = !repeatBox.checked;
+      if (!repeatBox.checked) {
+        setFieldError(countField, '');
+        setFieldError(dueField, '');
+      }
+      paintRepeat();
+    });
+    let every = everySelect.value;
+    everySelect.addEventListener('change', () => {
+      const before = REPEATS[every];
+      every = everySelect.value;
+      const now = REPEATS[every];
+      countInput.max = String(now.max);
+      // A count still at the old pattern's start moves to the new one's
+      if (countInput.value === String(before.start)) countInput.value = String(now.start);
+      setFieldError(countField, '');
+      paintRepeat();
+    });
+    countInput.addEventListener('input', () => {
+      setFieldError(countField, '');
+      paintRepeat();
+    });
+    dueInput.addEventListener('input', () => {
+      setFieldError(dueField, '');
+      paintRepeat();
+    });
+    dueInput.addEventListener('change', paintRepeat);
+  }
 
   // Enter in a single-line field submits (a textarea keeps its new lines)
   form.addEventListener('keydown', (e) => {
@@ -268,6 +413,50 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
     if (titleInput.value.trim()) setFieldError(titleField, '');
   });
   studentSelect?.addEventListener('change', () => setFieldError(studentField, ''));
+
+  // An edit: this item, or (Apply to: This and following) the copies after it
+  // too, a few requests at a time. A copy that fails is named (by its due day)
+  // so it can be fixed on its own; this one failing stops the edit.
+  async function saveEdit(values) {
+    const updates = seriesUpdates({ task, rows, values, apply: rows ? apply : 'this' });
+    const groups = groupUpdates(updates);
+    const results = new Array(groups.length);
+    let next = 0;
+    const worker = async () => {
+      while (next < groups.length) {
+        const at = next++;
+        const g = groups[at];
+        try {
+          results[at] = await sb.from('tasks').update(g.values).in('id', g.ids).select('id');
+        } catch (error) {
+          results[at] = { error, data: null };
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(6, groups.length) }, worker));
+    for (const r of results) if (r.error) console.error(r.error);
+    const savedIds = new Set(results.flatMap((r) => (r.data ?? []).map((row) => String(row.id))));
+    // Anything written is shown, even if the drawer has closed meanwhile
+    if (savedIds.size) dctx.store.invalidate(task.student_id);
+    if (dctx.alive?.() === false) return;
+    const own = results[groups.findIndex((g) => g.ids.some((id) => String(id) === String(task.id)))];
+    if (own.error) {
+      errorSlot.append(dangerCallout('We couldn’t save your changes.', 'Check your connection and try again.'));
+      errorSlot.scrollIntoView?.({ block: 'nearest' });
+      return;
+    }
+    // An edit that matched no row: the item was deleted or moved elsewhere
+    if (!savedIds.has(String(task.id))) {
+      errorSlot.append(dangerCallout('We couldn’t save your changes.', 'This item was changed or removed. Refresh the page and try again.'));
+      errorSlot.scrollIntoView?.({ block: 'nearest' });
+      return;
+    }
+    const missed = (rows ?? []).filter((r) => updates.some((u) => String(u.id) === String(r.id)) && !savedIds.has(String(r.id)));
+    const saved = savedIds.size;
+    dctx.toast({ text: updates.length > 1 ? `Changes saved to ${saved} ${itemNoun(task.kind, saved)}.` : 'Changes saved.' });
+    if (missed.length) dctx.toast({ text: missedText(missed, task.kind) });
+    onSaved?.();
+  }
 
   let saving = false;
   form.addEventListener('submit', async (event) => {
@@ -287,6 +476,13 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
     }
     setFieldError(titleField, title ? '' : 'Add a title.');
     if (!title) firstInvalid ??= titleInput;
+    const repeat = checkRepeat(readRepeat());
+    if (repeat.values.repeat) {
+      setFieldError(dueField, repeat.errors.due ?? '');
+      if (repeat.errors.due) firstInvalid ??= dueInput;
+      setFieldError(countField, repeat.errors.count ?? '');
+      if (repeat.errors.count) firstInvalid ??= countInput;
+    }
     if (firstInvalid) {
       firstInvalid.focus();
       return;
@@ -305,51 +501,56 @@ export function itemForm(dctx, { task = null, kind, due, studentOptions = null, 
     saving = true;
     try {
       await busy(submit, editing ? 'Saving…' : 'Creating…', async () => {
-        const result = editing
-          ? await sb.from('tasks').update(values).eq('id', task.id).select('id')
-          : await sb.from('tasks').insert({
-            kind: currentKind, ...values, student_id: studentId, ...(lesson ? { session_id: lesson.id } : {}),
-          }).select('id').single();
-        // An edit that matched no row: the item was deleted or moved elsewhere
-        if (editing && !result.error && !result.data?.length) {
-          if (dctx.alive?.() === false) return;
-          errorSlot.append(dangerCallout('We couldn’t save your changes.', 'This item was changed or removed. Refresh the page and try again.'));
-          errorSlot.scrollIntoView?.({ block: 'nearest' });
+        if (editing) {
+          await saveEdit(values);
           return;
         }
-        if (result.error) {
-          console.error(result.error);
+        // One row, or every copy of a repeat (one insert: all or none)
+        const base = { kind: currentKind, title: values.title, details: values.details, student_id: studentId };
+        const inserts = repeat.values.repeat
+          ? repeatRows(base, { ...repeat.values, seriesId: newSeriesId() })
+          : [{ ...base, due_at: values.due_at, ...(lesson ? { session_id: lesson.id } : {}) }];
+        const result = await sb.from('tasks').insert(inserts).select('id, due_at');
+        if (result.error || !result.data?.length) {
+          if (result.error) console.error(result.error);
           if (dctx.alive?.() === false) return;
           errorSlot.append(dangerCallout(
-            editing ? 'We couldn’t save your changes.' : `We couldn’t create this ${currentKind}.`,
+            repeat.values.repeat ? `We couldn’t create these ${itemNoun(currentKind, 2)}.` : `We couldn’t create this ${currentKind}.`,
             'Check your connection and try again.',
           ));
           errorSlot.scrollIntoView?.({ block: 'nearest' });
           return;
         }
-        // The item exists: attach its files. A file that fails is reported,
-        // and the item stays (files can be added from it later).
-        let attached = { added: 0, problems: [] };
-        if (!editing && pendingFiles.length && result.data?.id !== undefined) {
-          attached = await uploadMaterialFiles({ studentId, owner: { task_id: result.data.id }, files: pendingFiles });
+        // The items exist: attach the files to the first, then copy them to
+        // the rest. A file that fails is reported, and the items stay (files
+        // can be added from them later).
+        const dueTime = (t) => (t.due_at ? Date.parse(t.due_at) : 0);
+        const made = [...result.data].sort((a, b) => dueTime(a) - dueTime(b) || a.id - b.id);
+        const first = made[0];
+        let attached = { added: 0, problems: [], rows: [] };
+        let copied = { added: 0, problems: [] };
+        if (pendingFiles.length) {
+          attached = await uploadMaterialFiles({ studentId, owner: { task_id: first.id }, files: pendingFiles });
+          if (attached.rows.length && made.length > 1) {
+            copied = await copyMaterialFiles({ studentId, rows: attached.rows, owners: made.slice(1).map((t) => ({ task_id: t.id })) });
+          }
         }
         // Invalidate first, so what renders next reads the saved values
         dctx.store.invalidate(studentId);
-        const created = currentKind === 'task' ? 'Task created' : 'Assignment created';
-        const withFiles = attached.added ? ` with ${attached.added === 1 ? '1 file' : `${attached.added} files`}` : '';
-        dctx.toast({ text: editing ? 'Changes saved.' : `${created}${withFiles}.` });
-        if (attached.problems.length) dctx.toast({ text: problemsText(attached.problems) });
-        if (editing) onSaved?.();
-        else {
-          if (lesson && result.data?.id !== undefined) {
-            // Homework from a lesson opens right away, so a worksheet can be added
-            dctx.go(drawerHref(typeof location === 'undefined' ? '' : location.hash, result.data.id), { replace: true });
-            return;
-          }
-          // Show the new row (it may sit in a closed "No due date" group)
-          if (result.data?.id !== undefined) dctx.reveal?.(result.data.id);
-          dctx.close();
+        const everyCopy = copied.added === attached.rows.length * (made.length - 1);
+        dctx.toast({ text: createdText(currentKind, made.length, attached.added, { everyCopy }) });
+        const problems = [...attached.problems, ...copied.problems];
+        if (problems.length) dctx.toast({ text: problemsText(problems) });
+        // The drawer may have closed (or moved on) while the files went up
+        if (dctx.alive?.() === false) return;
+        if (lesson) {
+          // Homework from a lesson opens right away, so a worksheet can be added
+          dctx.go(drawerHref(typeof location === 'undefined' ? '' : location.hash, first.id), { replace: true });
+          return;
         }
+        // Show the new row (it may sit in a closed "No due date" group)
+        dctx.reveal?.(first.id);
+        dctx.close();
       });
     } finally {
       saving = false;

@@ -9,7 +9,7 @@ import { icon } from '../icons.js';
 import {
   button, itemRow, rowList, groupHeader, emptyState, errorCallout, skeletonRows,
 } from '../ui.js';
-import { groupTasks } from '../buckets.js';
+import { groupTasks, countsNow } from '../buckets.js';
 import { firstName, displayName } from '../format.js';
 import { taskCheck } from '../task-check.js';
 
@@ -30,13 +30,18 @@ export function firstLine(text) {
   return line ?? '';
 }
 
-// "3 tasks to do, 1 overdue." or null when nothing is open
-export function tasksLede(openItems) {
-  const n = openItems.length;
-  if (!n) return null;
-  const overdue = openItems.filter((i) => i.dueState === 'overdue').length;
+// "3 tasks to do, 1 overdue." or null when nothing is open. Copies of a
+// repeating task due more than a week ahead are counted apart: "Plus 20
+// later repeats."
+export function tasksLede(openItems, now = new Date()) {
+  const current = openItems.filter((i) => countsNow(i, now));
+  const later = openItems.length - current.length;
+  const laterText = later ? ` Plus ${later} later ${later === 1 ? 'repeat' : 'repeats'}.` : '';
+  const n = current.length;
+  if (!n) return later ? laterText.trim() : null;
+  const overdue = current.filter((i) => i.dueState === 'overdue').length;
   const head = `${n} ${n === 1 ? 'task' : 'tasks'} to do`;
-  return overdue ? `${head}, ${overdue} overdue.` : `${head}.`;
+  return `${overdue ? `${head}, ${overdue} overdue.` : `${head}.`}${laterText}`;
 }
 
 export async function mount(ctx) {

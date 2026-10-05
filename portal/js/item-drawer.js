@@ -32,6 +32,7 @@ import { toneClass } from './sessions-model.js';
 import { renderSessionCreate, renderSessionDetail } from './session-drawer.js';
 import { sb } from './supabase.js';
 import { answerView } from './rich-doc-dom.js';
+import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './task-repeat-model.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SUBMITTED = 'Work submitted. Your tutor will review it soon.';
@@ -39,6 +40,7 @@ const GONE = 'This item was changed or removed. Refresh the page and try again.'
 const AT_CAP = 'You’ve used all 5 attempts for this assignment. Message your tutor if you need to send another file.';
 const MISSING = 'This assignment isn’t available. It may have been deleted.';
 const HAS_WORK = 'This assignment has submitted work, so it cannot be deleted.';
+const SOME_HAVE_WORK = 'Some of these have submitted work, so they cannot be deleted. Refresh the page and try again.';
 
 const blank = (v) => v === null || v === undefined || v === '';
 const sameId = (a, b) => String(a) === String(b);
@@ -278,7 +280,7 @@ function renderItem(dctx) {
     // submission just landed, so the chosen file and typed note survive
     const keepSubmit = refresh && !flash ? dctx.body.querySelector('.asg-submit') : null;
 
-    const view = buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, actions: { enterEdit, toggleDone, remove, submitted } });
+    const view = buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, actions: { enterEdit, toggleDone, remove, removeFollowing, submitted } });
     dctx.header.replaceChildren(...view.status);
     dctx.headerActions.replaceChildren(...view.actions);
     dctx.setFooter(null);
@@ -337,8 +339,14 @@ function renderItem(dctx) {
     const status = itemStatus(found.item, { audience: dctx.audience });
     dctx.header.replaceChildren(pill(status));
     dctx.headerActions.replaceChildren();
+    // Later copies with submitted work are left as they are
+    const following = followingInTaskSeries(found.data?.tasks, found.task);
+    const hasWork = (t) => (found.data?.subsByTask?.get(t.id) ?? []).length > 0;
+    const series = following.filter((t) => sameId(t.id, found.task.id) || !hasWork(t));
     const form = itemForm(dctx, {
       task: found.task,
+      series,
+      seriesKept: following.length - series.length,
       onCancel: backToDetail,
       onSaved: backToDetail,
     });
@@ -405,6 +413,57 @@ function renderItem(dctx) {
     dctx.toast({ text: `Deleted “${title}”.` });
   }
 
+  // A repeating item: this copy and the ones after it. Copies with submitted
+  // work stay (work is never deleted); the rest go in one delete.
+  async function removeFollowing() {
+    const found = state.found;
+    if (!found) return;
+    const rows = followingInTaskSeries(found.data?.tasks, found.task);
+    const hasWork = (t) => (found.data?.subsByTask?.get(t.id) ?? []).length > 0;
+    const targets = rows.filter((t) => !hasWork(t));
+    const kept = rows.length - targets.length;
+    const kind = found.task.kind;
+    if (!targets.length) {
+      showActionError(`These ${itemNoun(kind, 2)} all have submitted work, so they cannot be deleted.`);
+      return;
+    }
+    const title = found.task.title || 'Untitled';
+    const who = found.student ? `${firstName(displayName(found.student))}’s` : 'the student’s';
+    const dated = targets.filter((t) => t.due_at);
+    const now = new Date();
+    const range = dated.length > 1
+      ? `, due ${shortDate(dated[0].due_at, now)} to ${shortDate(dated[dated.length - 1].due_at, now)},`
+      : '';
+    const keepText = kept ? ` ${kept === 1 ? 'One has' : `${kept} have`} submitted work and will stay.` : '';
+    const ok = await dctx.confirm({
+      title: `Delete ${targets.length} ${itemNoun(kind, targets.length)}?`,
+      body: `“${title}”${range} will be removed from ${who} portal. This can’t be undone.${keepText}`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok || !dctx.alive()) return;
+    const result = await sb.from('tasks').delete().in('id', targets.map((t) => t.id)).select('id');
+    if (result.error) {
+      console.error(result.error);
+      if (dctx.alive()) showActionError(result.error.code === '23503' ? SOME_HAVE_WORK : 'We couldn’t delete these. Try again.');
+      return;
+    }
+    const removed = result.data ?? [];
+    if (!removed.length) {
+      if (dctx.alive()) showActionError(GONE);
+      return;
+    }
+    const self = removed.some((r) => sameId(r.id, found.task.id));
+    if (self) {
+      // Ignore the refresh this causes: the drawer is on its way out
+      state.mode = 'deleted';
+      state.seq += 1;
+      dctx.close();
+    }
+    dctx.store.invalidate(found.studentId);
+    dctx.toast({ text: `Deleted ${removed.length} ${itemNoun(kind, removed.length)}.` });
+  }
+
   // Called by the upload once the submission exists: redraw, then say so
   function submitted(studentId) {
     state.flash = true;
@@ -445,6 +504,7 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
     statusNodes.push(draftChip(item.grade.score));
   }
   const actionNodes = [];
+  const following = staff ? followingInTaskSeries(found.data?.tasks, task) : [];
   if (staff) {
     actionNodes.push(menu({
       label: `More actions for ${task.title || 'this item'}`,
@@ -457,6 +517,9 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
           : null,
         { separator: true },
         { label: 'Delete', icon: 'trash', tone: 'danger', onSelect: actions.remove },
+        following.length > 1
+          ? { label: 'Delete this and following', icon: 'trash', tone: 'danger', onSelect: actions.removeFollowing }
+          : null,
       ],
     }));
   }
@@ -572,6 +635,8 @@ function headBlock(dctx, found, status, { now, showStudent, student }) {
   } else {
     fact('Due', h('span', { class: 'asg-muted' }, 'No due date'));
   }
+  const position = seriesPosition(found.data?.tasks, task);
+  if (position) fact('Repeats', seriesText(position));
   if (showStudent && student) fact('Student', displayName(student));
   if (task.kind === 'task' && task.completed_at) fact('Done', timeEl(task.completed_at, now));
   if (task.created_at) {
