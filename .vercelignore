@@ -1,6 +1,7 @@
 .env
 .env.*
 tests
+scripts
 supabase
 docs
 vitest.config.js
