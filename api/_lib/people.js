@@ -215,8 +215,9 @@ export function createPeopleRepo(db) {
   };
   return {
     async findInvite(tokenHash) {
+      // portal_invites points at profiles twice (profile_id, created_by): name the one to embed
       return check(await db.from('portal_invites')
-        .select('id, profile_id, expires_at, used_at, profile:profiles(full_name, role, no_login)')
+        .select('id, profile_id, expires_at, used_at, profile:profiles!portal_invites_profile_id_fkey(full_name, role, no_login)')
         .eq('token_hash', tokenHash).maybeSingle(), 'findInvite');
     },
     async childrenOf(parentId) {
