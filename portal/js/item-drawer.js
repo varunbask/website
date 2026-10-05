@@ -26,7 +26,7 @@ import { staffNames } from './updates-feed.js';
 import { taskCheck } from './task-check.js';
 import { itemForm } from './item-form.js';
 import { submitWorkSection } from './submit-work.js';
-import { materialsSection } from './materials-ui.js';
+import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, lessonLabel } from './materials-model.js';
 import { toneClass } from './sessions-model.js';
 import { renderSessionCreate, renderSessionDetail } from './session-drawer.js';
@@ -393,6 +393,7 @@ function renderItem(dctx) {
       tone: 'danger',
     });
     if (!ok || !dctx.alive()) return;
+    const files = await filesOn({ taskIds: [found.task.id] });
     const result = await sb.from('tasks').delete().eq('id', found.task.id).select('id');
     if (result.error) {
       console.error(result.error);
@@ -405,6 +406,8 @@ function renderItem(dctx) {
       if (dctx.alive()) showActionError(GONE);
       return;
     }
+    // Its worksheets' files go too (in the background)
+    removeFilesOf(files, result.data.map((r) => r.id));
     // Ignore the refresh this causes: the drawer is on its way out
     state.mode = 'deleted';
     state.seq += 1;
@@ -442,6 +445,7 @@ function renderItem(dctx) {
       tone: 'danger',
     });
     if (!ok || !dctx.alive()) return;
+    const files = await filesOn({ taskIds: targets.map((t) => t.id) });
     const result = await sb.from('tasks').delete().in('id', targets.map((t) => t.id)).select('id');
     if (result.error) {
       console.error(result.error);
@@ -453,6 +457,8 @@ function renderItem(dctx) {
       if (dctx.alive()) showActionError(GONE);
       return;
     }
+    // The deleted copies' files go too (in the background)
+    removeFilesOf(files, removed.map((r) => r.id));
     const self = removed.some((r) => sameId(r.id, found.task.id));
     if (self) {
       // Ignore the refresh this causes: the drawer is on its way out

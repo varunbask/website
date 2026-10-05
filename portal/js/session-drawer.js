@@ -25,7 +25,7 @@ import {
   GONE, studentChoices, seriesLeftText, whenText, icsFileName, sessionsToast,
 } from './session-form-model.js';
 import { sessionForm, sessionNotesForm, callout } from './session-form.js';
-import { materialsSection } from './materials-ui.js';
+import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, homeworkDueKey } from './materials-model.js';
 import { getGoogleStatus, syncSoon } from './google.js';
 import { ownGoogleLink, syncNote } from './google-model.js';
@@ -420,9 +420,15 @@ export function renderSessionDetail(dctx) {
     });
     if (!ok || !dctx.alive()) return;
     await write({
-      run: () => (n === 1
-        ? sb.from('sessions').delete().eq('id', targets[0].id).select('id')
-        : sb.from('sessions').delete().in('id', targets.map((s) => s.id)).select('id')),
+      run: async () => {
+        const files = await filesOn({ sessionIds: targets.map((s) => s.id) });
+        const result = await (n === 1
+          ? sb.from('sessions').delete().eq('id', targets[0].id).select('id')
+          : sb.from('sessions').delete().in('id', targets.map((s) => s.id)).select('id'));
+        // The deleted sessions' slides and handouts go too (in the background)
+        if (!result.error && result.data?.length) removeFilesOf(files, result.data.map((r) => r.id));
+        return result;
+      },
       failed: 'We couldn’t delete that session. Try again.',
       done: (count) => sessionsToast(count, 'deleted'),
       close: true,
