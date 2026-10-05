@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   QUICK_DURATIONS, DEFAULT_COUNT, CLASH_WEEKS, createDefaults, editDefaults, minutesBetween, studentChoices,
   tutorChoices, subjectsFor, defaultSubject, rawFromState, checkSessionForm, plannedTimes, repeatDates,
-  buildInsertRow, buildSeriesRow, followingChange, repeatChoices, weekdayName,
+  buildInsertRow, buildSeriesRow, followingChange, repeatChoices, weekdayName, clashCheckIsPartial,
   buildUpdates, changedUpdates, mergeSessions, scheduleLabel, sessionsToast, repeatSummary,
   followingSummary, seriesLeftText, whenText, icsFileName, clashLine, clashReport, saveErrorText,
 } from '../../portal/js/session-form-model.js';
@@ -456,5 +456,26 @@ describe('clash warning', () => {
     ];
     expect(clashReport({ ...candidate, planned, list: [own, sibling], ignoreIds: planned.map((p) => p.id) }).title).toBeNull();
     expect(clashReport({ ...candidate, planned, list: [own, sibling] }).title).toBe('2 of 2 dates clash');
+  });
+});
+
+describe('clash wording for a long repeat', () => {
+  const candidate = { studentId: 's1', tutorId: 't1', tutorNames: names, studentNames, viewerInZone: true };
+  const clashing = [session('2026-10-27', '16:00', '17:00', { student_id: 's2' })];
+
+  test('a repeat that never ends, or ends past six months, is checked in part', () => {
+    expect(clashCheckIsPartial(checkSessionForm(state({ repeat: true })).values)).toBe(true);
+    expect(clashCheckIsPartial(checkSessionForm(state({ repeat: true, ends: 'after', count: '40' })).values)).toBe(true);
+    expect(clashCheckIsPartial(checkSessionForm(state({ repeat: true, ends: 'after', count: '26' })).values)).toBe(false);
+    expect(clashCheckIsPartial(checkSessionForm(state({ repeat: true, ends: 'on', until: '2026-12-01' })).values)).toBe(false);
+    expect(clashCheckIsPartial(checkSessionForm(state()).values)).toBe(false);
+  });
+
+  test('speaks of the next six months instead of a count', () => {
+    const planned = plannedTimes(checkSessionForm(state({ repeat: true })).values);
+    expect(clashReport({ ...candidate, planned, list: clashing, partial: true }).title).toBe('1 date in the next 6 months clashes');
+    const two = [...clashing, session('2026-11-03', '16:00', '17:00', { student_id: 's2' })];
+    expect(clashReport({ ...candidate, planned, list: two, partial: true }).title).toBe('2 dates in the next 6 months clash');
+    expect(clashReport({ ...candidate, planned, list: two }).title).toBe('2 of 26 dates clash');
   });
 });

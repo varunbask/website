@@ -37,7 +37,7 @@ import {
   QUICK_DURATIONS, DEFAULT_START, DEFAULT_MINUTES, MIN_REPEAT_COUNT, MAX_REPEAT_COUNT, MAX_RECAP_LENGTH, GONE,
   createDefaults, editDefaults, minutesBetween, tutorChoices, subjectsFor, defaultSubject,
   checkSessionForm, plannedTimes, buildInsertRow, buildSeriesRow, buildUpdates, changedUpdates, followingChange,
-  mergeSessions, scheduleLabel, repeatChoices, repeatSummary, clashReport, saveErrorText, whenText,
+  mergeSessions, scheduleLabel, repeatChoices, repeatSummary, clashReport, clashCheckIsPartial, saveErrorText, whenText,
 } from './session-form-model.js';
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -411,6 +411,7 @@ export function sessionForm(dctx, {
           ignoreIds: editing ? planned.map((p) => p.id) : [],
           tutorNames: names,
           studentNames,
+          partial: !editing && clashCheckIsPartial(check.values),
         });
         // The chosen day only, and only for the tutor's own sessions
         if (personalOn && sameId(tid, me.id)) {
