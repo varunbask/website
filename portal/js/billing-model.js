@@ -207,7 +207,8 @@ export function stateOf(session, now) {
   return 'unconfirmed';
 }
 
-// The percentages for a state: { expected, realized } for the family and for the tutor
+// The percentages for a state: { expected, realized } for the family and for the tutor.
+// An exception changes only what the family pays.
 function percentages(state, policy, exception) {
   const base = {
     cancelled: [0, 0, 0, 0],
@@ -217,15 +218,13 @@ function percentages(state, policy, exception) {
     noshow: [policy.absent_family_pct, policy.absent_family_pct, policy.absent_tutor_pct, policy.absent_tutor_pct],
     unconfirmed: [100, policy.count_unconfirmed ? 100 : 0, 100, policy.count_unconfirmed ? 100 : 0],
   }[state];
-  let [fe, fr, te, tr] = base;
+  let [fe, fr] = base;
+  // Tutors are paid their standard rate by what happened; no per-lesson override
+  const [, , te, tr] = base;
   const ended = state !== 'expected';
   if (exception?.charge_pct !== null && exception?.charge_pct !== undefined) {
     fe = exception.charge_pct;
     fr = ended ? exception.charge_pct : 0;
-  }
-  if (exception?.pay_pct !== null && exception?.pay_pct !== undefined) {
-    te = exception.pay_pct;
-    tr = ended ? exception.pay_pct : 0;
   }
   return { familyExpected: fe, familyRealized: fr, tutorExpected: te, tutorRealized: tr };
 }
@@ -777,11 +776,11 @@ export function flagsFor(ctx, row) {
   if (alteredLate) flags.push('altered');
   if ((row.state === 'cancelled' || row.state === 'conflict') && s.cancelled_at
     && ms(s.cancelled_at) > ms(s.starts_at) - SHORT_NOTICE_HOURS * HOUR_MS
-    && (row.exception?.charge_pct === null || row.exception?.charge_pct === undefined)
-    && (row.exception?.pay_pct === null || row.exception?.pay_pct === undefined)) {
+    && (row.exception?.charge_pct === null || row.exception?.charge_pct === undefined)) {
     flags.push('short_notice');
   }
-  if (row.unpriced) flags.push('unpriced');
+  // a free lesson (a trial) needs no rate
+  if (row.unpriced && row.exception?.charge_pct !== 0) flags.push('unpriced');
   return flags;
 }
 

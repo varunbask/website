@@ -78,7 +78,7 @@ function noteFor(l) {
   if (l.state === 'expected') return ' (upcoming)';
   if (l.state === 'cancelled' || l.state === 'conflict') return l.familyRealized ? ` (late cancellation, ${l.pct.familyRealized}%)` : ' (cancelled)';
   if (l.state === 'noshow') return l.pct.familyRealized === 100 ? ' (no-show)' : ` (no-show, ${l.pct.familyRealized}%)`;
-  if (l.exception?.reason === 'trial') return ' (trial)';
+  if (l.exception?.reason === 'trial') return ' (free trial)';
   return '';
 }
 

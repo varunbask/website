@@ -214,17 +214,24 @@ describe('one session', () => {
     expect(r[2].familyExpected).toBe(4500);
   });
 
-  test('a per-session exception overrides, even when cancelled', () => {
+  test('an exception changes only what the family pays; the tutor is paid the standard rate for what happened', () => {
     const late = session('2026-11-10', '16:00', '17:00', { status: 'cancelled' });
-    const trial = session('2026-11-11', '16:00', '17:00', { attendance: 'present' });
-    const r = ctxOf([late, trial], {
+    const forgiven = session('2026-11-11', '16:00', '17:00', { attendance: 'absent' });
+    const r = ctxOf([late, forgiven], {
       sessionBilling: [
-        { session_id: late.id, charge_pct: 50, pay_pct: null, reason: 'late_cancel' },
-        { session_id: trial.id, charge_pct: 0, pay_pct: 100, reason: 'trial' },
+        { session_id: late.id, charge_pct: 50, reason: 'late_cancel' },
+        { session_id: forgiven.id, charge_pct: 0, reason: 'no_show_forgiven' },
       ],
     }).rows;
     expect([r[0].familyRealized, r[0].tutorRealized]).toEqual([2250, 0]);
     expect([r[1].familyRealized, r[1].tutorRealized]).toEqual([0, 3000]);
+  });
+
+  test('a free trial lesson (the admin\u2019s own) needs no family rate', () => {
+    const trial = session('2026-11-11', '16:00', '17:00', { student_id: 'newkid', tutor_id: 'varun', attendance: 'present' });
+    const ctx = ctxOf([trial], { sessionBilling: [{ session_id: trial.id, charge_pct: 0, reason: 'trial' }] });
+    expect(ctx.rows[0]).toMatchObject({ familyRealized: 0, tutorRealized: 0, unpriced: true });
+    expect(flagsFor(ctx, ctx.rows[0])).not.toContain('unpriced');
   });
 
   test('sessions before the ledger start are ignored', () => {

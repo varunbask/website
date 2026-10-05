@@ -211,8 +211,8 @@ export function mount(ctx) {
         };
       });
       return card({
-        title: 'Tutor pay rates',
-        meta: 'Per hour taught.',
+        title: 'Tutor standard hourly rates',
+        meta: 'Each tutor is paid this rate for every hour they teach, whatever the student. A new rate applies from the date you pick.',
         body: [table({
           label: 'Tutor pay rates',
           columns: [

@@ -190,8 +190,8 @@ export function mount(ctx) {
       out.push(button({ label: 'Restore', size: 'sm', onClick: () => act(ctx, () => sb.from('sessions').update({ status: 'scheduled' }).eq('id', id).select('id'), { done: 'Restored.' }).then((ok) => ok && ctx.store.invalidate(null)) }));
       out.push(button({ label: 'Keep cancelled', size: 'sm', variant: 'ghost', onClick: () => markAttendance(ctx, [id], null, { done: 'Kept cancelled.' }) }));
     } else if (kind === 'short_notice') {
-      out.push(button({ label: 'Charge 50%', size: 'sm', onClick: () => act(ctx, () => saveSessionBilling(id, { charge_pct: 50, pay_pct: 50, reason: 'late_cancel' }), { done: 'Late cancellation charged at 50 percent.' }) }));
-      out.push(button({ label: 'Charge 100%', size: 'sm', variant: 'ghost', onClick: () => act(ctx, () => saveSessionBilling(id, { charge_pct: 100, pay_pct: 100, reason: 'late_cancel' }), { done: 'Late cancellation charged in full.' }) }));
+      out.push(button({ label: 'Charge 50%', size: 'sm', onClick: () => act(ctx, () => saveSessionBilling(id, { charge_pct: 50, reason: 'late_cancel' }), { done: 'Late cancellation charged at 50 percent.' }) }));
+      out.push(button({ label: 'Charge 100%', size: 'sm', variant: 'ghost', onClick: () => act(ctx, () => saveSessionBilling(id, { charge_pct: 100, reason: 'late_cancel' }), { done: 'Late cancellation charged in full.' }) }));
       out.push(button({ label: 'Forgive', size: 'sm', variant: 'ghost', onClick: () => act(ctx, () => saveSessionBilling(id, { reviewed_at: new Date().toISOString(), reviewed_by: ctx.me.id }), { done: 'Not charged.' }) }));
     } else if (kind === 'overlap') {
       // One key per lesson: the subject and its start time, so two group lessons on a day stay apart

@@ -20,7 +20,7 @@ import {
 
 const FAMILY_METHODS = ['zelle', 'venmo', 'check', 'cash', 'card', 'other'];
 const FAMILY_LABELS = ['late_fee', 'discount', 'credit', 'other'];
-const REASONS = { late_cancel: 'Late cancellation', no_show_forgiven: 'No-show forgiven', trial: 'Trial session', other: 'Other' };
+const REASONS = { late_cancel: 'Late cancellation', no_show_forgiven: 'No-show forgiven', trial: 'Trial lesson (free)', other: 'Other' };
 const STATE_TONES = { attended: 'success', noshow: 'warning', unconfirmed: 'danger', expected: 'neutral', cancelled: 'neutral', conflict: 'danger' };
 
 export function mount(ctx) {
@@ -154,24 +154,27 @@ export function mount(ctx) {
         form);
     }
 
+    // What the family pays for one lesson. Tutors are always paid their standard
+    // rate for what happened. Trial lessons are free and only the admin teaches them.
     function exceptionForm(l) {
       const ex = l.exception ?? {};
+      const ownLesson = b.adminIds.has(String(l.session.tutor_id));
+      const reasons = Object.entries(REASONS).filter(([value]) => value !== 'trial' || ownLesson);
       const fam = h('input', { type: 'number', class: 'input acct-num-input', min: '0', max: '100', value: ex.charge_pct ?? '', placeholder: 'policy', 'aria-label': 'Family pays (percent)' });
-      const tut = h('input', { type: 'number', class: 'input acct-num-input', min: '0', max: '100', value: ex.pay_pct ?? '', placeholder: 'policy', 'aria-label': 'Tutor is paid (percent)' });
-      const reasonWrap = select({ label: 'Reason', options: [{ value: '', label: 'Reason' }, ...Object.entries(REASONS).map(([value, label]) => ({ value, label }))], value: ex.reason ?? '' });
+      const reasonWrap = select({ label: 'Reason', options: [{ value: '', label: 'Reason' }, ...reasons.map(([value, label]) => ({ value, label }))], value: ex.reason ?? '' });
+      const reasonSelect = reasonWrap.querySelector('select');
+      reasonSelect.addEventListener('change', () => { if (reasonSelect.value === 'trial') fam.value = '0'; });
       const save = button({ label: 'Save', size: 'sm', variant: 'primary' });
       save.addEventListener('click', () => busy(save, 'Saving…', async () => {
-        const pct = (el) => (el.value.trim() === '' ? null : Number(el.value));
-        const cp = pct(fam);
-        const pp = pct(tut);
-        if ([cp, pp].some((n) => n !== null && (!Number.isInteger(n) || n < 0 || n > 100))) { ctx.toast({ text: 'Percentages are whole numbers from 0 to 100, or blank to follow the policy.' }); return; }
-        const reason = reasonWrap.querySelector('select').value || null;
-        if ((cp !== null || pp !== null) && !reason) { ctx.toast({ text: 'Pick a reason for the exception.' }); return; }
-        await act(ctx, () => saveSessionBilling(l.id, { charge_pct: cp, pay_pct: pp, reason: cp === null && pp === null ? null : reason }), { done: 'Exception saved.' });
+        const cp = fam.value.trim() === '' ? null : Number(fam.value);
+        if (cp !== null && (!Number.isInteger(cp) || cp < 0 || cp > 100)) { ctx.toast({ text: 'The percentage is a whole number from 0 to 100, or blank to follow the policy.' }); return; }
+        const reason = reasonSelect.value || null;
+        if (cp !== null && !reason) { ctx.toast({ text: 'Pick a reason for the exception.' }); return; }
+        if (reason === 'trial' && cp !== 0) { ctx.toast({ text: 'A trial lesson is free: the family pays 0 percent.' }); return; }
+        await act(ctx, () => saveSessionBilling(l.id, { charge_pct: cp, reason: cp === null ? null : reason }), { done: reason === 'trial' ? 'Marked as a free trial lesson.' : 'Exception saved.' });
       }));
       return [
         h('label', { class: 'acct-inline-field' }, h('span', {}, 'Family pays %'), fam),
-        h('label', { class: 'acct-inline-field' }, h('span', {}, 'Tutor paid %'), tut),
         h('label', { class: 'acct-inline-field' }, h('span', {}, 'Reason'), reasonWrap),
         save,
       ];

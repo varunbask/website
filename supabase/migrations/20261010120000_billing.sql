@@ -88,12 +88,14 @@ create table public.tutor_rates (
 create unique index tutor_rates_key on public.tutor_rates (tutor_id, effective_from) where voided_at is null;
 
 -- ---------------------------------------------------------------------------
--- Per-session exception, group membership and review mark
+-- Per-session exception (what the family pays), group membership and review
+-- mark. Tutors are always paid their standard hourly rate for a lesson that
+-- happened, so there is no tutor-side exception. Only the admin teaches trial
+-- lessons, so a 'trial' mark is refused on anyone else's session.
 
 create table public.session_billing (
   session_id  bigint primary key references public.sessions (id) on delete cascade,
   charge_pct  smallint check (charge_pct between 0 and 100),   -- family; null = follow the policy
-  pay_pct     smallint check (pay_pct between 0 and 100),      -- tutor; null = follow the policy
   reason      text check (reason in ('late_cancel', 'no_show_forgiven', 'trial', 'other')),
   group_key   text check (char_length(btrim(group_key)) between 1 and 40),  -- same key, tutor and day = one paid slot
   note        text check (char_length(note) <= 200),
@@ -101,7 +103,8 @@ create table public.session_billing (
   reviewed_by uuid references public.profiles (id) on delete set null,
   updated_by  uuid default auth.uid() references public.profiles (id) on delete set null,
   updated_at  timestamptz not null default now(),
-  constraint session_billing_reason check (reason is null or charge_pct is not null or pay_pct is not null)
+  constraint session_billing_reason check (reason is null or charge_pct is not null),
+  constraint session_billing_trial check (reason is distinct from 'trial' or charge_pct = 0)
 );
 create index session_billing_group_idx on public.session_billing (group_key) where group_key is not null;
 
@@ -411,6 +414,24 @@ $$;
 revoke execute on function private.billing_touch() from public;
 create trigger session_billing_touch before update on public.session_billing
   for each row execute function private.billing_touch();
+
+-- Trial lessons are the admin's own
+create function private.session_billing_trial()
+returns trigger
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  if new.reason = 'trial' and not exists (
+    select 1 from public.sessions s join public.profiles p on p.id = s.tutor_id
+     where s.id = new.session_id and p.role = 'admin') then
+    raise exception 'Only the admin teaches trial lessons' using errcode = '23514';
+  end if;
+  return new;
+end
+$$;
+revoke execute on function private.session_billing_trial() from public;
+create trigger session_billing_trial before insert or update on public.session_billing
+  for each row execute function private.session_billing_trial();
 create trigger billing_contacts_touch before update on public.billing_contacts
   for each row execute function private.billing_touch();
 
@@ -657,9 +678,9 @@ grant update (note, voided_at, void_reason) on public.family_rates to authentica
 grant insert (tutor_id, rate_cents, effective_from, note) on public.tutor_rates to authenticated;
 grant update (note, voided_at, void_reason) on public.tutor_rates to authenticated;
 grant delete on public.session_billing to authenticated;
-grant insert (session_id, charge_pct, pay_pct, reason, group_key, note, reviewed_at, reviewed_by)
+grant insert (session_id, charge_pct, reason, group_key, note, reviewed_at, reviewed_by)
   on public.session_billing to authenticated;
-grant update (charge_pct, pay_pct, reason, group_key, note, reviewed_at, reviewed_by)
+grant update (charge_pct, reason, group_key, note, reviewed_at, reviewed_by)
   on public.session_billing to authenticated;
 grant insert (client_key, parent_id, period, amount_cents, method, received_on, reference, note, lines, owed_cents)
   on public.payments to authenticated;
