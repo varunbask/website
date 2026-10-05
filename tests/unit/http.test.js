@@ -152,6 +152,31 @@ describe('handleSweep', () => {
     expect(await res.json()).toEqual({ reset: 0, ai_graded: 0, pending: 0, failed: 0, skipped: 0, removed_files: 0 });
   });
 
+  test('tops up repeating sessions first, and a failure there costs nothing else', async () => {
+    const order = [];
+    const ok = { ...repo, extendSessionSeries: vi.fn(async () => { order.push('series'); return 7; }), listDue: vi.fn(async () => { order.push('grade'); return []; }) };
+    const res = await handleSweep(get('Bearer cron-secret'), { repo: ok, env: ENV, now });
+    expect(res.status).toBe(200);
+    expect((await res.json()).series).toEqual({ made: 7 });
+    expect(order).toEqual(['series', 'grade']);
+
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const bad = { ...repo, extendSessionSeries: vi.fn(async () => { throw new Error('db down'); }) };
+    const res2 = await handleSweep(get('Bearer cron-secret'), { repo: bad, env: ENV, now });
+    expect(res2.status).toBe(200);
+    const body = await res2.json();
+    expect(body.series).toEqual({ error: 'Repeating sessions could not be extended.' });
+    expect(body.removed_files).toBe(0);
+    errors.mockRestore();
+  });
+
+  test('tops up repeating sessions even with grading and Google not set up', async () => {
+    const ok = { ...repo, extendSessionSeries: vi.fn(async () => 3) };
+    const res = await handleSweep(get('Bearer cron-secret'), { repo: ok, env: { CRON_SECRET: 'cron-secret' }, now });
+    expect(ok.extendSessionSeries).toHaveBeenCalled();
+    expect((await res.json()).series).toEqual({ made: 3 });
+  });
+
   describe('Google Calendar maintenance', () => {
     afterEach(() => vi.restoreAllMocks());
     const GOOGLE_ENV = { ...ENV, GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret', GOOGLE_TOKEN_KEY: 'key' };

@@ -4,19 +4,28 @@
 //
 // A form "state" is the raw field values:
 //   { date, start, end, subject, where ('in-person' | 'online'), location,
-//     meeting_url, notes, repeat, weeks }
+//     meeting_url, notes, repeat, ends ('never' | 'on' | 'after'), until, count }
+//
+// A weekly repeat works like Google Calendar's: by default it never ends (a
+// tutor or admin ends it with "this and following"), or it ends on a date or
+// after a number of sessions. The database keeps it filled a year ahead
+// (supabase/migrations/20261009120000_session_series.sql).
 
 import {
-  MAX_REPEAT_WEEKS, addMinutesToTime, validateSessionForm, weeklyTimes, retimeRows, newSeriesId,
+  addMinutesToTime, validateSessionForm, weeklyTimes, retimeRows, newSeriesId,
   findClashes, timeRange, shortDayText, timeInput, isCancelled, durationMinutes, durationText,
 } from './sessions-model.js';
-import { dayKey, todayKey, parseKey, addDays, longDate } from './dates.js';
+import { dayKey, todayKey, parseKey, addDays, longDate, daysBetween } from './dates.js';
 
 export const QUICK_DURATIONS = Object.freeze([30, 45, 60, 90, 120]);
 export const DEFAULT_START = '16:00';
 export const DEFAULT_MINUTES = 60;
-export const DEFAULT_WEEKS = 8;
-export const MIN_REPEAT_WEEKS = 2;
+export const DEFAULT_COUNT = 8;
+export const MIN_REPEAT_COUNT = 2;
+export const MAX_REPEAT_COUNT = 520;  // ten years of weeks
+export const ENDS = Object.freeze(['never', 'on', 'after']);
+// How many weeks of a new repeat the clash check looks at
+export const CLASH_WEEKS = 26;
 export const MAX_RECAP_LENGTH = 4000;
 export const GONE = 'This item was changed or removed. Refresh the page and try again.';
 
@@ -45,7 +54,9 @@ export function createDefaults({ params = {}, now = new Date(), subject = '' } =
     meeting_url: '',
     notes: '',
     repeat: false,
-    weeks: DEFAULT_WEEKS,
+    ends: 'never',
+    until: '',
+    count: String(DEFAULT_COUNT),
   };
 }
 
@@ -61,7 +72,9 @@ export function editDefaults(session) {
     meeting_url: session.meeting_url ?? '',
     notes: session.notes ?? '',
     repeat: false,
-    weeks: DEFAULT_WEEKS,
+    ends: 'never',
+    until: '',
+    count: String(DEFAULT_COUNT),
   };
 }
 
@@ -135,42 +148,64 @@ export function rawFromState(state) {
     meeting_url: state.where === 'online' ? state.meeting_url : '',
     notes: state.notes,
     repeat: state.repeat,
-    weeks: state.weeks,
   };
 }
 
-// validateSessionForm, with the repeat count held to 2 to 26 (one session
-// is just not repeating)
+// validateSessionForm, plus how a repeat ends. values gain ends and until
+// (the last day it may repeat on, or null for never): "after 8 sessions" is
+// the day of the 8th. Errors for the end go under `until` or `count`.
 export function checkSessionForm(state, { creating = true } = {}) {
   const result = validateSessionForm(rawFromState(state), { creating });
   const errors = { ...result.errors };
-  if (creating && state.repeat) {
-    const weeks = Number(String(state.weeks ?? '').trim());
-    if (!Number.isInteger(weeks) || weeks < MIN_REPEAT_WEEKS || weeks > MAX_REPEAT_WEEKS) {
-      errors.weeks = `Repeat for ${MIN_REPEAT_WEEKS} to ${MAX_REPEAT_WEEKS} weeks.`;
-    } else {
-      delete errors.weeks;
+  const values = { ...result.values, ends: 'never', until: null };
+  if (values.repeat) {
+    const ends = ENDS.includes(state.ends) ? state.ends : 'never';
+    values.ends = ends;
+    if (ends === 'on') {
+      const until = String(state.until ?? '').trim();
+      if (!KEY_RE.test(until)) errors.until = 'Choose the last day.';
+      else if (KEY_RE.test(values.date) && until <= values.date) errors.until = 'Choose a day after the first session.';
+      else values.until = until;
+    } else if (ends === 'after') {
+      const n = Number(String(state.count ?? '').trim());
+      if (!Number.isInteger(n) || n < MIN_REPEAT_COUNT || n > MAX_REPEAT_COUNT) {
+        errors.count = `Enter ${MIN_REPEAT_COUNT} to ${MAX_REPEAT_COUNT} sessions.`;
+      } else if (KEY_RE.test(values.date)) {
+        values.until = addDays(values.date, (n - 1) * 7);
+      }
     }
   }
-  return { ok: Object.keys(errors).length === 0, errors, values: result.values };
+  return { ok: Object.keys(errors).length === 0, errors, values };
+}
+
+// The weekly dates a repeat makes, from values.date through values.until (or
+// `limit` weeks when it never ends, or ends later), as day keys
+export function repeatDates(values, limit = CLASH_WEEKS) {
+  if (!KEY_RE.test(values?.date ?? '')) return [];
+  const weeks = values.until && KEY_RE.test(values.until)
+    ? Math.min(Math.floor(daysBetween(values.date, values.until) / 7) + 1, limit)
+    : limit;
+  return Array.from({ length: Math.max(weeks, 1) }, (_, i) => addDays(values.date, i * 7));
 }
 
 // The sessions a form would write, as [{ id?, starts_at, ends_at }]:
-//   create          one per week (values.weeks), no ids
+//   create          the one session, or the first CLASH_WEEKS of a repeat
 //   edit, 'this'    the session
 //   edit, following every row of `rows`, moved by the same number of days
 export function plannedTimes(values, { session = null, rows = null, apply = 'this' } = {}) {
-  if (!session) return weeklyTimes({ date: values.date, start: values.start, end: values.end, weeks: values.repeat ? values.weeks : 1 });
+  if (!session) {
+    const weeks = values.repeat ? repeatDates(values).length : 1;
+    return weeklyTimes({ date: values.date, start: values.start, end: values.end, weeks });
+  }
   if (apply === 'following' && rows?.length) return retimeRows(rows, session, values);
   const [t] = weeklyTimes({ date: values.date, start: values.start, end: values.end, weeks: 1 });
   return [{ id: session.id, ...t }];
 }
 
-// Rows for one insert of a new session or a weekly series
-export function buildInsertRows({ studentId, tutorId, values, seriesId }) {
-  const weeks = values.repeat ? values.weeks : 1;
-  const series = weeks > 1 ? (seriesId ?? newSeriesId()) : null;
-  return plannedTimes(values).map((t) => ({
+// The row for one new session (not repeating)
+export function buildInsertRow({ studentId, tutorId, values }) {
+  const [t] = weeklyTimes({ date: values.date, start: values.start, end: values.end, weeks: 1 });
+  return {
     student_id: studentId,
     tutor_id: tutorId,
     subject: values.subject,
@@ -179,8 +214,44 @@ export function buildInsertRows({ studentId, tutorId, values, seriesId }) {
     location: values.location,
     meeting_url: values.meeting_url,
     notes: values.notes,
-    series_id: series,
-  }));
+    series_id: null,
+  };
+}
+
+// The session_series row for a weekly repeat; the database makes its sessions
+export function buildSeriesRow({ studentId, tutorId, values, id }) {
+  return {
+    id: id ?? newSeriesId(),
+    student_id: studentId,
+    tutor_id: tutorId,
+    subject: values.subject,
+    location: values.location,
+    meeting_url: values.meeting_url,
+    notes: values.notes,
+    start_time: values.start,
+    end_time: values.end,
+    first_date: values.date,
+    until: values.until ?? null,
+  };
+}
+
+// The arguments of edit_following_sessions for an edit of `session` with
+// "this and following": the days and minutes everything moves by, and the
+// details that changed (only those, so a session planned on its own keeps its
+// plan). null when nothing changed.
+export function followingChange({ values, session }) {
+  const p_shift = daysBetween(dayKey(session.starts_at), values.date);
+  const p_start_delta = minutesOf(values.start) - minutesOf(timeInput(session.starts_at));
+  const p_end_delta = minutesOf(values.end) - minutesOf(timeInput(session.ends_at));
+  const p_fields = {};
+  for (const k of TEXT_FIELDS) if (textOf(values[k]) !== textOf(session[k])) p_fields[k] = textOf(values[k]);
+  if (!p_shift && !p_start_delta && !p_end_delta && !Object.keys(p_fields).length) return null;
+  return { p_session: session.id, p_shift, p_start_delta, p_end_delta, p_fields };
+}
+
+function minutesOf(time) {
+  const [h, m] = String(time).split(':').map(Number);
+  return h * 60 + m;
 }
 
 const textOf = (v) => (v === null || v === undefined || String(v).trim() === '' ? null : String(v).trim());
@@ -232,9 +303,23 @@ export function mergeSessions(...lists) {
 // ---------------------------------------------------------------------------
 // Words
 
-// "Schedule session", "Schedule 8 sessions"
-export function scheduleLabel(weeks = 1) {
-  return weeks > 1 ? `Schedule ${weeks} sessions` : 'Schedule session';
+// "Schedule session", "Schedule weekly sessions"
+export function scheduleLabel(repeat = false) {
+  return repeat ? 'Schedule weekly sessions' : 'Schedule session';
+}
+
+// "Tuesday" for a day key, or ''
+export function weekdayName(key) {
+  return KEY_RE.test(key ?? '') ? longDate(key).split(',')[0] : '';
+}
+
+// The Repeat select, Google Calendar's way: [{ value, label }]
+export function repeatChoices(date) {
+  const day = weekdayName(date);
+  return [
+    { value: 'none', label: 'Does not repeat' },
+    { value: 'weekly', label: day ? `Weekly on ${day}` : 'Weekly' },
+  ];
 }
 
 // What to tell a tutor when a write fails. Row security (42501) means the
@@ -250,12 +335,20 @@ export function sessionsToast(n, verb) {
   return n === 1 ? `Session ${verb}` : `${n} sessions ${verb}`;
 }
 
-// "8 weekly sessions, the last on Tue, Dec 1", or '' when the date or the
-// count is not usable yet
-export function repeatSummary(date, weeks) {
-  const n = Number(String(weeks ?? '').trim());
-  if (!KEY_RE.test(date ?? '') || !Number.isInteger(n) || n < MIN_REPEAT_WEEKS || n > MAX_REPEAT_WEEKS) return '';
-  return `${n} weekly sessions, the last on ${shortDayText(addDays(date, (n - 1) * 7), date)}`;
+// What a repeat will do, or '' when the form is not usable yet:
+//   never  "Every Tuesday, with no end date"
+//   on     "Every Tuesday through Tue, Dec 1, 7 sessions"
+//   after  "8 weekly sessions, the last on Tue, Dec 8"
+export function repeatSummary(state) {
+  const check = checkSessionForm({ ...state, repeat: true });
+  const { date, ends, until } = check.values;
+  if (!KEY_RE.test(date ?? '') || check.errors.until || check.errors.count) return '';
+  const day = weekdayName(date);
+  if (ends === 'never' || !until) return `Every ${day}, with no end date`;
+  const n = Math.floor(daysBetween(date, until) / 7) + 1;
+  const last = addDays(date, (n - 1) * 7);
+  if (ends === 'after') return `${n} weekly sessions, the last on ${shortDayText(last, date)}`;
+  return `Every ${day} through ${shortDayText(until, date)}, ${n} ${n === 1 ? 'session' : 'sessions'}`;
 }
 
 // "Applies to 4 sessions, from Thu, Oct 15 on"
@@ -264,9 +357,14 @@ export function followingSummary(rows, session) {
   return `Applies to ${n} ${n === 1 ? 'session' : 'sessions'}, from ${shortDayText(dayKey(session.starts_at))} on`;
 }
 
-// "Repeats weekly, 4 more sessions": the series' scheduled sessions after this
-export function seriesLeftText(list, session) {
+// "Repeats weekly, 4 more sessions": the series' scheduled sessions after this.
+// rule: its session_series row when there is one; one with no end says so.
+export function seriesLeftText(list, session, rule = null) {
   if (!session?.series_id) return null;
+  const day = weekdayName(dayKey(session.starts_at));
+  if (rule && !rule.until) return `Repeats every ${day}, with no end date`;
+  // An end beyond what is made so far: name the day instead of counting
+  if (rule?.until && (!rule.last_date || rule.last_date < rule.until)) return `Repeats every ${day} through ${shortDayText(rule.until, dayKey(session.starts_at))}`;
   const more = (list ?? []).filter((s) => s.series_id === session.series_id
     && ms(s.starts_at) > ms(session.starts_at) && !isCancelled(s)).length;
   if (more === 0) return 'Repeats weekly, this is the last session';

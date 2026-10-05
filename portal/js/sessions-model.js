@@ -14,7 +14,6 @@ import {
 } from './dates.js';
 
 export const SUBJECT_TONES = 6;
-export const MAX_REPEAT_WEEKS = 26;
 export const MAX_SESSION_MINUTES = 480;
 export const DAY_START_HOUR = 7;      // the week grid shows at least 7 am to 9 pm
 export const DAY_END_HOUR = 21;
@@ -344,7 +343,7 @@ export function addMinutesToTime(time, minutes) {
 }
 
 // Raw form values -> { ok, errors, values }. values come back trimmed, with
-// blanks as null and weeks as a number (1 when not repeating).
+// blanks as null. How a repeat ends is checked by session-form-model.js.
 export function validateSessionForm(raw = {}, { creating = true } = {}) {
   const v = {
     date: String(raw.date ?? '').trim(),
@@ -355,7 +354,6 @@ export function validateSessionForm(raw = {}, { creating = true } = {}) {
     meeting_url: String(raw.meeting_url ?? '').trim() || null,
     notes: String(raw.notes ?? '').trim() || null,
     repeat: creating && Boolean(raw.repeat),
-    weeks: 1,
   };
   const errors = {};
   if (!DAY_RE.test(v.date)) errors.date = 'Choose a date.';
@@ -373,11 +371,6 @@ export function validateSessionForm(raw = {}, { creating = true } = {}) {
     errors.meeting_url = 'Use a link that starts with https://';
   }
   if (v.notes && v.notes.length > 2000) errors.notes = 'Use at most 2,000 characters.';
-  if (v.repeat) {
-    const weeks = Number(String(raw.weeks ?? '').trim());
-    if (!Number.isInteger(weeks) || weeks < 1 || weeks > MAX_REPEAT_WEEKS) errors.weeks = `Repeat for 1 to ${MAX_REPEAT_WEEKS} weeks.`;
-    else v.weeks = weeks;
-  }
   return { ok: Object.keys(errors).length === 0, errors, values: v };
 }
 

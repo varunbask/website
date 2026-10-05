@@ -2,7 +2,7 @@
 // a drop lands, the writes it makes and the words for it. Times are in the
 // business zone (America/Los_Angeles), like the rest of the calendar.
 
-import { dayKey, longDate, zonedIso } from './dates.js';
+import { dayKey, longDate, zonedIso, daysBetween } from './dates.js';
 import {
   canEditSession, isCancelled, retimeRows, sessionTitle, timeInput, timeRange, durationMinutes,
 } from './sessions-model.js';
@@ -99,6 +99,18 @@ export function moveUpdates({ session, rows = null, apply = 'this', date, start 
       .map((t) => ({ id: t.id, fields: { starts_at: t.starts_at, ends_at: t.ends_at } }))
     : [{ id: session.id, fields: times }];
   return changedUpdates(updates, [session, ...(rows ?? [])]);
+}
+
+// The arguments of edit_following_sessions for a drop with "This and
+// following": the days and minutes the session (and every later one in its
+// series, and the rule that makes new ones) moves by. null when it would not move.
+export function followingMove({ session, date, start }) {
+  const times = movedTimes(session, { date, start });
+  if (!times) return null;
+  const p_shift = daysBetween(dayKey(session.starts_at), dayKey(times.starts_at));
+  const delta = toMinutes(timeInput(times.starts_at)) - toMinutes(timeInput(session.starts_at));
+  if (!p_shift && !delta) return null;
+  return { p_session: session.id, p_shift, p_start_delta: delta, p_end_delta: delta, p_fields: {} };
 }
 
 // Whether "This and following" can move every row of `rows` by the change

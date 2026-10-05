@@ -9,6 +9,13 @@ function check({ data, error }, what) {
 
 export function createRepo(db) {
   return {
+    // Tops up every open weekly series to a year ahead; returns the sessions made
+    async extendSessionSeries() {
+      const { data, error } = await db.rpc('extend_session_series');
+      if (error) throw new Error(`extendSessionSeries: ${error.message}`);
+      return data ?? 0;
+    },
+
     async getSubmission(id) {
       return check(await db.from('submissions').select(FIELDS).eq('id', id).maybeSingle(), 'getSubmission');
     },

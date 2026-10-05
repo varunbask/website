@@ -1,8 +1,9 @@
 import { describe, test, expect } from 'vitest';
 import {
-  QUICK_DURATIONS, DEFAULT_WEEKS, createDefaults, editDefaults, minutesBetween, studentChoices,
-  tutorChoices, subjectsFor, defaultSubject, rawFromState, checkSessionForm, plannedTimes,
-  buildInsertRows, buildUpdates, changedUpdates, mergeSessions, scheduleLabel, sessionsToast, repeatSummary,
+  QUICK_DURATIONS, DEFAULT_COUNT, CLASH_WEEKS, createDefaults, editDefaults, minutesBetween, studentChoices,
+  tutorChoices, subjectsFor, defaultSubject, rawFromState, checkSessionForm, plannedTimes, repeatDates,
+  buildInsertRow, buildSeriesRow, followingChange, repeatChoices, weekdayName,
+  buildUpdates, changedUpdates, mergeSessions, scheduleLabel, sessionsToast, repeatSummary,
   followingSummary, seriesLeftText, whenText, icsFileName, clashLine, clashReport, saveErrorText,
 } from '../../portal/js/session-form-model.js';
 import { zonedIso } from '../../portal/js/dates.js';
@@ -19,7 +20,7 @@ const session = (key, start, end, extra = {}) => ({
 });
 const state = (extra = {}) => ({
   date: '2026-10-20', start: '16:00', end: '17:00', subject: 'Algebra', where: 'in-person',
-  location: 'Library', meeting_url: '', notes: '', repeat: false, weeks: '8', ...extra,
+  location: 'Library', meeting_url: '', notes: '', repeat: false, ends: 'never', until: '', count: '8', ...extra,
 });
 
 const names = new Map([['t1', 'Daniel Ortiz'], ['t2', 'Priya Shah']]);
@@ -28,7 +29,7 @@ const studentNames = new Map([['s1', 'Maya Lin'], ['s2', 'Leo Park']]);
 describe('starting values', () => {
   test('create: today, 4 pm and an hour long', () => {
     expect(createDefaults({ now: NOW })).toMatchObject({
-      date: '2026-10-14', start: '16:00', end: '17:00', where: 'in-person', repeat: false, weeks: DEFAULT_WEEKS,
+      date: '2026-10-14', start: '16:00', end: '17:00', where: 'in-person', repeat: false, ends: 'never', until: '', count: String(DEFAULT_COUNT),
     });
   });
 
@@ -134,7 +135,7 @@ describe('checking and writing', () => {
   test('valid values come back trimmed, with blanks as null', () => {
     const r = checkSessionForm(state({ subject: ' Algebra ', location: ' ', notes: '' }));
     expect(r.ok).toBe(true);
-    expect(r.values).toMatchObject({ subject: 'Algebra', location: null, notes: null, weeks: 1, repeat: false });
+    expect(r.values).toMatchObject({ subject: 'Algebra', location: null, notes: null, repeat: false, ends: 'never', until: null });
   });
 
   test('errors per field', () => {
@@ -143,51 +144,90 @@ describe('checking and writing', () => {
     expect(Object.keys(r.errors).sort()).toEqual(['date', 'end', 'meeting_url']);
   });
 
-  test('repeat needs 2 to 26 weeks', () => {
-    expect(checkSessionForm(state({ repeat: true, weeks: '1' })).errors.weeks).toBe('Repeat for 2 to 26 weeks.');
-    expect(checkSessionForm(state({ repeat: true, weeks: '27' })).errors.weeks).toBe('Repeat for 2 to 26 weeks.');
-    expect(checkSessionForm(state({ repeat: true, weeks: 'many' })).errors.weeks).toBe('Repeat for 2 to 26 weeks.');
-    const ok = checkSessionForm(state({ repeat: true, weeks: '8' }));
+  test('a weekly repeat never ends by default', () => {
+    const r = checkSessionForm(state({ repeat: true }));
+    expect(r.ok).toBe(true);
+    expect(r.values).toMatchObject({ repeat: true, ends: 'never', until: null });
+    // an unknown choice is never too
+    expect(checkSessionForm(state({ repeat: true, ends: 'sometimes' })).values.ends).toBe('never');
+  });
+
+  test('a repeat can end on a day after the first', () => {
+    expect(checkSessionForm(state({ repeat: true, ends: 'on', until: '' })).errors.until).toBe('Choose the last day.');
+    expect(checkSessionForm(state({ repeat: true, ends: 'on', until: '2026-10-20' })).errors.until).toBe('Choose a day after the first session.');
+    const ok = checkSessionForm(state({ repeat: true, ends: 'on', until: '2026-12-01' }));
     expect(ok.ok).toBe(true);
-    expect(ok.values).toMatchObject({ repeat: true, weeks: 8 });
-    // a hidden weeks box does not matter when not repeating
-    expect(checkSessionForm(state({ repeat: false, weeks: 'many' })).ok).toBe(true);
+    expect(ok.values).toMatchObject({ ends: 'on', until: '2026-12-01' });
+  });
+
+  test('a repeat can end after 2 to 520 sessions (the day of the last one)', () => {
+    for (const bad of ['1', '521', 'many', '']) {
+      expect(checkSessionForm(state({ repeat: true, ends: 'after', count: bad })).errors.count).toBe('Enter 2 to 520 sessions.');
+    }
+    const ok = checkSessionForm(state({ repeat: true, ends: 'after', count: '8' }));
+    expect(ok.ok).toBe(true);
+    expect(ok.values.until).toBe('2026-12-08');
+    // hidden end fields do not matter when not repeating
+    expect(checkSessionForm(state({ repeat: false, ends: 'after', count: 'many' })).ok).toBe(true);
   });
 
   test('editing never repeats', () => {
-    const r = checkSessionForm(state({ repeat: true, weeks: '1' }), { creating: false });
+    const r = checkSessionForm(state({ repeat: true, ends: 'after', count: '1' }), { creating: false });
     expect(r.ok).toBe(true);
     expect(r.values.repeat).toBe(false);
   });
 
   test('one session inserts one row with no series', () => {
     const { values } = checkSessionForm(state());
-    const rows = buildInsertRows({ studentId: 's1', tutorId: 't1', values });
-    expect(rows).toEqual([{
+    expect(buildInsertRow({ studentId: 's1', tutorId: 't1', values })).toEqual({
       student_id: 's1', tutor_id: 't1', subject: 'Algebra', starts_at: at('2026-10-20', '16:00'),
       ends_at: at('2026-10-20', '17:00'), location: 'Library', meeting_url: null, notes: null, series_id: null,
-    }]);
+    });
   });
 
-  test('a weekly repeat inserts one row per week, sharing a series id, same wall time across DST', () => {
-    const { values } = checkSessionForm(state({ date: '2026-10-27', repeat: true, weeks: '8' }));
-    const rows = buildInsertRows({ studentId: 's1', tutorId: 't1', values, seriesId: 'series-1' });
-    expect(rows).toHaveLength(8);
-    expect(new Set(rows.map((r) => r.series_id))).toEqual(new Set(['series-1']));
-    expect(rows[0].starts_at).toBe(at('2026-10-27', '16:00'));
-    // Nov 3 is the first Tuesday after the clocks went back on Nov 1
-    expect(rows[1].starts_at).toBe(at('2026-11-03', '16:00'));
-    expect(rows[7].starts_at).toBe(at('2026-12-15', '16:00'));
-    for (const r of rows) expect(Object.keys(r).sort()).toEqual([
-      'ends_at', 'location', 'meeting_url', 'notes', 'series_id', 'starts_at', 'student_id', 'subject', 'tutor_id',
+  test('a weekly repeat is one rule row, which the database fills', () => {
+    const { values } = checkSessionForm(state({ date: '2026-10-27', repeat: true }));
+    expect(buildSeriesRow({ studentId: 's1', tutorId: 't1', values, id: 'series-1' })).toEqual({
+      id: 'series-1', student_id: 's1', tutor_id: 't1', subject: 'Algebra', location: 'Library', meeting_url: null,
+      notes: null, start_time: '16:00', end_time: '17:00', first_date: '2026-10-27', until: null,
+    });
+    const ended = checkSessionForm(state({ repeat: true, ends: 'after', count: '3' })).values;
+    const row = buildSeriesRow({ studentId: 's1', tutorId: 't1', values: ended });
+    expect(row.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(row.until).toBe('2026-11-03');
+  });
+
+  test('repeat dates: the clash check looks half a year ahead, or to the end', () => {
+    const never = checkSessionForm(state({ date: '2026-10-27', repeat: true })).values;
+    const dates = repeatDates(never);
+    expect(dates).toHaveLength(CLASH_WEEKS);
+    expect(dates.slice(0, 2)).toEqual(['2026-10-27', '2026-11-03']);
+    const three = checkSessionForm(state({ date: '2026-10-27', repeat: true, ends: 'after', count: '3' })).values;
+    expect(repeatDates(three)).toEqual(['2026-10-27', '2026-11-03', '2026-11-10']);
+    // same wall time across the DST change on Nov 1
+    const planned = plannedTimes(three);
+    expect(planned.map((t) => t.starts_at)).toEqual([at('2026-10-27', '16:00'), at('2026-11-03', '16:00'), at('2026-11-10', '16:00')]);
+  });
+
+  test('this and following: days and minutes to move by, and only changed details', () => {
+    const b = session('2026-10-20', '16:00', '17:00', { series_id: 'x', notes: 'Own plan', location: 'Library' });
+    const same = checkSessionForm(state({ notes: 'Own plan' }), { creating: false }).values;
+    expect(followingChange({ values: same, session: b })).toBeNull();
+    const moved = checkSessionForm(state({ date: '2026-10-22', start: '16:30', end: '18:00', subject: 'Geometry', notes: 'Own plan' }), { creating: false }).values;
+    expect(followingChange({ values: moved, session: b })).toEqual({
+      p_session: b.id, p_shift: 2, p_start_delta: 30, p_end_delta: 60, p_fields: { subject: 'Geometry' },
+    });
+    const cleared = checkSessionForm(state({ location: '', notes: 'Own plan' }), { creating: false }).values;
+    expect(followingChange({ values: cleared, session: { ...b, location: null } })).toBeNull();
+    expect(followingChange({ values: cleared, session: { ...b, location: 'Home' } }).p_fields).toEqual({ location: null });
+  });
+
+  test('the Repeat select names the weekday', () => {
+    expect(repeatChoices('2026-10-20')).toEqual([
+      { value: 'none', label: 'Does not repeat' }, { value: 'weekly', label: 'Weekly on Tuesday' },
     ]);
-  });
-
-  test('a new series gets a fresh id when none is given', () => {
-    const { values } = checkSessionForm(state({ repeat: true, weeks: '3' }));
-    const rows = buildInsertRows({ studentId: 's1', tutorId: 't1', values });
-    expect(rows[0].series_id).toMatch(/^[0-9a-f-]{36}$/);
-    expect(new Set(rows.map((r) => r.series_id)).size).toBe(1);
+    expect(repeatChoices('')[1].label).toBe('Weekly');
+    expect(weekdayName('2026-10-22')).toBe('Thursday');
   });
 
   test('planned times for an edit of this session or this and following', () => {
@@ -269,19 +309,21 @@ describe('checking and writing', () => {
 
 describe('words', () => {
   test('button and toast text', () => {
-    expect(scheduleLabel(1)).toBe('Schedule session');
-    expect(scheduleLabel(8)).toBe('Schedule 8 sessions');
+    expect(scheduleLabel(false)).toBe('Schedule session');
+    expect(scheduleLabel(true)).toBe('Schedule weekly sessions');
     expect(sessionsToast(1, 'cancelled')).toBe('Session cancelled');
     expect(sessionsToast(4, 'cancelled')).toBe('4 sessions cancelled');
     expect(sessionsToast(1, 'deleted')).toBe('Session deleted');
   });
 
-  test('repeat summary names the last day', () => {
-    expect(repeatSummary('2026-10-20', 8)).toBe('8 weekly sessions, the last on Tue, Dec 8');
-    expect(repeatSummary('2026-10-20', '2')).toBe('2 weekly sessions, the last on Tue, Oct 27');
-    expect(repeatSummary('2026-10-20', 1)).toBe('');
-    expect(repeatSummary('2026-10-20', 'x')).toBe('');
-    expect(repeatSummary('', 8)).toBe('');
+  test('repeat summary says how it ends', () => {
+    expect(repeatSummary(state())).toBe('Every Tuesday, with no end date');
+    expect(repeatSummary(state({ ends: 'after', count: '8' }))).toBe('8 weekly sessions, the last on Tue, Dec 8');
+    expect(repeatSummary(state({ ends: 'after', count: '2' }))).toBe('2 weekly sessions, the last on Tue, Oct 27');
+    expect(repeatSummary(state({ ends: 'on', until: '2026-12-03' }))).toBe('Every Tuesday through Thu, Dec 3, 7 sessions');
+    expect(repeatSummary(state({ ends: 'after', count: '1' }))).toBe('');
+    expect(repeatSummary(state({ ends: 'on', until: '' }))).toBe('');
+    expect(repeatSummary(state({ date: '' }))).toBe('');
   });
 
   test('following summary counts the rows', () => {
@@ -301,6 +343,11 @@ describe('words', () => {
     expect(seriesLeftText([a, b, c, d, other], b)).toBe('Repeats weekly, 1 more session');
     expect(seriesLeftText([a, b, c, d, other], d)).toBe('Repeats weekly, this is the last session');
     expect(seriesLeftText([other], session('2026-10-13', '16:00', '17:00'))).toBeNull();
+    // a rule with no end says so instead of counting what is made so far
+    expect(seriesLeftText([a, b, c, d], a, { until: null, last_date: '2027-10-12' })).toBe('Repeats every Tuesday, with no end date');
+    expect(seriesLeftText([a, b, c, d], a, { until: '2028-01-04', last_date: '2027-10-12' })).toBe('Repeats every Tuesday through Tue, Jan 4, 2028');
+    // all made: count as before
+    expect(seriesLeftText([a, b, c, d], a, { until: '2026-11-03', last_date: '2026-11-03' })).toBe('Repeats weekly, 2 more sessions');
   });
 
   test('when text: long date, range and length', () => {
@@ -376,7 +423,7 @@ describe('clash warning', () => {
   });
 
   test('every date of a repeat is checked and summarised', () => {
-    const { values } = checkSessionForm(state({ date: '2026-10-20', repeat: true, weeks: '8' }));
+    const { values } = checkSessionForm(state({ date: '2026-10-20', repeat: true, ends: 'after', count: '8' }));
     const planned = plannedTimes(values);
     const list = [
       session('2026-10-27', '16:00', '17:00', { student_id: 's2' }),

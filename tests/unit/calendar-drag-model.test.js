@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import {
   SNAP_MINUTES, toMinutes, minutesToTime, canDragSession, canDragDue, dropStart, grabOffset,
-  movedTimes, moveProblem, moveUpdates, moveSummary, moveToast, MOVE_PROBLEMS, followingFits,
+  movedTimes, moveProblem, moveUpdates, moveSummary, moveToast, MOVE_PROBLEMS, followingFits, followingMove,
   dueMoveProblem, dueAtFor, dueToast, DUE_PAST,
 } from '../../portal/js/calendar-drag-model.js';
 import { zonedIso } from '../../portal/js/dates.js';
@@ -174,5 +174,19 @@ describe('due dates', () => {
   test('due at 11:59 pm Pacific, and the toast', () => {
     expect(dueAtFor('2026-10-08')).toBe(zonedIso('2026-10-08', '23:59'));
     expect(dueToast('2026-10-08')).toBe('Due date moved to Thursday, October 8');
+  });
+});
+
+describe('this and following on a drop', () => {
+  test('moves the series by the days and minutes of the drop, keeping its length', () => {
+    const s = session({ series_id: 'x' });
+    expect(followingMove({ session: s, date: '2026-10-01', start: '16:30' })).toEqual({
+      p_session: 's1', p_shift: 2, p_start_delta: 30, p_end_delta: 30, p_fields: {},
+    });
+    expect(followingMove({ session: s, date: '2026-09-29', start: '15:00' })).toMatchObject({ p_shift: 0, p_start_delta: -60, p_end_delta: -60 });
+  });
+
+  test('nothing to do when it lands where it was', () => {
+    expect(followingMove({ session: session({ series_id: 'x' }), date: '2026-09-29', start: '16:00' })).toBeNull();
   });
 });

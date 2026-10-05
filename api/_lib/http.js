@@ -73,10 +73,13 @@ export async function handleSweep(request, {
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
     return json(401, { error: 'Unauthorized' });
   }
+  // Weekly series that repeat until ended are kept a year ahead; this tops them up by a day.
+  // It runs before everything else so the Google upkeep below sends the new sessions too.
+  const series = await extendSeries(repo);
   // Grading needs the model variables; the Google upkeep below does not, so without them only grading is skipped
   const grading = Boolean(env.LLM_ENDPOINT && env.LLM_KEY);
   const config = googleRepo ? googleConfig(env) : null;
-  if (!grading && !config) return json(500, { error: 'Grading is not configured.' });
+  if (!grading && !config) return json(500, { error: 'Grading is not configured.', ...(series ? { series } : {}) });
   let summary = { grading: 'not configured' };
   if (grading) {
     summary = await sweep(repo, { env, now, fetchImpl });
@@ -92,5 +95,17 @@ export async function handleSweep(request, {
       summary.google = { error: 'Google Calendar maintenance failed.' };
     }
   }
+  if (series) summary.series = series;
   return json(200, summary);
+}
+
+// The number of sessions made, or an error note; never throws, so it cannot cost the rest of the sweep
+async function extendSeries(repo) {
+  if (!repo?.extendSessionSeries) return null;
+  try {
+    return { made: await repo.extendSessionSeries() };
+  } catch (error) {
+    console.error('[sweep] series:', error?.name ?? 'Error');
+    return { error: 'Repeating sessions could not be extended.' };
+  }
 }
