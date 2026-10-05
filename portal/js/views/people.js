@@ -104,11 +104,19 @@ export function approveText(name, role) {
 // ---------------------------------------------------------------------------
 // Data (the three queries the People page has always used)
 
+// parent_students.bills (which parent pays) comes with the billing migration;
+// without it the page still loads, just without the Pays marks
+async function loadParentLinks() {
+  const withBills = await sb.from('parent_students').select('parent_id, student_id, bills');
+  if (!withBills.error) return withBills;
+  return sb.from('parent_students').select('parent_id, student_id');
+}
+
 async function load() {
   const [people, tutorLinks, parentLinks] = await Promise.all([
     sb.from('profiles').select('id, email, full_name, role, requested_role, signup_note, created_at'),
     sb.from('tutor_students').select('tutor_id, student_id, subject'),
-    sb.from('parent_students').select('parent_id, student_id'),
+    loadParentLinks(),
   ]);
   for (const result of [people, tutorLinks, parentLinks]) if (result.error) throw result.error;
   const list = people.data ?? [];
@@ -607,6 +615,21 @@ export function mount(ctx) {
       return input;
     }
 
+    // One payer per student: clear the current one, then set the new one
+    async function makePayer(parentId) {
+      const current = data.parentLinks.find((l) => l.student_id === student.id && l.bills);
+      if (current) {
+        const off = await sb.from('parent_students').update({ bills: false }).eq('parent_id', current.parent_id).eq('student_id', student.id).select('parent_id');
+        if (off.error || !off.data?.length) {
+          act(Promise.resolve(off.error ? off : { data: [] }), '', { key: `pays-${student.id}-${parentId}` });
+          return;
+        }
+      }
+      act(sb.from('parent_students').update({ bills: true }).eq('parent_id', parentId).eq('student_id', student.id).select('parent_id'),
+        `${nameOf(parentId)} now gets ${studentName}’s bill. Change payers on the first of a month so each month has one payer.`,
+        { key: `pays-${student.id}-${parentId}` });
+    }
+
     const linkedIds = new Set(linked.map((p) => p.id));
     const available = candidates.filter((p) => !linkedIds.has(p.id));
 
@@ -671,10 +694,18 @@ export function mount(ctx) {
           },
         });
         x.dataset.focusFallback = addKey;
+        // Which parent gets the bill, when there is more than one (the Account page)
+        const link = isTutor ? null : data.parentLinks.find((l) => l.parent_id === p.id && l.student_id === student.id);
+        const pays = !isTutor && linked.length > 1 && link && 'bills' in link
+          ? (link.bills
+            ? h('span', { class: 'pill tone-success ppl-pays' }, 'Pays')
+            : h('button', { type: 'button', class: 'btn btn-ghost btn-sm ppl-pays', dataset: { focusKey: `pays-${student.id}-${p.id}` }, onClick: () => makePayer(p.id) }, h('span', { class: 'btn-label' }, 'Bill to')))
+          : null;
         const chip = h(isTutor ? 'span' : 'li', { class: 'ppl-chip' },
           avatar(pname, { size: 24 }),
           // The subject sits in the editable field beside a tutor's chip
           h('span', { class: 'ppl-chip-name' }, pname),
+          pays,
           x);
         return isTutor ? h('li', { class: 'ppl-tutor' }, chip, subjectField(p, pname, subject)) : chip;
       }))

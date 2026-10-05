@@ -29,6 +29,7 @@ import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, homeworkDueKey } from './materials-model.js';
 import { getGoogleStatus, syncSoon } from './google.js';
 import { ownGoogleLink, syncNote } from './google-model.js';
+import { buildContext, billingFact, inPaidPeriod } from './billing-model.js';
 
 const MISSING = 'This session isn’t available. It may have been cancelled or removed.';
 const sameId = (a, b) => String(a) === String(b);
@@ -184,11 +185,13 @@ async function loadExtras(dctx, found) {
   // sync status (it never rejects; an unreadable one just means no note)
   const waiting = canHaveSessions(dctx.me?.role) && sameId(session.tutor_id, dctx.me.id)
     && (session.sync_state === 'pending' || session.sync_state === 'error');
-  const [materials, data, google, rule] = await Promise.all([
+  const [materials, data, google, rule, billing] = await Promise.all([
     store.getMaterials(found.studentId).catch((error) => { console.error(error); return null; }),
     store.getStudentData(found.studentId).catch((error) => { console.error(error); return null; }),
     waiting ? getGoogleStatus() : null,
     session.series_id ? loadRule(session.series_id) : null,
+    // The admin sees what the session is worth (Account page); nobody else loads billing
+    dctx.me?.role === 'admin' && store.getBilling ? priced(store) : null,
   ]);
   const items = data
     ? store.itemsFor(data, { now: new Date(), audience: dctx.audience, viewerId: dctx.me?.id })
@@ -200,7 +203,18 @@ async function loadExtras(dctx, found) {
     homework: items,
     google,
     rule,
+    billing,
   };
+}
+
+// The calendar priced for the Account page, or null (billing not set up yet, or it failed)
+async function priced(store) {
+  try {
+    const d = await store.getBilling();
+    return buildContext({ sessions: d.sessions, links: d.links, rules: d.rules, billing: d.billing, now: new Date(), adminIds: d.adminIds });
+  } catch {
+    return null;
+  }
 }
 
 // The weekly rule of a series (only series made since repeats became open
@@ -426,6 +440,17 @@ export function renderSessionDetail(dctx) {
       dctx.toast({ text: 'Those sessions are already cancelled' });
       return;
     }
+    // Money already moved for this session's month or pay period: say so first
+    if (inPaidPeriod(found.billing, found.session)) {
+      const ok = await dctx.confirm({
+        title: 'Cancel a session that was paid for?',
+        body: 'The family or tutor has already been paid for this month or pay period. The Account page will show the difference so you can settle it.',
+        confirmLabel: 'Cancel session',
+        cancelLabel: 'Keep it',
+        tone: 'danger',
+      });
+      if (!ok || !dctx.alive()) return;
+    }
     const patch = { status: 'cancelled' };
     return write({
       run: async () => {
@@ -580,6 +605,8 @@ function buildDetail(dctx, found, { now, names, actions }) {
 
   const series = seriesLeftText(sessions, session, found.rule);
   if (series) fact('Series', series);
+  const money = billingFact(found.billing, session, dctx.me?.role);
+  if (money) fact('Billing', h('a', { href: '/portal/account.html#/dashboard' }, money));
 
   const head = h('div', { class: cancelled ? 'ses-head is-cancelled' : 'ses-head' },
     h('p', { class: 'drawer-kind' }, 'Tutoring session'),

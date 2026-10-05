@@ -2,7 +2,7 @@
 // client built with the service key; every method throws
 // Error('<name>: <message>') on a Supabase error, like api/_lib/repo.js.
 
-const SESSION_FIELDS = 'id, tutor_id, student_id, subject, starts_at, ends_at, location, meeting_url, notes, status, '
+const SESSION_FIELDS = 'id, tutor_id, student_id, subject, starts_at, ends_at, location, meeting_url, notes, status, attendance, '
   + 'updated_at, sync_state, google_event_id, google_calendar_id, google_recurring_id, google_link, google_etag';
 const PULL_LOCK_MS = 60_000;
 const PUSH_LOCK_MS = 60_000;
