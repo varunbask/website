@@ -406,12 +406,28 @@ export function clashLine(clash, { tutorNames = new Map(), studentNames = new Ma
   return `${tutor} already has ${student} at ${timeRange(s, { viewerInZone })}.`;
 }
 
+function clashTitle(count, total, partial) {
+  if (partial) return `${count} ${count === 1 ? 'date' : 'dates'} in the next 6 months ${count === 1 ? 'clashes' : 'clash'}`;
+  return total > 1 ? `${count} of ${total} dates clash` : 'This time overlaps another session';
+}
+
+// Whether a new repeat runs past the CLASH_WEEKS the clash check looks at
+// (it never ends, or ends later)
+export function clashCheckIsPartial(values) {
+  if (!values?.repeat || !KEY_RE.test(values.date ?? '')) return false;
+  if (!values.until) return true;
+  return Math.floor(daysBetween(values.date, values.until) / 7) + 1 > CLASH_WEEKS;
+}
+
 // What to tell a tutor about overlaps, never blocking:
 //   { total, count, title, lines }  title is null when nothing clashes.
 // planned: [{ id?, starts_at, ends_at }] (plannedTimes); list: the student's
 // sessions plus the tutor's; ignoreIds: the rows an edit replaces.
+// partial: planned is only the first CLASH_WEEKS of a longer repeat
+// (clashCheckIsPartial), so the title speaks of the next six months instead
+// of "of 26", which would read as if only 26 sessions were made.
 export function clashReport({
-  planned, studentId, tutorId, list, ignoreIds = [], tutorNames, studentNames, viewerInZone,
+  planned, studentId, tutorId, list, ignoreIds = [], tutorNames, studentNames, viewerInZone, partial = false,
 }) {
   const per = (planned ?? []).map((p) => ({
     p,
@@ -439,7 +455,7 @@ export function clashReport({
   return {
     total,
     count: per.length,
-    title: many ? `${per.length} of ${total} dates clash` : 'This time overlaps another session',
+    title: clashTitle(per.length, total, partial),
     lines,
   };
 }
