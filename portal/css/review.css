@@ -369,17 +369,18 @@
   letter-spacing: -0.005em;
 }
 .rvw-note { max-width: 65ch; font-size: 14px; line-height: 22px; }
-.rvw-answer-text {
-  max-width: 72ch;
-  padding: var(--s-4);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
+/* Typed answer: the file panel's frame, with the answer as a page */
+.rvw-doc-stage { padding: var(--s-4); }
+.rvw-doc-sheet {
+  max-height: 70dvh;
+  overflow: auto;
+  padding: 40px 48px;
+  border-radius: var(--r-xs);
   background-color: var(--surface);
-  font-size: 15px;
-  line-height: 24px;
-  overflow-wrap: anywhere;
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-pop);
+  font: var(--t-read);
 }
-.rvw-answer .rvw-file-attempt { margin-left: var(--s-2); font-weight: 400; color: var(--text-3); }
+.rvw-doc-sheet:focus-visible { outline-offset: 2px; }
 .rvw-muted { font: 400 14px/20px var(--font-ui); color: var(--text-3); }
 
 .rvw-disclosure {
@@ -535,6 +536,8 @@
   .rvw-editor-actions > .btn { flex: 1 1 0; }
   .rvw-editor { padding: var(--s-4); }
   .rvw-file-stage { min-height: 200px; padding: var(--s-3); }
+  .rvw-doc-stage { padding: var(--s-3); }
+  .rvw-doc-sheet { padding: 20px; }
   .rvw-file-card { grid-template-columns: 40px minmax(0, 1fr); }
   .rvw-file-card > .btn { grid-column: 1 / -1; }
   .rvw-pager-pos { min-width: 0; }

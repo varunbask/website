@@ -653,3 +653,9 @@
 .asg-answer-meta.is-warning { color: var(--warning-text); }
 .asg-sub-answer > .doc-view { margin-top: var(--s-2); }
 .doc-limit.is-over { color: var(--danger-text); }
+
+/* Full screen reading (the review page): the editor's page, without the tools */
+.doc-reader .doc-page:focus-visible { box-shadow: var(--shadow-pop); }
+@media (max-width: 767.98px) {
+  .doc-reader .doc-page:focus-visible { box-shadow: none; }
+}
