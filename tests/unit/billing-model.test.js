@@ -521,6 +521,18 @@ describe('needs attention and the gates', () => {
     expect(needsAttention(old, '2026-12-01', '2026-12-31').byKind.get('older_unconfirmed')?.[0].count).toBe(1);
   });
 
+  test('a session a tutor deleted after it happened is listed for review (not the admin\u2019s own)', () => {
+    const del = (editor) => ({ session_id: 999, student_id: 'kevin', tutor_id: 'ethan', editor, action: 'delete', at: at('2026-11-12', '09:00'),
+      old_starts_at: at('2026-11-10', '16:00'), old_ends_at: at('2026-11-10', '17:00'), old_status: 'scheduled', old_attendance: 'present' });
+    const byTutor = needsAttention(ctxOf([], { edits: [del('ethan')] }), '2026-11-01', '2026-11-30').byKind.get('deleted_late');
+    expect(byTutor).toHaveLength(1);
+    expect(byTutor[0]).toMatchObject({ tutorId: 'ethan', studentId: 'kevin', day: '2026-11-10', by: 'ethan' });
+    expect(needsAttention(ctxOf([], { edits: [del('varun')] }), '2026-11-01', '2026-11-30').byKind.get('deleted_late')).toBeUndefined();
+    // a session deleted before it happened is just a cancellation of plans
+    const early = { ...del('ethan'), at: at('2026-11-09', '09:00') };
+    expect(needsAttention(ctxOf([], { edits: [early] }), '2026-11-01', '2026-11-30').byKind.get('deleted_late')).toBeUndefined();
+  });
+
   test('students with no paying parent', () => {
     const ctx = ctxOf([session('2026-11-10', '16:00', '17:00', { student_id: 'amy', attendance: 'present' })], { parentLinks: [] });
     expect(needsAttention(ctx, '2026-11-01', '2026-11-30').byKind.get('no_payer')?.[0].studentId).toBe('amy');

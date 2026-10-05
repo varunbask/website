@@ -7,7 +7,7 @@ import { sb } from '../supabase.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { button, pill, emptyState, drawerHref } from '../ui.js';
-import { todayKey } from '../dates.js';
+import { todayKey, dayKey } from '../dates.js';
 import { timeRange } from '../sessions-model.js';
 import {
   money, hoursText, monthEnd, monthName, rangeTotals, familyRows, tutorRangeRows, allOutstanding, yearRows,
@@ -154,6 +154,11 @@ export function mount(ctx) {
     } else if (kind === 'no_payer') {
       body.push(h('p', {}, items.map((it) => b.nameOf(it.studentId)).join(', '), '. ',
         h('a', { href: '/portal/people.html#/everyone' }, 'Link a parent on People'), ' (the first parent linked pays).'));
+    } else if (kind === 'deleted_late') {
+      body.push(h('ul', { class: 'acct-attention-list' }, items.map((it) => h('li', { class: 'acct-attention-item' },
+        h('span', { class: 'acct-session-link' },
+          h('span', { class: 'acct-session-when' }, `${dayText(it.day)}, ${timeRange({ starts_at: it.edit.old_starts_at, ends_at: it.edit.old_ends_at })}`),
+          h('span', {}, `${b.nameOf(it.studentId)} with ${b.nameOf(it.tutorId)}; deleted by ${it.by ? b.nameOf(it.by) : 'Google Calendar'} on ${dayText(dayKey(it.edit.at))}. It is no longer billed or paid.`))))));
     } else if (kind === 'no_tutor_rate') {
       body.push(h('p', {}, items.map((it) => b.nameOf(it.tutorId)).join(', '), '. ',
         h('a', { href: '#/rates' }, 'Set a pay rate on Rates'), '.'));

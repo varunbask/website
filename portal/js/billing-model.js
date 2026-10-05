@@ -805,6 +805,7 @@ export const ATTENTION = Object.freeze({
   unpriced: { title: 'No family rate', blocks: true },
   no_tutor_rate: { title: 'No tutor pay rate', blocks: true },
   no_payer: { title: 'No paying parent', blocks: false },
+  deleted_late: { title: 'Deleted after it happened', blocks: false },
   overdue: { title: 'Overdue families', blocks: false },
   changed_paid: { title: 'Paid, then changed on the calendar', blocks: false },
   older_unconfirmed: { title: 'Older sessions without attendance', blocks: false },
@@ -911,6 +912,14 @@ export function needsAttention(ctx, from, to, { sessionsOnly = false } = {}) {
     for (const t of periodRows(ctx, start)) {
       if (t.changedSincePayout && !t.settledLater) items.push({ kind: 'changed_paid', tutorId: t.tutorId, periodStart: start, cents: t.ownCents - t.snapshot.owed_cents });
     }
+  }
+  // Sessions a tutor (or the Google sync) deleted after they happened: they are no longer billed or paid
+  for (const e of ctx.edits) {
+    if (e.action !== 'delete' || !e.old_ends_at || ms(e.at) < ms(e.old_ends_at)) continue;
+    if (e.editor && ctx.adminIds.has(String(e.editor))) continue;
+    const day = dayKey(e.old_starts_at);
+    if (day < from || day > to || day < ctx.settings.ledger_start) continue;
+    items.push({ kind: 'deleted_late', edit: e, tutorId: String(e.tutor_id), studentId: String(e.student_id), day, by: e.editor ? String(e.editor) : null });
   }
   const older = ctx.rows.filter((r) => r.day < from && r.state === 'unconfirmed' && !isAccepted(ctx, r)).length;
   if (older) items.push({ kind: 'older_unconfirmed', count: older });

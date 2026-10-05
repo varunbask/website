@@ -76,14 +76,16 @@ describe.skipIf(!hasService)('billing row-level security', () => {
     expect(t.error).toBeNull();
   });
 
-  test('a tutor writes attendance on a past session but cannot retime or delete it', async () => {
+  test('a tutor still edits a past session that is not paid, and every change is audited', async () => {
     const c = P.tutorA.client;
     expect((await c.from('sessions').update({ attendance: 'present' }).eq('id', past.id).select('id')).data).toHaveLength(1);
     const later = new Date(Date.parse(past.starts_at) + HOUR).toISOString();
-    expect((await c.from('sessions').update({ starts_at: later }).eq('id', past.id)).error?.code).toBe('VP001');
-    expect((await c.from('sessions').delete().eq('id', past.id)).error?.code).toBe('VP001');
-    const { data } = await P.admin.client.from('session_edits').select('editor, new_attendance').eq('session_id', past.id);
-    expect(data).toEqual([{ editor: P.tutorA.id, new_attendance: 'present' }]);
+    const laterEnd = new Date(Date.parse(past.starts_at) + 2 * HOUR).toISOString();
+    expect((await c.from('sessions').update({ starts_at: later, ends_at: laterEnd }).eq('id', past.id).select('id')).data).toHaveLength(1);
+    expect((await c.from('sessions').update({ starts_at: past.starts_at, ends_at: later }).eq('id', past.id).select('id')).data).toHaveLength(1);
+    const { data } = await P.admin.client.from('session_edits').select('editor, new_attendance').eq('session_id', past.id).order('id');
+    expect(data).toHaveLength(3);
+    expect(data.every((e) => e.editor === P.tutorA.id)).toBe(true);
   });
 
   test('payments: one per form, append only, and a paid month locks the tutor out', async () => {
@@ -97,6 +99,7 @@ describe.skipIf(!hasService)('billing row-level security', () => {
     expect((await P.admin.client.from('payments').insert(row)).error?.code).toBe('23505');
     expect((await P.admin.client.from('payments').update({ amount_cents: 1 }).eq('id', first.data.id)).error).not.toBeNull();
     expect((await P.tutorA.client.from('sessions').update({ attendance: 'absent' }).eq('id', past.id)).error?.code).toBe('VP002');
+    expect((await P.tutorA.client.from('sessions').delete().eq('id', past.id)).error?.code).toBe('VP002');
     const v = await P.admin.client.from('payments').update({ voided_at: new Date().toISOString(), void_reason: 'test' }).eq('id', first.data.id).select('id');
     expect(v.data).toHaveLength(1);
     expect((await P.admin.client.from('payments').update({ voided_at: null, void_reason: null }).eq('id', first.data.id)).error).not.toBeNull();
