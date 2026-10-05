@@ -105,7 +105,7 @@ async function readInput(request) {
  * plain form post (no JavaScript) is answered with a redirect back to the
  * page. A bot is told it worked, and nothing is saved.
  */
-export async function handleReferral(request, { repo, env = process.env, now = () => Date.now() }) {
+export async function handleReferral(request, { repo, env = process.env, now = () => Date.now(), notify = null, waitUntil = (p) => p }) {
   const { data, form, tooLarge } = await readInput(request);
   const back = (state) => new Response(null, { status: 303, headers: { Location: `/?referral=${state}#refer` } });
   if (tooLarge) return form ? back('error') : json(413, { error: 'too_large' });
@@ -124,7 +124,12 @@ export async function handleReferral(request, { repo, env = process.env, now = (
   ]);
   if (mine >= PER_ADDRESS_PER_HOUR || all >= ALL_PER_DAY) return form ? back('busy') : json(429, { error: 'busy' });
 
-  await repo.insert({ ...row, ip_hash: ipHash });
+  const id = await repo.insert({ ...row, ip_hash: ipHash });
+  // The email goes out after the answer; a failed email never loses the referral
+  if (notify) {
+    waitUntil(Promise.resolve().then(() => notify(row, id))
+      .catch((error) => console.error('[referral] email:', error?.message ?? error?.name ?? 'Error')));
+  }
   return form ? back('sent') : json(201, { ok: true });
 }
 
@@ -137,9 +142,11 @@ export function createReferralRepo(db) {
       if (error) throw new Error(`countSince: ${error.message}`);
       return count ?? 0;
     },
+    // -> the new referral's id
     async insert(row) {
-      const { error } = await db.from('referrals').insert(row);
+      const { data, error } = await db.from('referrals').insert(row).select('id').single();
       if (error) throw new Error(`insert: ${error.message}`);
+      return data.id;
     },
   };
 }

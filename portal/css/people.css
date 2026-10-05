@@ -684,4 +684,4 @@
 .ref-referrer a { color: inherit; }
 .ref-pills { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .ref-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
-.ref-card.is-contacted { opacity: 0.85; }
+.ref-card.is-decided { opacity: 0.85; }

@@ -82,7 +82,7 @@ describe('spam checks', () => {
 describe('handleReferral', () => {
   const repo = (mine = 0, all = 0) => ({
     countSince: vi.fn(async ({ ipHash }) => (ipHash ? mine : all)),
-    insert: vi.fn(async () => {}),
+    insert: vi.fn(async () => 42),
   });
   const post = (body, type = 'application/json') => new Request('https://x.test/api/referral', {
     method: 'POST',
@@ -91,6 +91,22 @@ describe('handleReferral', () => {
   });
   const env = { CRON_SECRET: 'k' };
   const now = () => 2_000_000;
+
+  test('emails the owner after saving, with the new id, and a failed email loses nothing', async () => {
+    const r = repo();
+    const notify = vi.fn(async () => { throw new Error('Resend down'); });
+    const pending = [];
+    const res = await handleReferral(post(good()), { repo: r, env, now, notify, waitUntil: (p) => pending.push(p) });
+    expect(res.status).toBe(201);
+    await Promise.all(pending);
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ family_name: 'The Parks' }), 42);
+  });
+
+  test('a bot never triggers an email', async () => {
+    const notify = vi.fn();
+    await handleReferral(post(good({ website: 'x' })), { repo: repo(), env, now, notify });
+    expect(notify).not.toHaveBeenCalled();
+  });
 
   test('saves a good referral with the address hash and answers 201', async () => {
     const r = repo();
@@ -141,16 +157,18 @@ describe('handleReferral', () => {
 
 describe('the admin list', () => {
   const list = [
-    { id: 1, status: 'contacted', created_at: '2026-10-01T10:00:00Z' },
+    { id: 1, status: 'approved', created_at: '2026-10-01T10:00:00Z' },
+    { id: 4, status: 'declined', created_at: '2026-09-30T10:00:00Z' },
     { id: 2, status: 'new', created_at: '2026-10-03T10:00:00Z' },
     { id: 3, status: 'new', created_at: '2026-10-02T10:00:00Z' },
   ];
 
-  test('puts new referrals first, newest first', () => {
-    expect(sortReferrals(list).map((r) => r.id)).toEqual([2, 3, 1]);
-    const { fresh, contacted } = groupReferrals(list);
+  test('groups New, Approved and Declined, each newest first', () => {
+    expect(sortReferrals(list).map((r) => r.id)).toEqual([2, 3, 1, 4]);
+    const { fresh, approved, declined } = groupReferrals(list);
     expect(fresh.map((r) => r.id)).toEqual([2, 3]);
-    expect(contacted.map((r) => r.id)).toEqual([1]);
+    expect(approved.map((r) => r.id)).toEqual([1]);
+    expect(declined.map((r) => r.id)).toEqual([4]);
   });
 
   test('says who referred and in which language', () => {
