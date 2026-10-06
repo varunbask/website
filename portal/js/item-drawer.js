@@ -481,9 +481,10 @@ function renderItem(dctx) {
     if (state.mode === 'detail') paint({ refresh: true });
   });
 
-  // A file dropped outside the upload section must not open in the tab
+  // A file dropped outside a drop target (the upload section, the materials
+  // section) must not open in the tab; one a target already took is left alone
   const guardDrop = (e) => {
-    if (![...(e.dataTransfer?.types ?? [])].includes('Files')) return;
+    if (e.defaultPrevented || ![...(e.dataTransfer?.types ?? [])].includes('Files')) return;
     if (e.target instanceof Element && e.target.closest('.asg-submit')) return;
     e.preventDefault();
     if (e.type === 'dragover' && e.dataTransfer) e.dataTransfer.dropEffect = 'none';
