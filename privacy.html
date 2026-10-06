@@ -23,7 +23,7 @@
       document.documentElement.dataset.theme = theme;
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="styles.css?v=12">
 </head>
 
 <body>
@@ -90,6 +90,8 @@
         <p>The website has no analytics, ads, or tracking cookies. If you email us, we receive your email address and whatever you write. Your browser saves your language (taken from your browser settings or your choice) and your light or dark choice on your own device. The site loads its fonts from Google Fonts, so Google receives your IP address and basic browser details when a page loads.</p>
         <h3>When you refer a family</h3>
         <p>The “Refer a family” form asks for your name, your email address, whether you are a parent or a student, and the other family’s name and email address or phone number, plus their grade, subjects, and a note if you add them. Please only refer a family who knows you are sharing their details. To stop the same person sending the form again and again, we keep a scrambled (hashed) version of your IP address with the referral, never the address itself. We use a referral only to contact that family about tutoring, once, and only our administrator can see it. Each new referral is also emailed to our administrator so it can be reviewed quickly.</p>
+        <h3>When you book a consultation</h3>
+        <p>The “Book a free consultation” form asks for your name, your email address, and the subjects or exams you want help with. You can also add a phone number, the student’s grade, your preferred language, whether you want online or in-person lessons, the best way to reach you, and a note. To stop the same person sending the form again and again, we keep a scrambled (hashed) version of your IP address with the request, never the address itself. We use your request only to reply to you about tutoring, and only our administrator can see it. Each new request is also emailed to our administrator so it can be answered quickly.</p>
         <h3>When you write a review</h3>
         <p>We may send you a personal link to write a review. The review page asks for the name you want shown and your review, and for your permission to show both on our website. We keep a scrambled (hashed) version of the link, never the link itself, and each link works once and expires after 60 days. Your review is translated into our website's other languages by our AI service when you send it, and it appears on the website only after our administrator approves it, under the name you chose, never with an email address. Please don't include a child's full name. To change or remove a review, email us and we will take it down.</p>
         <h3>When you use the client portal</h3>
@@ -121,7 +123,7 @@
           <li><strong>Parents</strong> see the same for the children linked to their account, plus every update a tutor writes about their child.</li>
           <li><strong>Tutors</strong> see the students they are assigned to. A student’s tutors can see each other’s sessions and notes for that student.</li>
           <li><strong>Everyone with an approved account</strong> can see the names of our tutors and administrator, and students and parents see which subject each of their tutors teaches.</li>
-          <li><strong>Our administrator</strong> can see everything in the portal, to approve accounts, run the service, and help with problems. Only the administrator sees referrals.</li>
+          <li><strong>Our administrator</strong> can see everything in the portal, to approve accounts, run the service, and help with problems. Only the administrator sees referrals and consultation requests.</li>
         </ul>
         <p>The database itself enforces these limits, not just the screens.</p>
       </section>
@@ -163,7 +165,7 @@
         <ul>
           <li><strong>Supabase:</strong> the database, file storage, sign-in, and account emails.</li>
           <li><strong>Vercel:</strong> hosting for the website and the portal.</li>
-          <li><strong>Resend:</strong> sends our administrator an email with the details of each new referral and each new review.</li>
+          <li><strong>Resend:</strong> sends our administrator an email with the details of each new referral, consultation request, and review.</li>
           <li><strong>jsDelivr:</strong> delivers a code library that portal pages load, so it receives your IP address and basic browser details.</li>
           <li><strong>Anthropic:</strong> the AI service that writes draft grades from the work students turn in, and translates reviews into the website's languages.</li>
           <li><strong>Google:</strong> Google Calendar for people who connect it, and the fonts on our website and portal pages.</li>
@@ -178,7 +180,7 @@
 
       <section aria-labelledby="keep">
         <h2 id="keep">How long we keep it</h2>
-        <p>We keep account information and schoolwork while the account is open, so students and parents can look back on past work. If you ask us to delete an account, we delete the account and its work, grades, sessions, uploaded files, and stored Google connection within 30 days, unless the law requires us to keep something. Calendar events already copied into a tutor’s Google Calendar, and invitations Google already sent, stay in Google, where the tutor or student controls them. Copies in our providers’ backups are removed on their regular schedule. We delete a referral once we have contacted the family and it is no longer needed, or sooner if the referrer or the family asks.</p>
+        <p>We keep account information and schoolwork while the account is open, so students and parents can look back on past work. If you ask us to delete an account, we delete the account and its work, grades, sessions, uploaded files, and stored Google connection within 30 days, unless the law requires us to keep something. Calendar events already copied into a tutor’s Google Calendar, and invitations Google already sent, stay in Google, where the tutor or student controls them. Copies in our providers’ backups are removed on their regular schedule. We delete a referral once we have contacted the family and it is no longer needed, or sooner if the referrer or the family asks. We delete a consultation request once we have replied and it is no longer needed, or sooner if you ask.</p>
       </section>
 
       <section aria-labelledby="security">
