@@ -19,6 +19,11 @@
      section.card.is-list.ovw-tutors > ul.ovw-tutor-list > li.ovw-tutor (avatar + .ovw-tutor-main > name + .ovw-subj)
      .ovw-card-error: a quiet in-card error with a retry
 
+   Family extras (overview.js, family-model.js)
+     section.card.is-list.ovw-rcps > ul.ovw-rcp-list > li.ovw-rcp-item > a.row.ovw-rcp
+       (span.ovw-sess-date, span.ovw-rcp-main > .ovw-sess-title + .ovw-sess-meta, span.ovw-rcp-recap, span.ovw-rcp-aside > .pill, svg.ovw-rcp-caret)
+     section.card.is-list.ovw-kids > ul.ovw-kids-list > li > a.ovw-kid (.ovw-kid-head, .ovw-kid-line.is-danger | .is-quiet) | li.ovw-kid-sk (placeholder)
+
    Today's sessions (today.js)
      section.card.is-list.tdy-card > ul.tdy-list > li.tdy-item (.is-live | .is-next)
        > a.row.tdy-row (span.tdy-time, span.tdy-main, span.tdy-state, svg.tdy-caret) + div.tdy-actions
@@ -1061,3 +1066,148 @@
   border-top: 1px solid var(--line);
 }
 .card.is-list > .ovw-tutors-foot { padding: var(--s-3); }
+
+
+/* Recent sessions (students and parents): the tutor's recap under each lesson ---- */
+
+.ovw-rcp-item { position: relative; }
+.ovw-rcp-item + .ovw-rcp-item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--s-3);
+  right: var(--s-3);
+  height: 1px;
+  background-color: var(--line);
+  pointer-events: none;
+}
+.ovw-rcp-item:has(> .row:hover)::before,
+.ovw-rcp-item:has(> .row:hover) + .ovw-rcp-item::before,
+.ovw-rcp-item:has(> .row[aria-current="true"])::before,
+.ovw-rcp-item:has(> .row[aria-current="true"]) + .ovw-rcp-item::before { opacity: 0; }
+
+/* Narrow card: the day beside a stack of title and pill, when and who, then the
+   recap. The title and meta are grid items of the row here (.ovw-rcp-main
+   is display: contents), so a long date never fights the pill for room. */
+.ovw-rcp-list > .ovw-rcp-item > .row.ovw-rcp {
+  grid-template-columns: 48px minmax(0, 1fr) auto 16px;
+  grid-template-areas:
+    "date title aside caret"
+    "date meta  meta  caret"
+    "date recap recap caret";
+  align-items: center;
+  column-gap: var(--s-3);
+  row-gap: 2px;
+  min-height: 64px;
+  padding: var(--s-3);
+}
+.ovw-rcp > .ovw-sess-date { grid-area: date; align-self: start; }
+.ovw-rcp-main { display: contents; }
+.ovw-rcp .ovw-sess-title { grid-area: title; }
+.ovw-rcp .ovw-sess-meta { grid-area: meta; }
+.ovw-rcp-aside { grid-area: aside; display: flex; align-items: center; gap: 6px; }
+.ovw-rcp-aside:empty { display: none; }
+.ovw-rcp-recap {
+  grid-area: recap;
+  min-width: 0;
+  margin-top: var(--s-1);
+  font: var(--t-ui);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.ovw-rcp-recap.is-empty { color: var(--text-3); }
+.ovw-rcp-caret {
+  grid-area: caret;
+  width: 16px;
+  height: 16px;
+  color: var(--text-3);
+  transition: transform var(--dur-2) var(--ease-out), color var(--dur-1) var(--ease-out);
+}
+@media (hover: hover) {
+  a.row.ovw-rcp:hover > .ovw-rcp-caret { color: var(--text-2); transform: translateX(2px); }
+}
+
+/* Wide card: one line per session, the recap in its own column */
+@container card (min-width: 720px) {
+  .ovw-rcp-list > .ovw-rcp-item > .row.ovw-rcp {
+    grid-template-columns: 48px minmax(11rem, 16rem) minmax(0, 1fr) auto 16px;
+    grid-template-areas: "date main recap aside caret";
+    column-gap: var(--s-4);
+    row-gap: 0;
+  }
+  .ovw-rcp > .ovw-sess-date { align-self: center; }
+  .ovw-rcp-main { grid-area: main; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .ovw-rcp-recap { margin-top: 0; }
+  .ovw-rcp-aside { min-width: 88px; justify-content: flex-end; }
+}
+
+
+/* Your children (a parent with two or more children) ---------------------------- */
+
+.ovw-kids-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 248px), 1fr));
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-3) var(--s-3);
+}
+.ovw-kid,
+.ovw-kid-sk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  min-width: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.ovw-kid-sk { gap: var(--s-3); min-height: 112px; }
+.ovw-kid {
+  height: 100%;
+  color: var(--text);
+  transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+@media (hover: hover) {
+  a.ovw-kid:hover { background-color: var(--hover); border-color: var(--line-strong); }
+}
+.ovw-kid[aria-current="true"] { background-color: var(--surface-2); border-color: var(--line-strong); }
+.ovw-kid-head { display: flex; align-items: center; gap: var(--s-2); min-width: 0; margin-bottom: var(--s-1); }
+.ovw-kid-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 500 14px/20px var(--font-ui);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ovw-kid-head > .pill { flex: none; }
+.ovw-kid-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font: var(--t-meta);
+  color: var(--text-2);
+}
+.ovw-kid-line > .icon { width: 14px; height: 14px; flex: none; color: var(--text-3); }
+.ovw-kid-line > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ovw-kid-line.is-danger { color: var(--danger-text); }
+.ovw-kid-line.is-danger > .icon { color: inherit; }
+.ovw-kid-line.is-quiet { color: var(--text-3); }
+
+@media (max-width: 767.98px) {
+  .ovw-rcp-list > .ovw-rcp-item > .row.ovw-rcp { min-height: 72px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a.row.ovw-rcp:hover > .ovw-rcp-caret { transform: none; }
+}

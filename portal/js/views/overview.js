@@ -1,9 +1,10 @@
 // Overview (#/overview), spec 5.2 to 5.4. Three variants, chosen by ctx.page:
 //   student  greeting, Due next, Latest grade, Upcoming sessions, Your tutors,
-//            This week, Tasks, From your tutor
-//   parent   "Maya’s week", progress, Overdue, Upcoming sessions, Maya’s tutors,
-//            updates, Recently graded, Coming up; with no linked child, a single
-//            welcome empty state
+//            This week, Tasks, From your tutor, Recent sessions, Progress
+//   parent   "Maya’s week", Your children (two or more children only), Overdue,
+//            Upcoming sessions, Maya’s tutors, updates, Recently graded,
+//            Recent sessions, Coming up, Progress; with no linked child, a
+//            single welcome empty state
 //   staff    the selected student: Next session, progress, Needs review, Coming
 //            up, updates
 // Renders only inside ctx.host and checks ctx.alive() after every await. The
@@ -29,6 +30,9 @@ import { taskCheck } from '../task-check.js';
 import { announceGoogleReturn, studentInviteControl } from '../google.js';
 import { queueRow } from '../review-row.js';
 import { progressPanel } from '../progress-panel.js';
+import {
+  recentRows, showChildrenRow, childHref, childSummary, childLines,
+} from '../family-model.js';
 import {
   greeting, studentLede, parentSummary, parentTitle, weekCounts, dueNext, overdueItems, comingUp,
   openTasks, gradedItems, weekStrip, stripLabel, chipStyle, shortDay, firstLine, lastUpdateLabel,
@@ -365,6 +369,49 @@ function tutorsCard(ctx, { span, title, tutors, names, studentId, invite = false
   return card;
 }
 
+// Families: what the tutor wrote after the last few sessions. A row shows the
+// day, subject, tutor, attendance and the start of the recap, and opens the
+// session in the drawer. Placed beside the tutor notes.
+function recentItem(ctx, r) {
+  const recapId = uid('ovw-rcp-recap');
+  const caret = icon('caret-right');
+  caret.classList.add('ovw-rcp-caret');
+  return h('li', { class: 'ovw-rcp-item' }, h('a', {
+    class: `row ovw-rcp ${r.tone}`,
+    href: openHref(ctx, `s${r.id}`),
+    'aria-label': r.label,
+    'aria-describedby': r.recap ? recapId : undefined,
+    dataset: { focusKey: `row-s${r.id}`, sessionId: String(r.id) },
+    onClick: opensSession(ctx, r.id),
+  },
+  h('span', { class: 'ovw-sess-date', 'aria-hidden': 'true' },
+    h('span', { class: 'ovw-sess-month' }, MONTHS_SHORT[r.month - 1]),
+    h('span', { class: 'ovw-sess-day' }, String(r.day))),
+  h('span', { class: 'ovw-rcp-main' },
+    h('span', { class: 'ovw-sess-title' }, r.title),
+    h('span', { class: 'ovw-sess-meta' },
+      h('span', { class: 'ovw-sess-when num' }, r.when),
+      r.who ? h('span', { class: 'ovw-sess-who' }, `with ${r.who}`) : null)),
+  h('span', { class: r.recap ? 'ovw-rcp-recap' : 'ovw-rcp-recap is-empty', id: recapId }, r.recap ?? 'No notes yet'),
+  h('span', { class: 'ovw-rcp-aside' }, r.attendance ? pill(r.attendance) : null),
+  caret));
+}
+
+function recentSessionsCard(ctx, { span = 'span-12', sessions, names, studentId }) {
+  const titleId = uid('ovw-rcp');
+  const card = h('section', { class: `card is-list ${span} ovw-rcps`, 'aria-labelledby': titleId },
+    cardHead('Recent sessions', { id: titleId, link: { label: 'See all in Calendar', href: '#/calendar' } }));
+  if (sessions === null) {
+    card.append(cardError('We couldn’t load sessions.', () => ctx.store.invalidate(studentId)));
+    return card;
+  }
+  const rows = recentRows(sessions, names, ctx.now);
+  card.append(rows.length
+    ? h('ul', { class: 'ovw-rcp-list', 'aria-label': 'Recent sessions' }, rows.map((r) => recentItem(ctx, r)))
+    : cardEmpty('No past sessions yet. Notes from each session show up here.', 'calendar-blank'));
+  return card;
+}
+
 // ---------------------------------------------------------------------------
 // Student (spec 5.2)
 
@@ -587,6 +634,12 @@ async function mountStudent(ctx) {
       studentFirstName: first,
       seen: getSeen('updates', ctx.me.id, student.id),
     }),
+    recentSessionsCard(ctx, { sessions, names, studentId: student.id }),
+    // Below their due work. Released grades only: RLS gives a student a null
+    // grade for anything not released. No name: the caption reads "Released scores".
+    h('div', { class: 'span-12' }, progressPanel({
+      items, tasks: data.tasks, grades: data.submissions.map((sub) => sub.grade).filter(Boolean), name: '', now,
+    })),
   ];
   animate(ctx, blocks);
   body.replaceWith(h('div', { class: 'grid-12 ovw-grid' }, blocks));
@@ -603,6 +656,72 @@ function mountWelcome(ctx) {
     text: 'Your account is ready. Once we link your child’s account, their work shows up here.',
   }));
   ctx.announce('Overview. Your account is ready.');
+}
+
+// Parent with two or more children: one compact item per child, linking to
+// that child's Overview. Each child loads on its own, so one failure leaves a
+// small note on that item and the rest of the page is untouched.
+async function loadChildSummaries(ctx, children) {
+  return Promise.all(children.map(async (child) => {
+    try {
+      const [data, sessions] = await Promise.all([
+        ctx.store.getStudentData(child.id).catch(() => null),
+        ctx.store.getSessions(child.id).catch(() => null),
+      ]);
+      const items = data ? ctx.store.itemsFor(data, { now: ctx.now, audience: ctx.audience, viewerId: ctx.me.id }) : null;
+      return childSummary({ child, items, sessions, now: ctx.now });
+    } catch (error) {
+      console.error(error);
+      return childSummary({ child, now: ctx.now });
+    }
+  }));
+}
+
+function kidLine(iconName, part) {
+  return h('span', { class: part.tone ? `ovw-kid-line is-${part.tone}` : 'ovw-kid-line' },
+    icon(iconName, { size: 14 }),
+    h('span', {}, part.text));
+}
+
+function kidItem(ctx, summary, currentId) {
+  const lines = childLines(summary);
+  const current = summary.id === String(currentId);
+  return h('li', {}, h('a', {
+    class: 'ovw-kid',
+    href: childHref(summary.id),
+    'aria-label': lines.label,
+    'aria-current': current ? 'true' : undefined,
+    dataset: { focusKey: `child-${summary.id}` },
+  },
+  h('span', { class: 'ovw-kid-head' },
+    avatar(summary.name, { size: 32 }),
+    h('span', { class: 'ovw-kid-name' }, summary.name),
+    current ? pill({ label: 'Viewing', tone: 'neutral' }) : null),
+  lines.next ? kidLine('calendar-blank', lines.next) : kidLine('info', { text: 'Schedule unavailable', tone: 'quiet' }),
+  lines.overdue
+    ? kidLine(summary.overdue > 0 ? 'warning-circle' : 'check-circle', lines.overdue)
+    : kidLine('info', { text: 'Work unavailable', tone: 'quiet' }),
+  lines.grade ? kidLine('chart-line-up', lines.grade) : null));
+}
+
+// The card shows quiet placeholders until fill() gets the summaries
+function childrenCard(ctx, children, currentId) {
+  const titleId = uid('ovw-kids');
+  const list = h('ul', { class: 'ovw-kids-list', 'aria-label': 'Your children' },
+    children.map(() => h('li', { class: 'ovw-kid-sk', 'aria-hidden': 'true' },
+      h('span', { class: 'skeleton ovw-sk-title' }),
+      h('span', { class: 'skeleton ovw-sk-line' }),
+      h('span', { class: 'skeleton ovw-sk-line is-short' }))));
+  const card = h('section', { class: 'card is-list span-12 ovw-kids', 'aria-labelledby': titleId, 'aria-busy': 'true' },
+    cardHead('Your children', { id: titleId }),
+    list);
+  return {
+    card,
+    fill(summaries) {
+      list.replaceChildren(...summaries.map((sm) => kidItem(ctx, sm, currentId)));
+      card.removeAttribute('aria-busy');
+    },
+  };
 }
 
 function overdueCard(ctx, list) {
@@ -666,8 +785,13 @@ async function mountParent(ctx) {
   const first = firstName(displayName(student));
   const lede = pendingLede();
   ctx.setHeader({ title: parentTitle(first), display: true, lede });
-  const body = loadingGrid(['span-12', 'span-8', 'span-4', 'span-7', 'span-5']);
+  const body = loadingGrid(['span-8', 'span-4', 'span-7', 'span-5', 'span-12']);
   ctx.host.append(body);
+
+  // The children load beside the page's own data (both are cached by the
+  // store). Failing to list them just means no "Your children" row.
+  const kidsLoad = ctx.store.getChildren(ctx.me.id).then((kids) => kids ?? [], () => []);
+  const summariesLoad = kidsLoad.then((kids) => (showChildrenRow(kids) ? loadChildSummaries(ctx, kids) : null));
 
   let loaded;
   try {
@@ -679,6 +803,7 @@ async function mountParent(ctx) {
     body.replaceWith(loadError(ctx, student.id));
     return;
   }
+  const kids = await kidsLoad;
   if (!ctx.alive()) return;
 
   const { data, updates, sessions, tutors, names } = loaded;
@@ -697,9 +822,11 @@ async function mountParent(ctx) {
   const overdue = overdueItems(items, { tasks: true });
   const coming = comingUp(items, now);
   const calm = !overdue.length && !coming.length && !anyNew;
+  const family = showChildrenRow(kids) ? childrenCard(ctx, kids, student.id) : null;
 
+  // Work and the tutor's notes first; Progress is a summary, so it comes last
   const blocks = [
-    h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, grades: data.submissions.map((s) => s.grade).filter(Boolean), name: first, now })),
+    family?.card,
     calm
       ? h('div', { class: 'span-12' }, emptyState({ icon: 'check-circle', text: `All caught up. ${first} has nothing due this week.` }))
       : null,
@@ -718,11 +845,21 @@ async function mountParent(ctx) {
       seen: seenUpdates,
     }),
     recentlyGradedCard(ctx, gradedItems(items).slice(0, 3), seenGraded),
+    recentSessionsCard(ctx, { sessions, names, studentId: student.id }),
     calm ? null : comingUpCard(ctx, coming),
+    h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, grades: data.submissions.map((s) => s.grade).filter(Boolean), name: first, now })),
   ].filter(Boolean);
   animate(ctx, blocks);
   body.replaceWith(h('div', { class: 'grid-12 ovw-grid' }, blocks));
   ctx.announce(`${parentTitle(first)}. ${ledeText}`);
+
+  if (family) {
+    const fill = (summaries) => { if (ctx.alive()) family.fill(summaries); };
+    summariesLoad.then(
+      (summaries) => fill(summaries ?? kids.map((child) => childSummary({ child, now }))),
+      () => fill(kids.map((child) => childSummary({ child, now }))),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
