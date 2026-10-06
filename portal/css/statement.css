@@ -50,5 +50,11 @@
 .bill-month { font: 600 15px/22px var(--font-ui); }
 .bill-date { display: block; font: var(--t-meta); color: var(--text-3); }
 .bill-amount { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* Phones: the status sits under the amount so the month keeps its width */
+@media (max-width: 480px) {
+  .bill-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: var(--s-1); }
+  .bill-row > span:first-child { grid-row: span 2; }
+  .bill-row > .bill-amount, .bill-row > .pill { grid-column: 2; justify-self: end; }
+}
 .bill-intro { max-width: 60ch; font: var(--t-ui); color: var(--text-2); }
 .bill-root { display: flex; flex-direction: column; gap: var(--s-5); }
