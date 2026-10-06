@@ -33,6 +33,7 @@ import { dueDateToIso, isoToDateInput, displayName } from './format.js';
 import { sb } from './supabase.js';
 import { lessonLabel, MATERIAL_ACCEPT, materialType, validateMaterialFile, materialIcon, sizeText } from './materials-model.js';
 import { uploadMaterialFiles, copyMaterialFiles, problemsText, namePastedImage } from './materials-ui.js';
+import { fileDrop } from './file-drop.js';
 import { todayKey, dayKey } from './dates.js';
 import { newSeriesId, shortDayText } from './sessions-model.js';
 import {
@@ -250,7 +251,7 @@ export function itemForm(dctx, {
       h('span', { class: 'field-label', id: `${formId}-attach` }, 'Attachments', h('span', { class: 'field-optional' }, 'Optional')),
       attachList,
       h('div', { class: 'asg-attach-actions' }, attachBtn, attachInput),
-      h('p', { class: 'field-hint' }, 'Worksheets or screenshots of the questions. PDF, PowerPoint, Word or images, up to 25 MB each. You can also paste a screenshot here.'),
+      h('p', { class: 'field-hint' }, 'Worksheets or screenshots of the questions. PDF, PowerPoint, Word or images, up to 25 MB each. You can also drag files here or paste a screenshot.'),
       attachProblem);
 
     renderAttachments = () => {
@@ -293,6 +294,8 @@ export function itemForm(dctx, {
       attachInput.value = '';
       if (files.length) addAttachments(files);
     });
+    // Files dragged onto Attachments are checked and listed like chosen ones
+    fileDrop(attachField, { onFiles: (files) => addAttachments(files), label: 'Drop files to attach them', iconName: 'paperclip' });
     renderAttachments();
   }
 

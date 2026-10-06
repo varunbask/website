@@ -14,6 +14,7 @@ import { h, uid } from './dom.js';
 import { icon } from './icons.js';
 import { sb } from './supabase.js';
 import { button, iconButton, field, setFieldError, busy } from './ui.js';
+import { fileDrop } from './file-drop.js';
 import {
   MATERIALS_BUCKET, MATERIAL_ACCEPT, SIGN_SECONDS, RESIGN_AFTER_MS,
   materialType, validateMaterialFile, materialPath, titleFromFile, validateLink,
@@ -346,14 +347,22 @@ export function materialsSection(dctx, {
     ? h('ul', { class: 'mat-list', 'aria-labelledby': headingId }, items.map(row))
     : h('p', { class: 'mat-empty' }, emptyText);
   const hint = canEdit
-    ? h('p', { class: 'mat-hint' }, 'PDF, PowerPoint, Word or images, up to 25 MB each, or a link.')
+    ? h('p', { class: 'mat-hint' }, 'PDF, PowerPoint, Word or images, up to 25 MB each, or a link. You can also drag files here.')
     : null;
 
-  return h('section', { class: 'drawer-section mat-section', 'aria-labelledby': headingId },
+  const section = h('section', { class: 'drawer-section mat-section', 'aria-labelledby': headingId },
     h('h3', { id: headingId }, heading, items.length ? h('span', { class: 'mat-count num' }, String(items.length)) : null),
     list,
     errorSlot,
     actions,
     linkSlot,
     hint);
+  // Files dragged onto the section upload like Add files (not while one is uploading)
+  if (canEdit) {
+    fileDrop(section, {
+      onFiles: (files) => addFiles(files, addFilesBtn),
+      enabled: () => addFilesBtn.getAttribute('aria-busy') !== 'true',
+    });
+  }
+  return section;
 }
