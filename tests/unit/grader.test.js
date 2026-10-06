@@ -4,7 +4,10 @@ import {
   loadAssignmentFiles, MAX_ASSIGNMENT_FILES,
 } from '../../api/_lib/grader.js';
 import { PermanentGradingError } from '../../api/_lib/errors.js';
+import { MAX_PDF_PAGES, MAX_PAGES_BASE64 } from '../../api/_lib/content.js';
+import { packJpegsToPdf } from '../../portal/js/pdf-pack.js';
 import { completion, TINY_PNG, makePdf } from './fixtures.js';
+import { RGB_12X16, GRAY_16X8, fakeJpeg } from './jpeg-fixtures.js';
 
 describe('parseResults', () => {
   test('keeps well-formed results for ids in the batch', () => {
@@ -362,5 +365,151 @@ describe('assignment files from the tutor', () => {
     const failing = fakeRepo({ listAssignmentFiles: vi.fn(async () => { throw new Error('db down'); }) });
     expect(await loadAssignmentFiles(failing, 3)).toEqual([]);
     expect(await gradeClaimed(failing, claimed({ body: 'x', storage_path: null, file_type: null }), { env: ENV, fetchImpl: okFetch(), now })).toBe('ai_graded');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Photos sent as the pages of one PDF (made in the portal by pdf-pack.js)
+
+describe('pages of a photo PDF', () => {
+  const assignment = { title: 'Q', details: '' };
+  const url = (base64) => `data:image/jpeg;base64,${base64}`;
+  const img = (base64) => ({ mime: 'image/jpeg', base64 });
+  const REMINDER = /^End of the student work/;
+
+  test('each page follows a line naming it, after the line that names the work', () => {
+    const parts = buildMessageParts({ id: 8, assignment, content: { kind: 'images', images: [img('AAAA'), img('BBBB'), img('CCCC')] } });
+    expect(parts.slice(2).map((p) => (p.type === 'text' ? p.text : p.image_url.url))).toEqual([
+      "ID: 8\nThe student's work is 3 photographed pages, in order. They follow, each after a line naming its page.",
+      'Page 1 of 3:', url('AAAA'),
+      'Page 2 of 3:', url('BBBB'),
+      'Page 3 of 3:', url('CCCC'),
+      expect.stringMatching(REMINDER),
+    ]);
+    expect(parts.filter((p) => p.type === 'image_url')).toHaveLength(3);
+  });
+
+  test('one page reads as a page, not as one of a set', () => {
+    const parts = buildMessageParts({ id: 8, assignment, content: { kind: 'images', images: [img('AAAA')] } });
+    expect(parts[2].text).toBe("ID: 8\nThe student's work is a photographed page. They follow, each after a line naming its page.");
+    expect(parts[3].text).toBe('Page 1 of 1:');
+  });
+
+  test('with a typed answer, the answer comes first and the pages are an attachment', () => {
+    const parts = buildMessageParts({ id: 8, assignment, answer: 'See my pages', content: { kind: 'images', images: [img('AAAA'), img('BBBB')] } });
+    expect(parts[2].text).toBe('ID: 8\n<student_work>\nSee my pages\n</student_work>');
+    expect(parts[3].text).toBe('The student also attached 2 photographed pages, in order. They follow, each after a line naming its page.');
+    expect(parts[4].text).toBe('Page 1 of 2:');
+    expect(parts.at(-1).text).toMatch(REMINDER);
+  });
+
+  test('says so when pages were left out before, and counts them in the total', () => {
+    const parts = buildMessageParts({ id: 8, assignment, content: { kind: 'images', images: [img('AAAA'), img('BBBB')], omitted: 3 } });
+    const texts = parts.filter((p) => p.type === 'text').map((p) => p.text);
+    expect(texts).toContain('Page 2 of 5:');
+    const note = texts.find((t) => t.startsWith('Only the first'));
+    expect(note).toBe('Only the first 2 of 5 pages are shown, because the rest could not be sent. Grade the pages shown, and mention in the feedback that the remaining pages could not be read.');
+    expect(parts.at(-2).text).toBe(note);
+    expect(parts.at(-1).text).toMatch(REMINDER);
+  });
+
+  test('sends at most ten pages even if given more, and says so', () => {
+    const images = Array.from({ length: 12 }, (_, i) => img(`P${i}`));
+    const parts = buildMessageParts({ id: 8, assignment, content: { kind: 'images', images } });
+    expect(MAX_PDF_PAGES).toBe(10);
+    expect(parts.filter((p) => p.type === 'image_url')).toHaveLength(10);
+    expect(parts.some((p) => p.text === 'Page 10 of 12:')).toBe(true);
+    expect(parts.some((p) => p.text?.startsWith('Only the first 10 of 12 pages'))).toBe(true);
+  });
+
+  test('sends only the first pages that fit in the total size, and says so', () => {
+    const big = 'A'.repeat(5 * 1024 * 1024);
+    const parts = buildMessageParts({ id: 8, assignment, content: { kind: 'images', images: [img(big), img(big), img(big)] } });
+    expect(5 * 1024 * 1024 * 2).toBeLessThanOrEqual(MAX_PAGES_BASE64);
+    expect(parts.filter((p) => p.type === 'image_url')).toHaveLength(2);
+    expect(parts.some((p) => p.text?.startsWith('Only the first 2 of 3 pages'))).toBe(true);
+  });
+
+  test('when nothing is left out there is no note, and no text contains an em dash', () => {
+    const parts = buildMessageParts({ id: 8, assignment, answer: 'a', content: { kind: 'images', images: [img('AAAA'), img('BBBB')], omitted: 1 } });
+    expect(buildMessageParts({ id: 8, assignment, content: { kind: 'images', images: [img('AAAA')] } })
+      .some((p) => p.text?.startsWith('Only the first'))).toBe(false);
+    for (const p of parts.filter((x) => x.type === 'text')) expect(p.text).not.toContain('\u2014');
+  });
+
+  test('a single photo and a text file are sent exactly as before', () => {
+    const photo = buildMessageParts({ id: 9, assignment, content: { kind: 'image', mime: 'image/png', base64: 'AAAA' } });
+    expect(photo).toHaveLength(5);
+    expect(photo[2].text).toBe("ID: 9\nThe student's work is the photo that follows.");
+    const text = buildMessageParts({ id: 9, assignment, content: { kind: 'text', text: 'hi' } });
+    expect(text[2].text).toBe('ID: 9\n<student_work>\nhi\n</student_work>');
+  });
+
+  // From the stored PDF through the model request
+  const sentParts = (fetchImpl) => JSON.parse(fetchImpl.mock.calls[0][1].body).messages[0].content;
+  const photoPdf = (jpegs) => packJpegsToPdf(jpegs.map(([bytes, width, height]) => ({ bytes, width, height })));
+
+  test('a submission that is a photo PDF is graded from its pages, in order', async () => {
+    const pdf = photoPdf([[RGB_12X16, 12, 16], [GRAY_16X8, 16, 8], [RGB_12X16, 12, 16]]);
+    const repo = fakeRepo({ download: vi.fn(async () => pdf) });
+    const fetchImpl = okFetch();
+    const sub = claimed({ body: null, storage_path: 'stu-1/abc.pdf', file_type: 'application/pdf' });
+    expect(await gradeClaimed(repo, sub, { env: ENV, fetchImpl, now })).toBe('ai_graded');
+    const parts = sentParts(fetchImpl);
+    const urls = parts.filter((p) => p.type === 'image_url').map((p) => p.image_url.url);
+    expect(urls).toEqual([url(Buffer.from(RGB_12X16).toString('base64')), url(Buffer.from(GRAY_16X8).toString('base64')), url(Buffer.from(RGB_12X16).toString('base64'))]);
+    expect(parts.filter((p) => p.type === 'text').map((p) => p.text).filter((t) => t.startsWith('Page '))).toEqual(['Page 1 of 3:', 'Page 2 of 3:', 'Page 3 of 3:']);
+    expect(repo.setStatus).toHaveBeenLastCalledWith(7, { status: 'ai_graded', error: null, now: NOW });
+  });
+
+  test('a photo PDF with more than ten pages is graded on the first ten, with a note', async () => {
+    const jpegs = Array.from({ length: 12 }, (_, i) => [fakeJpeg({ width: 30, height: 40, payload: [i, i + 1] }), 30, 40]);
+    const repo = fakeRepo({ download: vi.fn(async () => photoPdf(jpegs)) });
+    const fetchImpl = okFetch();
+    const sub = claimed({ body: null, storage_path: 'stu-1/abc.pdf', file_type: 'application/pdf' });
+    expect(await gradeClaimed(repo, sub, { env: ENV, fetchImpl, now })).toBe('ai_graded');
+    const parts = sentParts(fetchImpl);
+    expect(parts.filter((p) => p.type === 'image_url')).toHaveLength(10);
+    expect(parts.some((p) => p.text?.startsWith('Only the first 10 of 12 pages'))).toBe(true);
+  });
+
+  test('a typed answer and a photo PDF are graded together', async () => {
+    const repo = fakeRepo({ download: vi.fn(async () => photoPdf([[RGB_12X16, 12, 16], [GRAY_16X8, 16, 8]])) });
+    const fetchImpl = okFetch();
+    const sub = claimed({ body: 'Answers on the pages', storage_path: 'stu-1/abc.pdf', file_type: 'application/pdf' });
+    expect(await gradeClaimed(repo, sub, { env: ENV, fetchImpl, now })).toBe('ai_graded');
+    const parts = sentParts(fetchImpl);
+    expect(parts.filter((p) => p.type === 'image_url')).toHaveLength(2);
+    expect(parts.some((p) => p.text === 'ID: 7\n<student_work>\nAnswers on the pages\n</student_work>')).toBe(true);
+    expect(parts.some((p) => p.text?.startsWith('The student also attached 2 photographed pages'))).toBe(true);
+  });
+
+  test('a PDF with no text that is not made of photos still fails with the friendly message', async () => {
+    const repo = fakeRepo({ download: vi.fn(async () => makePdf('')) });
+    const fetchImpl = okFetch();
+    const sub = claimed({ body: null, storage_path: 'stu-1/abc.pdf', file_type: 'application/pdf' });
+    expect(await gradeClaimed(repo, sub, { env: ENV, fetchImpl, now })).toBe('failed');
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(repo.setStatus).toHaveBeenLastCalledWith(7, {
+      status: 'failed', error: 'This PDF has no readable text. Upload photos of the pages instead.', now: NOW,
+    });
+  });
+
+  test('a PDF with a text layer is graded as text, as before', async () => {
+    const repo = fakeRepo({ download: vi.fn(async () => makePdf('x = 4 because 2x = 8')) });
+    const fetchImpl = okFetch();
+    const sub = claimed({ body: null, storage_path: 'stu-1/abc.pdf', file_type: 'application/pdf' });
+    expect(await gradeClaimed(repo, sub, { env: ENV, fetchImpl, now })).toBe('ai_graded');
+    const parts = sentParts(fetchImpl);
+    expect(parts.some((p) => p.type === 'image_url')).toBe(false);
+    expect(parts.some((p) => p.text === 'ID: 7\n<student_work>\nx = 4 because 2x = 8\n</student_work>')).toBe(true);
+  });
+
+  test('a photo PDF among the tutor\'s files is left out, as an unreadable PDF was before', async () => {
+    const repo = fakeRepo({
+      listAssignmentFiles: vi.fn(async () => [{ title: 'Scan', storage_path: 'stu-1/scan.pdf', file_type: 'application/pdf' }]),
+      downloadMaterial: vi.fn(async () => photoPdf([[RGB_12X16, 12, 16]])),
+    });
+    expect(await loadAssignmentFiles(repo, 3)).toEqual([]);
   });
 });

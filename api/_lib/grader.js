@@ -1,5 +1,5 @@
 import { PermanentGradingError } from './errors.js';
-import { toGradableContent } from './content.js';
+import { toGradableContent, pagesThatFit } from './content.js';
 
 export const MAX_ATTEMPTS = 3;
 export const STALE_GRADING_MS = 10 * 60 * 1000;   // a 'grading' row older than this was abandoned
@@ -89,10 +89,15 @@ const escapeWork = (text) => text.replace(/<\/\s*student_work\s*>/gi, '<\\/stude
 /**
  * The user message for one submission: instructions, the assignment and the
  * tutor's files on it, then the work. The typed answer and a text or PDF file
- * are wrapped in <student_work> tags; a photo follows the part that names it.
+ * are wrapped in <student_work> tags; a photo follows the part that names it, and
+ * so does each page of a PDF made of photos (labelled "Page 2 of 3"). Only the
+ * first pages that fit (see pagesThatFit) are sent; the prompt says if any were
+ * left out, so the feedback can say so too.
  *
  *   answer       the student's typed answer, or null
- *   content      the attached file from toGradableContent, or null
+ *   content      the attached file from toGradableContent, or null; kind 'text',
+ *                'image' (one photo) or 'images' (the pages of a photo PDF, with
+ *                `omitted` pages already left out before this)
  *   fileProblem  why an attached file was left out (graded on the answer alone)
  *   attachments  the tutor's files: { title, kind: 'text' | 'image', ... }
  */
@@ -119,6 +124,20 @@ export function buildMessageParts({ id, assignment, answer = null, content = nul
   if (content?.kind === 'text') {
     const label = answer ? 'The student also attached a file. Its text:' : `ID: ${id}`;
     work.push({ type: 'text', text: `${label}\n<student_work>\n${escapeWork(content.text)}\n</student_work>` });
+  } else if (content?.kind === 'images') {
+    const shown = content.images.slice(0, pagesThatFit(content.images.map((image) => image.base64.length)));
+    const total = content.images.length + (content.omitted ?? 0);
+    if (shown.length) {
+      const what = total === 1 ? 'a photographed page' : `${total} photographed pages, in order`;
+      work.push({ type: 'text', text: answer ? `The student also attached ${what}. They follow, each after a line naming its page.` : `ID: ${id}\nThe student's work is ${what}. They follow, each after a line naming its page.` });
+      shown.forEach((image, i) => {
+        work.push({ type: 'text', text: `Page ${i + 1} of ${total}:` });
+        work.push({ type: 'image_url', image_url: { url: `data:${image.mime};base64,${image.base64}` } });
+      });
+    }
+    if (shown.length < total) {
+      work.push({ type: 'text', text: `Only the first ${shown.length} of ${total} pages are shown, because the rest could not be sent. Grade the pages shown, and mention in the feedback that the remaining pages could not be read.` });
+    }
   } else if (content) {
     work.push({ type: 'text', text: answer ? 'The student also attached the photo that follows.' : `ID: ${id}\nThe student's work is the photo that follows.` });
     work.push({ type: 'image_url', image_url: { url: `data:${content.mime};base64,${content.base64}` } });
@@ -149,6 +168,7 @@ export async function loadAssignmentFiles(repo, taskId) {
     try {
       const bytes = await repo.downloadMaterial(row.storage_path);
       const content = await toGradableContent(bytes, row.file_type);
+      if (content.kind === 'images') continue;   // the pages of a student's photo PDF: not something a tutor attaches
       if (content.kind === 'image') {
         if (imageBytes + content.base64.length > MAX_ASSIGNMENT_IMAGE_BASE64) continue;
         imageBytes += content.base64.length;

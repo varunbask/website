@@ -17,6 +17,10 @@
        label.asg-dropzone (+ .is-over) > input.visually-hidden + span.asg-drop-icon +
          span.asg-drop-title + span.asg-drop-hint
        div.asg-file > span.asg-file-icon + span.asg-file-main + .btn
+       div.asg-pages (photos as pages) > div.asg-pages-head > p.asg-pages-count + p.asg-pages-hint
+         + ol.asg-pages-list > li.asg-page > img.asg-page-thumb + span.asg-page-main
+         (span.asg-page-label + span.asg-page-meta) + span.asg-page-actions > 3 button.icon-btn.asg-page-btn
+         (the dropzone beside it gets .is-compact)
        div.asg-submit-actions > .btn + span.asg-attempt
      ol.asg-history > li.asg-sub > (div.asg-sub-row | a.asg-sub-link) > span.asg-sub-icon +
        span.asg-sub-main + span.asg-sub-status (+ svg.asg-sub-caret) + div.asg-sub-extra
@@ -263,6 +267,55 @@
   text-overflow: ellipsis;
 }
 .asg-file-meta { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
+
+/* Photos attached as pages: one row each, in PDF order */
+.asg-pages { display: flex; flex-direction: column; gap: var(--s-2); }
+.asg-pages-head { display: flex; flex-direction: column; gap: 2px; }
+.asg-pages-count { margin: 0; font: 600 14px/20px var(--font-ui); color: var(--text); }
+.asg-pages-count:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
+.asg-pages-hint { margin: 0; font: 400 12px/16px var(--font-ui); color: var(--text-3); }
+.asg-pages-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.asg-page {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) var(--s-2) var(--s-2) var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.asg-page-thumb {
+  display: block;
+  width: 48px;
+  height: 64px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+}
+.asg-page-main { display: flex; flex-direction: column; min-width: 0; }
+.asg-page-label { font: 500 14px/20px var(--font-ui); color: var(--text); }
+.asg-page-meta {
+  display: flex;
+  gap: var(--s-2);
+  min-width: 0;
+  font: 400 12px/16px var(--font-ui);
+  color: var(--text-3);
+}
+.asg-page-name { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.asg-page-meta > .num { flex: none; }
+.asg-page-actions { display: flex; align-items: center; }
+.asg-page-up > .icon { transform: rotate(180deg); }
+.asg-attach .asg-dropzone.is-compact { min-height: 64px; padding: var(--s-3) var(--s-4); }
+.asg-attach .asg-dropzone.is-compact .asg-drop-icon { display: none; }
 
 .asg-submit-form textarea.input { min-height: 64px; }
 /* Your answer: a preview card that opens the editor */

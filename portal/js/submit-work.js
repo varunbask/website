@@ -14,17 +14,24 @@
 // until they submit. The section carries data-task-id, data-attempts and
 // data-sending so the drawer can keep it (with the answer, the chosen file
 // and the note) across refresh paints.
-// Files dropped anywhere on the section, or an image pasted into it (a
+// Several photos can be attached as the pages of one piece of handwritten
+// work. They show as a list of pages (thumbnails, move and remove buttons;
+// the rules are in pages-model.js) and are combined into one PDF in the
+// browser when the work is submitted (upload.js, pdf-pack.js), so a
+// submission still holds one file and costs one attempt. One photo alone is
+// sent as a photo, as before.
+// Files dropped anywhere on the section, or images pasted into it (a
 // screenshot), take the dropzone's path.
 //
-// Order: validate, then (only with a file) prepareUpload, storagePath and the
-// storage upload (upsert false), then the submissions insert, startGrading
-// (not awaited), then the redraw.
+// Order: validate, then (only with a file) prepareUpload (or preparePagesPdf
+// for two or more photos), storagePath and the storage upload (upsert false),
+// then the submissions insert, startGrading (not awaited), then the redraw.
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
-import { button, field, busy } from './ui.js';
-import { validateUpload, prepareUpload, storagePath, ACCEPT } from './upload.js';
+import { button, iconButton, field, busy } from './ui.js';
+import { validateUpload, prepareUpload, preparePagesPdf, storagePath, UploadProblem, ACCEPT } from './upload.js';
+import { addFiles, removeAt, moveBy, isPhoto, isPages, pagesText, said, MAX_PAGES } from './pages-model.js';
 import { startGrading } from './grading.js';
 import { sb } from './supabase.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
@@ -71,7 +78,7 @@ function fileIcon(type) {
 function failureText(error) {
   const message = error?.message ?? '';
   if (atLimit(error)) return atLimitText();
-  return message.startsWith('This photo') ? message : failedText();
+  return error instanceof UploadProblem || message.startsWith('This photo') ? message : failedText();
 }
 
 // The database refused a submission over the cap: the trigger in
@@ -89,18 +96,26 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   const headingId = uid('submit-heading');
   let sending = false;
 
-  // Dropzone: a label around a visually hidden (still focusable) file input
+  // What is attached: one file, or the photos that become the pages of one PDF
+  let files = [];
+  const photoUrls = new Map();   // photo File -> object URL for its thumbnail
+
+  // Dropzone: a label around a visually hidden (still focusable) file input.
+  // The input only picks files; `files` is what is attached.
   const input = h('input', {
     type: 'file',
     name: 'file',
     accept: ACCEPT,
+    multiple: true,
     class: 'visually-hidden',
   });
+  const dropTitle = h('span', { class: 'asg-drop-title' });
+  const dropHint = h('span', { class: 'asg-drop-hint' });
   const dropzone = h('label', { class: 'asg-dropzone' },
     input,
     h('span', { class: 'asg-drop-icon' }, icon('upload-simple', { size: 20 })),
-    h('span', { class: 'asg-drop-title' }, 'Attach a file, drop it here, or paste a screenshot'),
-    h('span', { class: 'asg-drop-hint' }, 'Optional. PDF, photo (JPG or PNG) or text file, up to 20 MB.'));
+    dropTitle,
+    dropHint);
 
   // The answer: written in the editor, shown here as a preview. The draft
   // loads from the student's account; until it arrives the card says so.
@@ -228,9 +243,9 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     variant: 'ghost',
     size: 'sm',
     onClick: () => {
-      input.value = '';
+      files = [];
       setError('');
-      showChosen(null);
+      paint();
       input.focus();
     },
   });
@@ -238,6 +253,22 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     fileIconSlot,
     h('span', { class: 'asg-file-main' }, fileName, fileMeta),
     removeBtn);
+
+  // Photos: one row per page, in the order they will have in the PDF
+  const pagesCount = h('p', { class: 'asg-pages-count', tabindex: '-1' });
+  const pagesHint = h('p', { class: 'asg-pages-hint' }, 'Pages are combined into one PDF when you submit.');
+  const pagesList = h('ol', { class: 'asg-pages-list', role: 'list', 'aria-label': 'Pages' });
+  const pagesBox = h('div', { class: 'asg-pages', hidden: true },
+    h('div', { class: 'asg-pages-head' }, pagesCount, pagesHint),
+    pagesList);
+  // Spoken when the pages change (focus alone does not say how many there are)
+  const live = h('p', { class: 'visually-hidden', role: 'status' });
+  let liveTimer = null;
+  const say = (text) => {
+    clearTimeout(liveTimer);
+    live.textContent = '';
+    liveTimer = setTimeout(() => { live.textContent = text; }, 60);
+  };
 
   const note = h('textarea', { class: 'input textarea asg-note-input', name: 'note', rows: '2', maxlength: '1000' });
   const noteField = field({ label: 'Note for your tutor', optional: true, control: note });
@@ -257,7 +288,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   const progress = h('div', { class: 'asg-progress', 'aria-hidden': 'true' }, h('span', { class: 'asg-progress-bar' }));
   const attachLabel = h('p', { class: 'field-label asg-attach-label' }, 'Attach a file', h('span', { class: 'field-optional' }, 'Optional'));
   const form = h('form', { class: 'asg-submit-form', novalidate: true, 'aria-labelledby': headingId },
-    answerField, h('div', { class: 'asg-attach' }, attachLabel, dropzone, chosen), noteField, error, actions);
+    answerField, h('div', { class: 'asg-attach' }, attachLabel, chosen, pagesBox, dropzone, live), noteField, error, actions);
 
   const section = h('section', {
     class: 'drawer-section asg-submit',
@@ -274,10 +305,10 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     error.append(h('p', { class: 'field-error' }, icon('warning-circle'), h('span', {}, text)));
   }
 
+  // The single file (a PDF or text file): its name and size, in place of the dropzone
   function showChosen(file) {
     if (!file) {
       chosen.hidden = true;
-      dropzone.hidden = false;
       removeBtn.removeAttribute('aria-label');
       return;
     }
@@ -288,29 +319,167 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     // Focus lands here after choosing: the name says which file it was
     removeBtn.setAttribute('aria-label', `Remove ${file.name || 'your file'}`);
     chosen.hidden = false;
-    dropzone.hidden = true;
+  }
+
+  // Thumbnails are object URLs: made when a page first shows, revoked when it
+  // is removed or replaced, and all of them once the work is in, or this section
+  // has left the page (the drawer closed or showed another item)
+  function urlFor(file) {
+    if (!photoUrls.has(file)) photoUrls.set(file, URL.createObjectURL(file));
+    return photoUrls.get(file);
+  }
+  function releaseUnused() {
+    for (const [file, url] of photoUrls) {
+      if (files.includes(file)) continue;
+      URL.revokeObjectURL(url);
+      photoUrls.delete(file);
+    }
+  }
+  function releaseAll() {
+    for (const url of photoUrls.values()) URL.revokeObjectURL(url);
+    photoUrls.clear();
+    goneWatcher?.disconnect();
+    goneWatcher = null;
+  }
+  // The drawer keeps this section across refresh paints, each with a new signal
+  // that this section never sees, so a signal cannot say when it is gone. Watch
+  // the drawer (or the page, before the section is in one) instead, for as long
+  // as there are thumbnails to release. The check waits a moment: a refresh
+  // moves the section out of the old body and into the new one a little before
+  // the new one is on screen, and that is not leaving the page.
+  let goneWatcher = null;
+  function watchForRemoval() {
+    if (goneWatcher || !photoUrls.size) return;
+    let timer = null;
+    const check = () => {
+      timer = null;
+      const dialog = section.closest('dialog');
+      if (section.isConnected && !(dialog && !dialog.open)) return;
+      releaseAll();
+    };
+    goneWatcher = new MutationObserver(() => { timer ??= setTimeout(check, 400); });
+    goneWatcher.observe(section.closest('dialog') ?? document.body, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ['open'],
+    });
+  }
+
+  // One row per page: thumbnail, "Page 2", the file's name and size, and
+  // Move up, Move down, Remove, each named for its page
+  let rows = [];   // the buttons of each row, for moving focus
+  function pageRow(file, index, total) {
+    const n = index + 1;
+    const mk = (name, label, onClick, extra = {}) => {
+      const el = iconButton({ icon: name, label, onClick, tip: false, className: `asg-page-btn ${extra.className ?? ''}`.trim() });
+      el.title = label;
+      el.disabled = Boolean(extra.disabled) || sending;
+      return el;
+    };
+    const up = mk('caret-down', `Move page ${n} up`, () => movePage(index, -1), { className: 'asg-page-up', disabled: index === 0 });
+    const down = mk('caret-down', `Move page ${n} down`, () => movePage(index, 1), { disabled: index === total - 1 });
+    const remove = mk('x', `Remove page ${n}`, () => removePage(index));
+    rows.push({ up, down, remove });
+    return h('li', { class: 'asg-page' },
+      h('img', { class: 'asg-page-thumb', src: urlFor(file), alt: '', width: '48', height: '64' }),
+      h('span', { class: 'asg-page-main' },
+        h('span', { class: 'asg-page-label' }, `Page ${n}`),
+        h('span', { class: 'asg-page-meta' }, h('span', { class: 'asg-page-name' }, file.name || 'Photo'), h('span', { class: 'num' }, fileSize(file.size)))),
+      h('span', { class: 'asg-page-actions' }, up, down, remove));
+  }
+
+  // Which control shows what, for the files now attached
+  function paint() {
+    const pages = isPages(files);
+    const single = files.length === 1 && !pages ? files[0] : null;
+    showChosen(single);
+    pagesBox.hidden = !pages;
+    if (pages) {
+      rows = [];
+      pagesCount.textContent = pagesText(files.length);
+      pagesHint.hidden = files.length < 2;
+      pagesList.replaceChildren(...files.map((file, i) => pageRow(file, i, files.length)));
+    } else {
+      pagesList.replaceChildren();
+      rows = [];
+    }
+    releaseUnused();
+    watchForRemoval();
+    dropzone.hidden = Boolean(single) || (pages && files.length >= MAX_PAGES);
+    dropzone.classList.toggle('is-compact', pages);
+    dropTitle.textContent = pages ? 'Add another page' : 'Attach files, drop them here, or paste a screenshot';
+    dropHint.textContent = pages
+      ? `Choose or drop more photos. Up to ${MAX_PAGES} pages.`
+      : `Optional. PDF, text file, or up to ${MAX_PAGES} photos (JPG or PNG). Up to 20 MB.`;
+  }
+  paint();
+
+  // After a change, focus must not be left on something that is now hidden
+  function settleFocus() {
+    const active = document.activeElement;
+    const stranded = Boolean(active && section.contains(active) && active.closest('[hidden]'));
+    if (files.length === 1 && !isPhoto(files[0])) {
+      if (active === input || !section.contains(active) || stranded) removeBtn.focus();
+    } else if (!files.length) {
+      if (stranded) input.focus();
+    } else if (stranded) {
+      (dropzone.hidden ? pagesCount : input).focus();
+    }
+  }
+
+  // Focus the named button of the page at `index`; if it is disabled (the page
+  // reached an end of the list) the next best one gets it
+  function focusPageButton(index, prefer) {
+    const row = rows[index];
+    if (!row) return;
+    const order = { up: [row.up, row.down, row.remove], down: [row.down, row.up, row.remove], remove: [row.remove, row.up, row.down] }[prefer];
+    order.find((el) => !el.disabled)?.focus();
+  }
+
+  function movePage(index, delta) {
+    if (sending) return;
+    const moved = moveBy(files, index, delta);
+    if (moved.files === files) return;
+    files = moved.files;
+    paint();
+    focusPageButton(moved.index, delta < 0 ? 'up' : 'down');
+    say(said.moved(moved.index, files.length));
+  }
+
+  function removePage(index) {
+    if (sending) return;
+    files = removeAt(files, index);
+    setError('');
+    paint();
+    if (files.length) focusPageButton(Math.min(index, files.length - 1), 'remove');
+    else input.focus();
+    say(said.removed(index, files.length));
+  }
+
+  // Chosen, dropped and pasted files take this one path. Returns true when
+  // something was attached. A refusal is shown under the form (and, from the
+  // editor, which is in front of it, in a toast too).
+  function takeFiles(incoming, { fromEditor = false } = {}) {
+    if (sending) return false;
+    const result = addFiles(files, incoming);
+    if (result.problem) {
+      setError(result.problem);
+      if (fromEditor) toast({ text: result.problem });
+      return false;
+    }
+    if (!result.added) return false;
+    setError('');
+    files = result.files;
+    paint();
+    settleFocus();
+    if (isPages(files)) say(said.added(result.added, files.length));
+    return true;
   }
 
   input.addEventListener('change', () => {
-    const file = input.files?.[0] ?? null;
-    if (!file) {
-      showChosen(null);
-      return;
-    }
-    const problem = validateUpload(file);
-    if (problem) {
-      input.value = '';
-      showChosen(null);
-      setError(problem);
-      return;
-    }
-    setError('');
-    showChosen(file);
-    // Focus followed the file picker into a now hidden dropzone: move it on
-    if (document.activeElement === input || !section.contains(document.activeElement)) removeBtn.focus();
+    const picked = [...(input.files ?? [])];
+    input.value = '';   // so the same photo can be chosen again after removing it
+    takeFiles(picked);
   });
 
-  // Dropped and chosen files take the same path: assign, then fire change.
   // The dropzone lights up; a drop anywhere on the section counts, so a near
   // miss (or a drop on the chosen file row) never opens the file in the tab.
   let depth = 0;
@@ -337,54 +506,34 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     depth = 0;
     over(false);
     if (sending || !e.dataTransfer?.files?.length) return;
-    try {
-      input.files = e.dataTransfer.files;
-    } catch {
-      setError('That file could not be added. Choose it with the file picker instead.');
-      return;
-    }
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+    takeFiles([...e.dataTransfer.files]);
   });
 
-  // A pasted image (a screenshot) becomes the attached file, here or in the
-  // editor, which hands over any file pasted or dropped in. The editor is a
+  // A pasted image (a screenshot) is attached like a chosen photo, here or in
+  // the editor, which hands over any file pasted or dropped in. The editor is a
   // dialog in front of this section, so what happened is said in a toast too.
   // Returns true when the file is attached.
+  const shotName = (file, n) => {
+    if (!isPhoto(file) || (file.name && file.name !== 'image.png')) return file;
+    const ext = file.type === 'image/png' ? 'png' : 'jpg';
+    return new File([file], n ? `Screenshot ${n}.${ext}` : `Screenshot.${ext}`, { type: file.type });
+  };
   function attachFile(file, { fromEditor = false } = {}) {
     if (sending) return false;
-    const shot = file.type === 'image/png' || file.type === 'image/jpeg';
-    const named = !shot || (file.name && file.name !== 'image.png')
-      ? file
-      : new File([file], `Screenshot.${file.type === 'image/png' ? 'png' : 'jpg'}`, { type: file.type });
-    const problem = validateUpload(named);
-    if (problem) {
-      setError(problem);
-      if (fromEditor) toast({ text: problem });
-      return false;
-    }
-    try {
-      const dt = new DataTransfer();
-      dt.items.add(named);
-      input.files = dt.files;
-    } catch {
-      const text = 'That file could not be added. Save it and choose it with the file picker instead.';
-      setError(text);
-      if (fromEditor) toast({ text });
-      return false;
-    }
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+    const named = shotName(file);
+    if (!takeFiles([named], { fromEditor })) return false;
     if (fromEditor) {
-      toast({ text: shot
-        ? 'Images can’t go inside the answer, so it was attached as your file.'
+      toast({ text: isPhoto(named)
+        ? 'Images can’t go inside the answer, so it was attached to your work.'
         : `${named.name || 'The file'} was attached to your work.` });
     }
     return true;
   }
   section.addEventListener('paste', (e) => {
-    const image = [...(e.clipboardData?.files ?? [])].find((f) => f.type === 'image/png' || f.type === 'image/jpeg');
-    if (!image) return;
+    const images = [...(e.clipboardData?.files ?? [])].filter(isPhoto);
+    if (!images.length) return;
     e.preventDefault();
-    attachFile(image);
+    takeFiles(images.map((image, i) => shotName(image, images.length > 1 ? i + 1 : 0)));
   });
 
   const setSending = (on) => {
@@ -394,9 +543,10 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (sending) return;
-    const file = input.files?.[0] ?? null;
+    const attached = files;
+    const asPages = attached.length > 1;   // two or more photos become one PDF
     const text = docToText(doc).trim();
-    if (!text && !file) {
+    if (!text && !attached.length) {
       setError(NOTHING);
       answerBtn.focus();
       return;
@@ -406,7 +556,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
       answerBtn.focus();
       return;
     }
-    const problem = file ? validateUpload(file) : null;
+    const problem = attached.map((file) => validateUpload(file)).find(Boolean) ?? null;
     if (problem) {
       setError(problem);
       return;
@@ -418,13 +568,23 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
     answerBtn.disabled = true;
     note.readOnly = true;
     removeBtn.disabled = true;
+    for (const button of pagesBox.querySelectorAll('button')) button.disabled = true;
+    const label = submit.querySelector('.btn-label');
     try {
-      await busy(submit, file ? 'Uploading…' : 'Submitting…', async () => {
+      await busy(submit, asPages ? 'Preparing pages…' : attached.length ? 'Uploading…' : 'Submitting…', async () => {
         try {
           // The plain text is what grading reads; the document keeps the formatting
           const row = { task_id: task.id, body: text || null, body_doc: text ? doc : null, note: note.value.trim() || null };
-          if (file) {
-            const { body, type } = await prepareUpload(file);
+          if (attached.length) {
+            if (asPages) say(`Combining your ${attached.length} pages into one PDF.`);
+            const { body, type } = asPages
+              ? await preparePagesPdf(attached, {
+                onProgress: ({ page, of, smaller }) => {
+                  label.textContent = smaller ? `Making pages smaller, ${page} of ${of}…` : `Preparing page ${page} of ${of}…`;
+                },
+              })
+              : await prepareUpload(attached[0]);
+            if (asPages) label.textContent = 'Uploading…';
             const path = storagePath(studentId, type);
             const uploaded = await sb.storage.from('homework').upload(path, body, { contentType: type, upsert: false });
             if (uploaded.error) throw uploaded.error;
@@ -433,6 +593,8 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
           }
           const inserted = await sb.from('submissions').insert(row).select('id').single();
           if (inserted.error) throw inserted.error;
+          files = [];
+          releaseAll();
           // Not awaited: the work is in. If grading could not start, say so once it answers.
           startGrading(inserted.data.id, { keepalive: true })
             .then((problem) => { if (problem) toast({ text: GRADING_LATER }); })
@@ -444,7 +606,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
           }
         } catch (err) {
           console.error('Submission failed', err);
-          if (dctx.alive?.() !== false) setError(failureText(err));
+          if (section.isConnected) setError(failureText(err));
           // A stale attempt count: reload so the drawer shows the limit instead of the form
           if (atLimit(err)) dctx.store?.invalidate(studentId);
         }
@@ -456,6 +618,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
       answerBtn.disabled = false;
       note.readOnly = false;
       removeBtn.disabled = false;
+      paint();   // the page buttons, enabled again (the thumbnails come back if they were released)
     }
   });
 
