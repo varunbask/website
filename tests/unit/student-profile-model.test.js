@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   LIMITS, PROFILE_DRAWER, PROFILE_FIELDS, mailtoHref, FIELD_LABELS, PLACEHOLDER_DOMAIN, isPlaceholderEmail, realEmail, headerEmail, telHref,
-  normalizeField, checkProfile, profileDraft, isBlankProfile, profileChanged, gradeText, profileFacts, aboutFacts,
+  normalizeField, checkProfile, profileDraft, isBlankProfile, profileChanged, profileChanges, gradeText, profileFacts, aboutFacts,
   updatedText, sinceText, subjectChips, checkNote, sortNotes, authorName, canDeleteNote, noteByline, notesWindow, NOTES_SHOWN,
   parentContacts,
 } from '../../portal/js/student-profile-model.js';
@@ -143,6 +143,21 @@ describe('profile state', () => {
     expect(isBlankProfile(null)).toBe(true);
     expect(isBlankProfile({ grade_level: null, school: '  ', goals: '', learning_notes: null })).toBe(true);
     expect(isBlankProfile({ grade_level: null, school: null, goals: null, learning_notes: 'Needs breaks' })).toBe(false);
+  });
+
+  test('profileChanges lists only the fields that differ from the row the form opened on', () => {
+    const row = { grade_level: '9th grade', school: 'Arcadia High School', goals: 'Raise it', learning_notes: 'Needs breaks' };
+    const typed = (over) => checkProfile({ ...row, ...over }).values;
+    expect(profileChanges(row, typed({}))).toEqual({});
+    expect(profileChanges(row, typed({ school: 'Pasadena High School' }))).toEqual({ school: 'Pasadena High School' });
+    expect(profileChanges(row, typed({ school: ' Arcadia   High School ', goals: 'Raise it to an A' }))).toEqual({ goals: 'Raise it to an A' });
+    expect(profileChanges(row, typed({ goals: '', learning_notes: '  ' }))).toEqual({ goals: null, learning_notes: null });
+  });
+
+  test('with no row, every filled-in field is a change and blank ones are not', () => {
+    expect(profileChanges(null, checkProfile({ school: 'Arcadia', goals: '' }).values)).toEqual({ school: 'Arcadia' });
+    expect(profileChanges(null, checkProfile({}).values)).toEqual({});
+    expect(profileChanges({ goals: null }, checkProfile({ goals: '' }).values)).toEqual({});
   });
 
   test('profileChanged compares normalized values', () => {

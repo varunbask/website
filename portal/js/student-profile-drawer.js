@@ -167,7 +167,7 @@ function profileForm(dctx, student, row) {
     try {
       await busy(save, 'Saving…', async () => {
         try {
-          await saveProfile(student.id, values, { exists: Boolean(row) });
+          await saveProfile(student.id, values, { row });
         } catch (error) {
           console.error(error);
           if (dctx.alive?.() === false) return;

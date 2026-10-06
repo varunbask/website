@@ -5,6 +5,7 @@
 
 import { sb } from './supabase.js';
 import { staffNames } from './updates-feed.js';
+import { profileChanges } from './student-profile-model.js';
 
 const PROFILE_FIELDS = 'student_id, grade_level, school, goals, learning_notes, updated_by, updated_at';
 const NOTE_FIELDS = 'id, student_id, author_id, body, created_at';
@@ -25,15 +26,28 @@ export async function loadFamilyProfile(studentId) {
   return data?.[0] ?? null;
 }
 
-// Saves the four fields (values from checkProfile) and returns the saved row.
-// Insert or update, never upsert: `exists` says which one to try first, and if
-// the row appeared or vanished since it was read, the other one runs.
-export async function saveProfile(studentId, values, { exists = false } = {}) {
-  const update = () => sb.from('student_profiles').update(values).eq('student_id', studentId).select(PROFILE_FIELDS);
+// Saves the profile and returns the saved row. `values` is the form's four
+// fields (from checkProfile) and `row` the profile the form was opened on, or
+// null when there was none.
+//
+// With a row, only the fields that differ from it are sent, so two tutors editing
+// at once never overwrite each other's untouched fields; nothing differing sends
+// nothing and returns the row. With no row, the full set is inserted. Insert or
+// update, never upsert: if the row appeared since it was read (a colleague saved
+// first), only the changed fields are updated; if it vanished, the full set is
+// inserted.
+export async function saveProfile(studentId, values, { row = null } = {}) {
+  const changes = profileChanges(row, values);
+  const update = () => sb.from('student_profiles').update(changes).eq('student_id', studentId).select(PROFILE_FIELDS);
   const insert = () => sb.from('student_profiles').insert({ student_id: studentId, ...values }).select(PROFILE_FIELDS);
-  let result = exists ? await update() : await insert();
-  const other = exists ? (!result.error && !result.data?.length) : result.error?.code === '23505';
-  if (other) result = exists ? await insert() : await update();
+  if (row && !Object.keys(changes).length) return row;
+  let result = row ? await update() : await insert();
+  const other = row ? (!result.error && !result.data?.length) : result.error?.code === '23505';
+  if (other) {
+    // Nothing to change in a row that appeared: it already holds what was typed
+    if (!row && !Object.keys(changes).length) return loadProfile(studentId);
+    result = row ? await insert() : await update();
+  }
   if (result.error) throw result.error;
   if (!result.data?.length) throw new Error('The profile was not saved.');
   return result.data[0];

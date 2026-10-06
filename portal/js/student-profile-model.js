@@ -108,9 +108,22 @@ export function isBlankProfile(profile) {
   return !profile || PROFILE_FIELDS.every((key) => blank(profile[key]));
 }
 
+// The fields whose saved value differs from the row the form was opened on:
+// { key: newValue } (null clears a field). Only these are sent on an edit, so a
+// tutor who changes the school does not overwrite the goals a colleague saved a
+// moment ago. With no row, every filled-in field counts as a change.
+export function profileChanges(profile, values) {
+  const changes = {};
+  for (const key of PROFILE_FIELDS) {
+    const next = values?.[key] ?? null;
+    if ((normalizeField(key, profile?.[key]) ?? null) !== next) changes[key] = next;
+  }
+  return changes;
+}
+
 // Would saving these values change anything?
 export function profileChanged(profile, values) {
-  return PROFILE_FIELDS.some((key) => (normalizeField(key, profile?.[key]) ?? null) !== (values?.[key] ?? null));
+  return Object.keys(profileChanges(profile, values)).length > 0;
 }
 
 // "9" and "9th" read as "9th grade", "K" as "Kindergarten"; anything else is
