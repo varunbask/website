@@ -29,6 +29,9 @@ import { taskCheck } from '../task-check.js';
 import { announceGoogleReturn, studentInviteControl } from '../google.js';
 import { queueRow } from '../review-row.js';
 import { progressPanel } from '../progress-panel.js';
+import { loadStaffProfile } from '../student-profile-data.js';
+import { staffProfileCards, familyAboutCard } from '../student-profile-card.js';
+import { headerEmail } from '../student-profile-model.js';
 import {
   greeting, studentLede, parentSummary, parentTitle, weekCounts, dueNext, overdueItems, comingUp,
   openTasks, gradedItems, weekStrip, stripLabel, chipStyle, shortDay, firstLine, lastUpdateLabel,
@@ -587,6 +590,7 @@ async function mountStudent(ctx) {
       studentFirstName: first,
       seen: getSeen('updates', ctx.me.id, student.id),
     }),
+    familyAboutCard(ctx, student),
   ];
   animate(ctx, blocks);
   body.replaceWith(h('div', { class: 'grid-12 ovw-grid' }, blocks));
@@ -719,6 +723,7 @@ async function mountParent(ctx) {
     }),
     recentlyGradedCard(ctx, gradedItems(items).slice(0, 3), seenGraded),
     calm ? null : comingUpCard(ctx, coming),
+    familyAboutCard(ctx, student),
   ].filter(Boolean);
   animate(ctx, blocks);
   body.replaceWith(h('div', { class: 'grid-12 ovw-grid' }, blocks));
@@ -759,10 +764,11 @@ async function mountStaff(ctx) {
   const student = ctx.scope?.student;
   const name = displayName(student);
   const first = firstName(name);
+  const email = headerEmail(student, name);   // never a placeholder address
   const header = ctx.setHeader({
     title: name,
     lead: avatar(name, { size: 40 }),
-    lede: student?.email && student.email !== name ? h('p', { class: 'view-lede ovw-email' }, student.email) : null,
+    lede: email ? h('p', { class: 'view-lede ovw-email' }, email) : null,
     actions: [
       button({ label: 'New assignment', variant: 'primary', icon: 'plus', onClick: () => ctx.openNew({ kind: 'assignment' }) }),
       button({ label: 'Post update', variant: 'secondary', icon: 'chat-circle-text', href: '#/updates?compose=1' }),
@@ -772,6 +778,7 @@ async function mountStaff(ctx) {
   const body = loadingGrid(['span-12', 'span-12', 'span-8', 'span-4']);
   ctx.host.append(body);
 
+  const profileLoad = loadStaffProfile(ctx.store, student.id);   // never rejects
   let loaded;
   try {
     loaded = await loadAll(ctx, student.id, { tutors: false });
@@ -781,6 +788,7 @@ async function mountStaff(ctx) {
     body.replaceWith(loadError(ctx, student.id));
     return;
   }
+  const profile = await profileLoad;
   if (!ctx.alive()) return;
 
   const { data, updates, sessions, names } = loaded;
@@ -790,6 +798,7 @@ async function mountStaff(ctx) {
 
   const blocks = [
     nextSessionCard(ctx, { sessions, names, studentId: student.id }),
+    ...staffProfileCards(ctx, student, profile),
     h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, grades: data.submissions.map((s) => s.grade).filter(Boolean), name: first, now })),
     needsReviewCard(ctx, entries, data.tasks, name),
     comingUpCard(ctx, comingUp(items, now), { span: 'span-4', mini: true, overdue: overdueItems(items, { tasks: true }) }),
