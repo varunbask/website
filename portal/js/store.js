@@ -12,6 +12,7 @@ import { deriveItems } from './buckets.js';
 import { loadUpdates } from './updates-feed.js';
 import { rememberSubjects } from './sessions-model.js';
 import { zonedIso } from './dates.js';
+import { STALE_MS, isStale, oldestStamp } from './freshness.js';
 
 const students = new Map();   // studentId -> Promise<StudentData>
 const updates = new Map();    // studentId -> Promise<Update[]>
@@ -26,12 +27,17 @@ let billing = null;           // Promise<Billing> | null (admin's Account page)
 const listeners = new Set();
 let queued = null;            // ids changed since the last emit ('*' for everything)
 
-// Keeps a promise in a map until it fails
+const bornAt = new WeakMap();   // cached promise -> when it resolved (unset while it loads)
+
+// Keeps a promise in a map until it fails, noting when it resolved
 function remember(map, key, make) {
   if (map.has(key)) return map.get(key);
   const promise = make();
   map.set(key, promise);
-  promise.catch(() => { if (map.get(key) === promise) map.delete(key); });
+  promise.then(
+    () => { bornAt.set(promise, Date.now()); },
+    () => { if (map.get(key) === promise) map.delete(key); },
+  );
   return promise;
 }
 
@@ -333,15 +339,36 @@ function emit(ids) {
   for (const id of ids) queued.add(id);
 }
 
+function dropStudent(studentId) {
+  const id = String(studentId);
+  for (const map of [students, updates, sessions, tutors, materials]) map.delete(id);
+}
+
+// When the oldest piece of a student's cache (data, sessions, updates, tutors,
+// materials) finished loading, or null when nothing settled is cached
+export function cachedSince(studentId) {
+  if (studentId === null || studentId === undefined) return null;
+  const id = String(studentId);
+  return oldestStamp([students, updates, sessions, tutors, materials]
+    .map((map) => map.get(id))
+    .filter(Boolean)
+    .map((promise) => bornAt.get(promise)));
+}
+
+// Drops a student's whole cache when its oldest piece is older than maxAge
+// (the window the app uses for the current student), so the next read loads
+// it again. Quiet: no change event, so no view remounts. For a sibling of the
+// student on screen (a parent's other children) and for a student about to be
+// switched to. Returns whether it dropped anything.
+export function dropIfStale(studentId, { now = Date.now(), maxAge = STALE_MS } = {}) {
+  if (!isStale(cachedSince(studentId), now, maxAge)) return false;
+  dropStudent(studentId);
+  return true;
+}
+
 // Clears one student's data and updates, and the workspace, then emits change
 export function invalidate(studentId) {
-  if (studentId !== null && studentId !== undefined) {
-    students.delete(String(studentId));
-    updates.delete(String(studentId));
-    sessions.delete(String(studentId));
-    tutors.delete(String(studentId));
-    materials.delete(String(studentId));
-  }
+  if (studentId !== null && studentId !== undefined) dropStudent(studentId);
   workspace = null;
   // Sessions changed: their money did too
   billing = null;
