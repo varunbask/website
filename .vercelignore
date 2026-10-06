@@ -13,3 +13,5 @@ vitest.rls.config.js
 .agents
 .hermes
 skills-lock.json
+tools
+.demo

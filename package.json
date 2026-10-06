@@ -9,7 +9,9 @@
     "test": "vitest run",
     "test:rls": "vitest run --config vitest.rls.config.js",
     "test:rls:cleanup": "node tests/rls/cleanup.js",
-    "cleanup:material-files": "node scripts/cleanup-material-files.js"
+    "cleanup:material-files": "node scripts/cleanup-material-files.js",
+    "demo": "node tools/demo/build.mjs && python3 tools/demo/serve.py 4180 .demo",
+    "demo:build": "node tools/demo/build.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.117.2",
