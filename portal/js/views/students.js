@@ -3,21 +3,31 @@
 // average, plus the student's tutors with their subjects under the name, all
 // read from the staff workspace in the store, so the counts match the nav and
 // switcher. Search filters by name and email in memory; it never goes into the
-// URL.
+// URL. Quick filter chips (Needs review, Overdue work, No lesson booked), the
+// admin's Tutor select and a Sort select sit beside the search; the chosen
+// filter, tutor and sort are remembered per user in localStorage and survive a
+// refresh, while the search text only survives a refresh. The rules for all of
+// it live in students-filter-model.js.
 //
 // Pure helpers (nextDue, recentAverage, lastSubmissionAt, studentSummaries,
 // countLabel) are exported for tests and never touch the DOM.
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
-import { avatar, emptyState, errorCallout, skeletonRows } from '../ui.js';
-import { displayName, byDue, one } from '../format.js';
-import { filterPeople, reviewCounts } from '../app-model.js';
+import { avatar, emptyState, errorCallout, select, skeletonRows } from '../ui.js';
+import { displayName, byDue, one, visibleEmail } from '../format.js';
+import { reviewCounts } from '../app-model.js';
 import { deriveItems } from '../buckets.js';
 import { dueLabel, relativeTime, todayKey } from '../dates.js';
-import { scoreWindow } from '../overview-model.js';
+import { overdueItems, scoreWindow } from '../overview-model.js';
 import { staffNames } from '../updates-feed.js';
 import { nextSessionOf, nextSessionParts, tutorEntries, tutorText } from '../schedule-summary.js';
+import {
+  ALL, QUICK_FILTERS, SORTS, SORT_LABELS, narrowing, clearedView, countLabel, emptyMessage, clearLabel,
+  filterByTutor, filterChips, loadView, nextFilter, normalizeView, quickCounts, saveView, tutorOptions, visibleStudents,
+} from '../students-filter-model.js';
+
+export { countLabel };
 
 export const AVERAGE_DAYS = 30;
 const ENTER_LIMIT = 8;
@@ -55,7 +65,8 @@ export function lastSubmissionAt(submissions) {
 }
 
 // One summary per student, in the workspace order (by name):
-// { student, name, email, review, next, nextSession, tutors, lastAt, avg }
+// { student, name, email, review, overdue, next, nextSession, tutors, lastAt, avg }
+//   overdue      how many open assignments and tasks are past due (the Overdue work filter)
 //   nextSession  the student's next upcoming session with any tutor, or null
 //   tutors       [{ id, name, subject, tone }] by name, from ws.links; names is
 //                the staffNames() Map that supplies each tutor's name
@@ -80,8 +91,10 @@ export function studentSummaries(ws, now = new Date(), { names = new Map() } = {
     return {
       student,
       name: displayName(student),
-      email: student.email ?? '',
+      // A no-login person's made-up address is never shown (or searched)
+      email: visibleEmail(student.email),
       review: review.get(student.id) ?? 0,
+      overdue: overdueItems(items, { tasks: true }).length,
       next: nextDue(items),
       nextSession: nextSessionOf(sessionsBy.get(student.id) ?? [], now),
       tutors: tutorEntries(linksBy.get(student.id) ?? [], names),
@@ -91,18 +104,15 @@ export function studentSummaries(ws, now = new Date(), { names = new Map() } = {
   });
 }
 
-// "12 students", "1 student", "3 of 12 students"
-export function countLabel(shown, total) {
-  const noun = total === 1 ? 'student' : 'students';
-  return shown === total ? `${total} ${noun}` : `${shown} of ${total} ${noun}`;
-}
-
 // ---------------------------------------------------------------------------
 // View
 
 // The search text survives refresh re-renders (a write elsewhere, returning to
-// the tab) but starts empty whenever the view is opened again
+// the tab) but starts empty whenever the view is opened again. The filter,
+// tutor and sort are kept the same way, and also in localStorage per user
+// (loadView and saveView), so they are still there on the next visit.
 let keptSearch = '';
+let keptView = null;   // { userId, view }
 
 // "Up next", not "Next due": the column leads with overdue work (nextDue).
 // "Next session" is the tutoring schedule.
@@ -111,13 +121,18 @@ const COLUMNS = ['Student', 'To review', 'Next session', 'Up next', 'Last submis
 export function mount(ctx) {
   const title = 'Students';
   ctx.setHeader({ title });
-  if (!ctx.isRefresh) keptSearch = '';
+  if (!ctx.isRefresh) {
+    keptSearch = '';
+    keptView = null;
+  }
 
   const body = h('div', { class: 'stu-body' });
   ctx.host.append(body);
 
   // When sessions fail to load, Next session reads "None" for everyone, so say why
   let sessionsFailed = false;
+  // How many rows the table shows, for the announcement after a load
+  let shownCount = 0;
 
   async function load() {
     body.replaceChildren(skeletonRows(5));
@@ -147,7 +162,7 @@ export function mount(ctx) {
     const summaries = studentSummaries(ws, ctx.now, { names: known });
     sessionsFailed = Boolean(ws.sessionsError);
     render(summaries);
-    ctx.announce(`Students, ${countLabel(summaries.length, summaries.length)}`);
+    ctx.announce(`Students, ${countLabel(shownCount, summaries.length)}`);
   }
 
   function render(summaries) {
@@ -161,6 +176,16 @@ export function mount(ctx) {
         : emptyState({ icon: 'users-three', text: 'No students are assigned to you yet.' }));
       return;
     }
+
+    // The remembered view, checked against what exists now: a tutor who is gone
+    // or a filter the page cannot offer (no schedule) falls back to All
+    const admin = ctx.role === 'admin';
+    const userId = ctx.me?.id ?? null;
+    const tutors = admin ? tutorOptions(summaries) : [];
+    const filters = sessionsFailed ? QUICK_FILTERS.filter((key) => key !== 'nolesson') : QUICK_FILTERS;
+    const checked = (v) => normalizeView(v, { filters, tutorIds: tutors.map((t) => t.value) });
+    if (!keptView || keptView.userId !== userId) keptView = { userId, view: loadView(userId) };
+    let view = checked(keptView.view);
 
     const inputId = uid('stu-search');
     const input = h('input', {
@@ -176,17 +201,116 @@ export function mount(ctx) {
       dataset: { focusKey: 'stu-search' },
     });
     input.value = keptSearch;
+    // The count is the polite live region: it changes with every filter, sort and search
     const count = h('p', { class: 'stu-count num', role: 'status' });
     const results = h('div', { class: 'stu-results' });
+    const chips = h('div', { class: 'stu-chips', role: 'group', 'aria-label': 'Quick filters' });
+
+    // A labelled select that keeps its focus key through re-renders
+    const pick = ({ label, key, options, value, className, onChange }) => {
+      const wrap = select({ options, value, onChange });
+      const control = wrap.querySelector('select');
+      control.id = uid(key);
+      control.dataset.focusKey = key;
+      return {
+        control,
+        el: h('div', { class: className ? `stu-pick ${className}` : 'stu-pick' },
+          h('label', { class: 'stu-pick-label', for: control.id }, label),
+          wrap),
+      };
+    };
+
+    const sortPick = pick({
+      label: 'Sort by',
+      key: 'stu-sort',
+      className: 'is-sort',
+      options: SORTS.map((value) => ({ value, label: SORT_LABELS[value] })),
+      value: view.sort,
+      onChange: (value) => change({ ...view, sort: value }),
+    });
+    const tutorPick = admin && tutors.length
+      ? pick({
+        label: 'Tutor',
+        key: 'stu-tutor',
+        options: [{ value: ALL, label: 'All tutors' }, ...tutors],
+        value: view.tutor,
+        onChange: (value) => change({ ...view, tutor: value }),
+      })
+      : null;
+
+    // Stays on the same control (by its focus key) when a re-render replaces it
+    const keepFocus = (fn) => {
+      const active = document.activeElement;
+      const key = active && body.contains(active) ? active.dataset?.focusKey ?? null : null;
+      fn();
+      if (key && !active.isConnected) {
+        [...body.querySelectorAll('[data-focus-key]')].find((el) => el.dataset.focusKey === key)?.focus({ preventScroll: true });
+      }
+    };
+
+    const focusKey = (key) => {
+      [...body.querySelectorAll('[data-focus-key]')].find((el) => el.dataset.focusKey === key)?.focus({ preventScroll: true });
+    };
+
+    // Counts follow the tutor chosen, not the search text, so the chips hold
+    // still while someone types
+    const drawChips = () => {
+      const counts = quickCounts(filterByTutor(summaries, view.tutor), ctx.now);
+      chips.replaceChildren(...filterChips(counts, view, { filters }).map((chip) => h('button', {
+        type: 'button',
+        class: 'stu-filter',
+        'aria-pressed': chip.pressed ? 'true' : 'false',
+        'aria-label': `${chip.label}, ${chip.count}`,
+        dataset: { focusKey: `stu-filter-${chip.key}` },
+        onClick: () => change({ ...view, filter: nextFilter(view.filter, chip.key) }),
+      }, h('span', { class: 'stu-filter-label' }, chip.label),
+      h('span', { class: 'stu-filter-count num', 'aria-hidden': 'true' }, String(chip.count)))));
+    };
+
+    const clear = () => {
+      const cause = narrowing(view, input.value);
+      view = checked(clearedView(view));
+      remember();
+      if (tutorPick) tutorPick.control.value = view.tutor;
+      if (cause.search) {
+        input.value = '';
+        keptSearch = '';
+      }
+      drawChips();
+      fill(false);
+      focusKey(cause.filter || cause.tutor ? 'stu-filter-all' : 'stu-search');
+    };
 
     const fill = (animate) => {
-      const shown = filterPeople(summaries.map((s) => ({ ...s.student, summary: s })), input.value)
-        .map((p) => p.summary);
+      const shown = visibleStudents(summaries, view, { now: ctx.now, term: input.value });
+      shownCount = shown.length;
       count.textContent = countLabel(shown.length, summaries.length);
-      results.replaceChildren(shown.length
-        ? table(shown, { animate })
-        : emptyState({ icon: 'magnifying-glass', text: 'No student matches that search.' }));
+      if (shown.length) {
+        results.replaceChildren(table(shown, { animate }));
+        return;
+      }
+      const cause = narrowing(view, input.value);
+      results.replaceChildren(emptyState({
+        icon: 'magnifying-glass',
+        text: emptyMessage(cause),
+        action: cause.any ? { label: clearLabel(cause), onClick: clear, focusKey: 'stu-clear' } : null,
+      }));
     };
+
+    const remember = () => {
+      keptView = { userId, view };
+      saveView(userId, view);
+    };
+
+    // A chip, the Tutor select or the Sort select changed
+    function change(next) {
+      view = checked(next);
+      remember();
+      keepFocus(() => {
+        drawChips();
+        fill(false);
+      });
+    }
 
     input.addEventListener('input', () => {
       keptSearch = input.value;
@@ -206,11 +330,14 @@ export function mount(ctx) {
         ? errorCallout({ title: 'We couldn’t load sessions.', text: 'The Next session column may be empty. Try again in a moment.', onRetry: () => ctx.store.invalidate(null) })
         : '',
       h('div', { class: 'stu-toolbar' },
-        h('div', { class: 'stu-search' },
-          h('label', { class: 'visually-hidden', for: inputId }, 'Find a student'),
-          h('span', { class: 'input-icon' }, icon('magnifying-glass'), input)),
-        count),
+        h('div', { class: 'stu-controls' },
+          h('div', { class: 'stu-search' },
+            h('label', { class: 'visually-hidden', for: inputId }, 'Find a student'),
+            h('span', { class: 'input-icon' }, icon('magnifying-glass'), input)),
+          h('div', { class: 'stu-picks' }, tutorPick?.el ?? null, sortPick.el)),
+        h('div', { class: 'stu-filterbar' }, chips, count)),
       results);
+    drawChips();
     fill(!ctx.isRefresh);
   }
 

@@ -20,6 +20,7 @@ import { menu } from './overlays.js';
 import { itemStatus, submissionStatus } from './status.js';
 import { dueLabel, dayKey, parseKey, todayKey, relativeTime } from './dates.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
+import { SUPPORT_EMAIL, supportMailto } from './help-model.js';
 import { workLabel, workIcon } from './labels.js';
 import { displayName, firstName } from './format.js';
 import { staffNames } from './updates-feed.js';
@@ -30,6 +31,10 @@ import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, lessonLabel } from './materials-model.js';
 import { toneClass } from './sessions-model.js';
 import { renderSessionCreate, renderSessionDetail } from './session-drawer.js';
+import { renderSessionNotes } from './session-notes-drawer.js';
+import { notesDrawerSession } from './schedule-summary.js';
+import { renderProfileDrawer } from './student-profile-drawer.js';
+import { PROFILE_DRAWER } from './student-profile-model.js';
 import { sb } from './supabase.js';
 import { answerView } from './rich-doc-dom.js';
 import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './task-repeat-model.js';
@@ -37,7 +42,13 @@ import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './t
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SUBMITTED = 'Work submitted. Your tutor will review it soon.';
 const GONE = 'This item was changed or removed. Refresh the page and try again.';
-const AT_CAP = 'You’ve used all 5 attempts for this assignment. Message your tutor if you need to send another file.';
+// The portal has no messaging, so the way out of the attempt limit is the
+// support address (also on the Help page). A sentence with a mail link.
+const atCapText = () => [
+  `You’ve used all ${MAX_SUBMISSIONS} attempts for this assignment. If you need to send another file, ask your tutor or email `,
+  h('a', { class: 'link', href: supportMailto('Another attempt on an assignment') }, SUPPORT_EMAIL),
+  '.',
+];
 const MISSING = 'This assignment isn’t available. It may have been deleted.';
 const HAS_WORK = 'This assignment has submitted work, so it cannot be deleted.';
 const SOME_HAVE_WORK = 'Some of these have submitted work, so they cannot be deleted. Refresh the page and try again.';
@@ -66,8 +77,11 @@ function section(title, ...children) {
 }
 
 export function renderItemDrawer(dctx) {
-  // Tutoring sessions share the drawer: open=s<id> and open=new-session
+  // Tutoring sessions share the drawer: open=s<id>, open=new-session and, from
+  // Today, open=notes-s<id> (the notes form on its own)
   if (dctx.taskId === 'new-session') return renderSessionCreate(dctx);
+  if (notesDrawerSession(dctx.taskId)) return renderSessionNotes(dctx);
+  if (dctx.taskId === PROFILE_DRAWER) return renderProfileDrawer(dctx);
   if (/^s\d+$/.test(dctx.taskId)) return renderSessionDetail(dctx);
   if (dctx.taskId === 'new') return renderCreate(dctx);
   return renderItem(dctx);
@@ -592,7 +606,7 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
     nodes.push(kept);
   } else if (isStudent) {
     if (item.attempts >= MAX_SUBMISSIONS) {
-      nodes.push(section('Submit your work', callout({ tone: 'neutral', icon: 'info', text: AT_CAP })));
+      nodes.push(section('Submit your work', callout({ tone: 'neutral', icon: 'info', text: atCapText() })));
     } else if (item.canSubmit) {
       nodes.push(submitWorkSection(dctx, item, {
         onSubmitted: () => actions.submitted(found.studentId),

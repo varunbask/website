@@ -57,6 +57,18 @@ export function verifyReview(values, { env = process.env, now = Date.now() } = {
   return kind === 'referral' ? { ok: true, id, action } : { ok: true, kind, id, action };
 }
 
+// A form post to /api/referral is the confirm button on an Approve or Decline
+// page, or the referral or booking form posted without JavaScript. Only the
+// button carries the signed link's fields (the forms have no field with these
+// names), so any one of them sends the post here.
+export const REVIEW_FIELDS = Object.freeze(['id', 'action', 'exp', 't']);
+export const MAX_REVIEW_BODY = 2048;
+export function isReviewPost(text) {
+  if (text.length > MAX_REVIEW_BODY) return false;
+  const params = new URLSearchParams(text);
+  return REVIEW_FIELDS.some((field) => params.has(field));
+}
+
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 // A small page in the site's own style (the site CSP allows only its own
@@ -76,7 +88,7 @@ export function reviewPage({ title, text, form = null, link = true, kind = 'refe
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex">
   <title>${escapeHtml(title)} | VP Education Group</title>
-  <link rel="stylesheet" href="/styles.css?v=10">
+  <link rel="stylesheet" href="/styles.css?v=12">
 </head>
 <body>
   <main class="review-page">
@@ -131,7 +143,7 @@ export async function handleReviewGet(request, { repo, repos, env = process.env,
 // POST: apply the decision, only while it is still undecided
 export async function handleReviewPost(request, { repo, repos, env = process.env, now = () => Date.now() }) {
   const text = await request.text();
-  if (text.length > 2048) return failPage('invalid');
+  if (text.length > MAX_REVIEW_BODY) return failPage('invalid');
   const values = Object.fromEntries(new URLSearchParams(text));
   const check = verifyReview(values, { env, now: now() });
   if (!check.ok) return failPage(check.reason);

@@ -16,6 +16,9 @@
   --btn-fg: #FFFFFF;
   --marigold: #F0B93B;
   --rule: #E6D9D2;
+  /* Borders of controls (inputs, chips, toggles) must reach 3:1 against the
+     page (WCAG 1.4.11), which --rule does not. --rule stays for hairlines. */
+  --field-border: #857377;
   --radius: 6px;
   /* Latin faces first, Noto Sans SC as the CJK fallback. Latin text keeps
      its face in both languages; only CJK glyphs fall through to Noto. */
@@ -40,9 +43,10 @@
   --pen: #E4575D;
   --pen-dark: #F07176;
   --btn-bg: #D4383E;
-  --btn-bg-hover: #E4575D;
+  --btn-bg-hover: #C2323A;
   --marigold: #F2C15A;
   --rule: #3B2D31;
+  --field-border: #85757A;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -70,6 +74,11 @@ a:focus-visible, button:focus-visible {
   outline: 3px solid var(--pen);
   outline-offset: 3px;
   border-radius: 4px;
+}
+/* Form controls keep their own radius, so only the ring is set here. */
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid var(--pen);
+  outline-offset: 2px;
 }
 
 .mono { font-family: var(--font-mono); }
@@ -176,14 +185,16 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   border-bottom: 1px solid var(--rule);
 }
 
+/* a touch wider than the page column: the wordmark, three links, language,
+   theme, Log in and the full "Book a free consultation" button need ~1150px */
 .header-inner {
-  max-width: var(--max);
+  max-width: 1120px;
   margin: 0 auto;
   padding: 12px 24px;
   min-height: 68px;
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 24px;
 }
 
 .wordmark {
@@ -221,6 +232,22 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 .site-nav a:hover { color: var(--pen); }
 
 .header-cta { padding: 10px 18px; font-size: 0.92rem; }
+/* Log in is a quiet text link beside the one button. The button has a full
+   and a short label; the short one takes over where the full one cannot fit.
+   The menu carries its own Log in for the smallest phones. */
+.header-login {
+  padding: 8px 2px;
+  color: var(--ink-2);
+  font-weight: 500;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.2s var(--ease);
+}
+.header-login:hover { color: var(--pen); }
+.header-cta-short { display: none; }
+.site-nav .nav-login { display: none; }
 
 .lang-toggle,
 .theme-toggle {
@@ -233,7 +260,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   line-height: 1.4;
   padding: 8px 14px;
   border-radius: var(--radius);
-  border: 1.5px solid var(--rule);
+  border: 1.5px solid var(--field-border);
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
@@ -262,7 +289,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   padding: 6px;
   list-style: none;
   background: var(--paper);
-  border: 1.5px solid var(--rule);
+  border: 1.5px solid var(--field-border);
   border-radius: var(--radius);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 }
@@ -282,7 +309,8 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   cursor: pointer;
 }
 .lang-list li:hover,
-.lang-list li:focus-visible { color: var(--pen); outline: none; background: var(--rule); }
+.lang-list li:focus-visible { color: var(--pen); background: var(--rule); }
+.lang-list li:focus-visible { outline: 3px solid var(--pen); outline-offset: -3px; }
 .lang-list li[aria-selected="true"] { color: var(--pen); }
 
 .theme-toggle { padding: 8px 10px; }
@@ -320,6 +348,10 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   gap: 48px;
   align-items: stretch;
 }
+
+/* <picture> wraps each photo for its AVIF source; it lays out as if absent */
+.hero-portrait picture,
+.member-photo picture { display: contents; }
 
 .hero-portrait img {
   width: 100%;
@@ -431,6 +463,10 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   border-bottom-color: var(--pen);
 }
 .tab-count {
+  /* Two digits of room, so the tab is the same width before and after
+     script.js writes the number in. */
+  display: inline-block;
+  min-width: 2ch;
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--slate);
@@ -625,10 +661,11 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 .refer-field input[type="text"],
 .refer-field input[type="email"],
 .refer-field input[type="tel"],
+.refer-field select,
 .refer-field textarea {
   width: 100%;
   padding: 11px 13px;
-  border: 1.5px solid var(--rule);
+  border: 1.5px solid var(--field-border);
   border-radius: var(--radius);
   background: var(--paper);
   color: var(--ink);
@@ -638,8 +675,11 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 .refer-field textarea { resize: vertical; min-height: 88px; }
 .refer-field input:focus,
-.refer-field textarea:focus { outline: none; border-color: var(--pen); }
+.refer-field textarea:focus { border-color: var(--pen); }
+/* a select keeps the browser's focus ring beside the red border */
+.refer-field select:focus { border-color: var(--pen); }
 .refer-field input[aria-invalid="true"],
+.refer-field select[aria-invalid="true"],
 .refer-field textarea[aria-invalid="true"] { border-color: var(--pen); }
 .refer-field input::placeholder { color: var(--slate); }
 
@@ -649,7 +689,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   align-items: center;
   gap: 8px;
   padding: 9px 14px;
-  border: 1.5px solid var(--rule);
+  border: 1.5px solid var(--field-border);
   border-radius: var(--radius);
   font-weight: 600;
   font-size: 0.95rem;
@@ -657,6 +697,11 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   cursor: pointer;
 }
 .refer-choice:has(input:checked) { border-color: var(--pen); color: var(--pen); }
+/* The whole chip gets the focus ring (not just the small radio) where :has() exists */
+@supports selector(:has(*)) {
+  .refer-choice:has(input:focus-visible) { outline: 3px solid var(--pen); outline-offset: 2px; }
+  .refer-choice input:focus-visible { outline: none; }
+}
 .refer-choice input,
 .refer-consent input { accent-color: var(--pen); width: 18px; height: 18px; margin: 0; flex: none; }
 
@@ -700,6 +745,25 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .refer { padding: 72px 0 80px; }
   .refer-pair { grid-template-columns: 1fr; }
 }
+
+/* ---------- 5. book a free consultation ----------
+   Same two columns and form as "refer a family"; the left column is a ruled
+   list like the track record, then the reply promise. */
+
+.book-points { list-style: none; margin: 0 0 22px; border-top: 2px solid var(--ink); max-width: 38ch; }
+.book-points li { padding: 12px 0; font-size: 1.05rem; line-height: 1.5; color: var(--ink-2); }
+.book-points li + li { border-top: 1px solid var(--rule); }
+.book-reply { font-weight: 600; color: var(--ink); }
+/* the lessons choices stand in a column, each as wide as the form */
+.book .refer-choices { flex-direction: column; gap: 10px; }
+.book .refer-choice { width: 100%; }
+.book .refer-choice .i18n-w,
+.book .refer-privacy .i18n-w { text-align: left; }
+.book .refer-field select { min-height: 47px; }
+.book-main { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.book-alt { font-size: 0.95rem; line-height: 1.5; padding-top: 20px; border-top: 1px solid var(--rule); }
+.book-alt a { display: inline-grid; color: var(--ink-2); }
+.book-alt a:hover { color: var(--pen); }
 
 /* ---------- referral review page (api/referral-review) ---------- */
 
@@ -814,9 +878,11 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 
 /* compact header: the desktop header reserves room for the widest of the
-   five languages and needs ~966px, so it collapses below 980px. The Log in
-   button stays visible in both layouts. */
-@media (max-width: 980px) {
+   five languages and needs about 1108px, so it collapses at 1110px and below. Log
+   in and the Book button stay in the bar; below 820px the wordmark text goes
+   and the button takes its short label, below 560px the language name goes,
+   and below 481px Log in moves into the menu (see the blocks further down). */
+@media (max-width: 1110px) {
   .site-nav {
     display: none;
     position: absolute;
@@ -837,11 +903,28 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .theme-toggle { padding: 10px; min-width: 44px; min-height: 44px; justify-content: center; }
 }
 
+/* The landing page's header (.site-header-home) carries more than the other
+   pages' headers, so it gives up its extras earlier: the wordmark text goes
+   and the button takes its short label ... */
+@media (max-width: 819px) {
+  .site-header-home .wordmark-text { display: none; }
+  .header-cta-full { display: none; }
+  .header-cta-short { display: inline-block; }
+}
+
+/* ... and the language button shows just the flag */
+@media (max-width: 559px) {
+  .site-header-home .header-inner { gap: 8px; }
+  .site-header-home .lang-label { display: none; }
+  .site-header-home .lang-toggle { padding: 10px; min-width: 44px; justify-content: center; }
+}
+
 @media (max-width: 760px) {
   .hero { padding: 32px 0 72px; }
   .hero-inner { grid-template-columns: 1fr; gap: 28px; }
-  .hero-portrait { max-width: 320px; }
-  .hero-intro { padding-top: 0; }
+  /* name, intro and the button come first; a smaller portrait follows */
+  .hero-intro { order: -1; padding-top: 0; }
+  .hero-portrait { max-width: 220px; }
   .hero-actions { margin-top: 26px; }
 
   .reviews, .services { padding: 72px 0 80px; }
@@ -860,12 +943,15 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .header-cta { padding: 8px 12px; font-size: 0.88rem; }
   .lang-label { display: none; }
   .lang-toggle { padding: 10px; min-width: 44px; justify-content: center; }
+  /* no room for both beside the button: Log in is the last row of the menu */
+  .header-login { display: none; }
+  .site-nav .nav-login { display: inline-block; }
   .record-row { grid-template-columns: 76px 1fr; }
   .record dt { font-size: 1.5rem; }
   .svc-ap-groups { grid-template-columns: 1fr; gap: 28px; }
 }
 
-/* smallest phones: the header carries the mark, language, theme, Log in, and
+/* smallest phones: the header carries the mark, language, theme, Book, and
    menu buttons, so tighten the spacing and drop the language chevron */
 @media (max-width: 360px) {
   .header-inner { padding-left: 16px; padding-right: 16px; gap: 8px; }
@@ -884,6 +970,11 @@ html[lang^="zh"] h2, html[lang^="ko"] h2,
 html[lang^="zh"] h3, html[lang^="ko"] h3,
 html[lang^="zh"] h4, html[lang^="ko"] h4 { letter-spacing: 0; }
 
+/* A heading's Latin ghost copies keep the Latin tracking on a Chinese or Korean
+   page, so a long heading in a narrow column wraps the same in every language. */
+html[lang^="zh"] :is(h2, h3, h4) > .i18n-ghost:not(:lang(zh), :lang(ko)),
+html[lang^="ko"] :is(h2, h3, h4) > .i18n-ghost:not(:lang(zh), :lang(ko)) { letter-spacing: -0.02em; }
+
 /* Same 28.16px line box as the Caveat note (1.6rem * 1.1). */
 html[lang^="zh"] .hero-note,
 html[lang^="ko"] .hero-note { transform: none; font-size: 1.25rem; line-height: 1.76rem; }
@@ -893,3 +984,46 @@ html[lang^="ko"] .hero-note { transform: none; font-size: 1.25rem; line-height: 
 .hero-note > .i18n-ghost { font-size: 1.6rem; line-height: 1.1; }
 .hero-note > .i18n-ghost:lang(zh),
 .hero-note > .i18n-ghost:lang(ko) { font-size: 1.25rem; line-height: 1.76rem; }
+
+/* ============================================================
+   Print
+   Content only, black on white: no header, menus, toggles, form,
+   or sticky button. Both themes print the same.
+   ============================================================ */
+
+@media print {
+  :root,
+  :root[data-theme="dark"] {
+    color-scheme: light;
+    --ink: #000;
+    --ink-2: #000;
+    --paper: #fff;
+    --slate: #000;
+    --pen: #000;
+    --pen-dark: #000;
+    --btn-bg: #fff;
+    --btn-bg-hover: #fff;
+    --btn-fg: #000;
+    --marigold: #000;
+    --rule: #999;
+    --field-border: #000;
+  }
+
+  body { background: #fff; color: #000; font-size: 11pt; }
+
+  .site-header,
+  .skip-link,
+  .sticky-cta,
+  .lang-list,
+  form,
+  .refer,
+  .footer-links a[href="#refer"] { display: none !important; }
+
+  a { color: #000; }
+  .btn { border: 1.5px solid #000; }
+
+  .hero, .reviews, .services, .team { padding-top: 24px; padding-bottom: 24px; }
+  h2 { margin-bottom: 20px; }
+  h2, h3, h4 { break-after: avoid; }
+  .review, .member, .svc-col, .svc-ap-groups > div, .record-row { break-inside: avoid; }
+}

@@ -1,7 +1,9 @@
 // People > Referrals (people.html, admin). Families recommended through the
-// "Refer a family" form on the landing page, newest first: New, Approved,
-// Declined. An admin approves or declines one (also possible from the
-// notification email), moves it back to New, or removes it.
+// "Refer a family" form on the landing page, and requests from its "Book a
+// free consultation" form (labelled Consultation), newest first: New,
+// Approved, Declined. An admin approves or declines a referral (also possible
+// from the notification email) or marks a consultation as handled (stored as
+// approved), moves one back to New, or removes it.
 // Rows reach the table only through /api/referral; RLS lets admins read,
 // mark and remove them, and nobody else see them.
 //
@@ -12,12 +14,15 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { avatar, button, pill, emptyState, errorCallout, skeletonRows } from '../ui.js';
 import { relativeTime } from '../dates.js';
-import { groupReferrals, referrerLine, languageName } from '../referrals-model.js';
+import { groupReferrals, referrerLine, languageName, isConsultation, kindLabel, lessonsLabel, contactPrefLabel, decisionWords } from '../referrals-model.js';
 
 // ---------------------------------------------------------------------------
 // View
 
 const FIELDS = 'id, referrer_name, referrer_email, referrer_role, family_name, family_email, family_phone, grade, subjects, note, language, status, reviewed_at, created_at';
+// kind, contact_pref and lessons arrive with the consultation migration
+const NEW_FIELDS = `${FIELDS}, kind, contact_pref, lessons`;
+const NO_SUCH_COLUMN = '42703';
 
 export function mount(ctx) {
   const tabs = h('nav', { class: 'tabs', 'aria-label': 'People' },
@@ -33,7 +38,9 @@ export function mount(ctx) {
 
   async function render() {
     if (firstRender) root.replaceChildren(skeletonRows(3));
-    const { data, error } = await sb.from('referrals').select(FIELDS).order('created_at', { ascending: false });
+    let { data, error } = await sb.from('referrals').select(NEW_FIELDS).order('created_at', { ascending: false });
+    // Until the migration is applied the list still loads, all as referrals
+    if (error?.code === NO_SUCH_COLUMN) ({ data, error } = await sb.from('referrals').select(FIELDS).order('created_at', { ascending: false }));
     if (!ctx.alive()) return;
     if (error) {
       console.error(error);
@@ -52,7 +59,7 @@ export function mount(ctx) {
     if (!fresh.length && !approved.length && !declined.length) {
       root.replaceChildren(emptyState({
         icon: 'users-three',
-        text: 'No referrals yet. They appear here when a family uses “Refer a family” on the website.',
+        text: 'Nothing yet. Referrals and consultation requests appear here when a family uses the website forms.',
       }));
       return;
     }
@@ -81,17 +88,26 @@ export function mount(ctx) {
   function card(r) {
     const when = relativeTime(r.created_at, ctx.now);
     const decided = r.status === 'approved' || r.status === 'declined';
+    const consultation = isConsultation(r);
+    const words = decisionWords(r);
     const pills = [
+      pill({ label: kindLabel(r), tone: consultation ? 'info' : 'neutral' }),
+      consultation && r.status === 'approved' ? pill({ label: 'Handled', tone: 'neutral', icon: 'check' }) : null,
       r.grade ? pill({ label: r.grade, tone: 'neutral', icon: 'book-open-text' }) : null,
       r.subjects ? pill({ label: r.subjects, tone: 'neutral', icon: 'clipboard-text' }) : null,
-      r.language && r.language !== 'en' ? pill({ label: `Sent in ${languageName(r.language)}`, tone: 'neutral', icon: 'chat-circle-text' }) : null,
+      consultation && lessonsLabel(r.lessons) ? pill({ label: `Lessons: ${lessonsLabel(r.lessons)}`, tone: 'neutral', icon: 'calendar-blank' }) : null,
+      consultation && contactPrefLabel(r.contact_pref) ? pill({ label: `Best way to reach: ${contactPrefLabel(r.contact_pref)}`, tone: 'neutral', icon: 'envelope-simple' }) : null,
+      r.language && r.language !== 'en'
+        ? pill({ label: consultation ? `Prefers ${languageName(r.language)}` : `Sent in ${languageName(r.language)}`, tone: 'neutral', icon: 'chat-circle-text' })
+        : null,
     ].filter(Boolean);
 
+    // A referral is approved or declined; a consultation request is only marked handled
     const decisions = decided
       ? [button({ label: 'Move back to New', size: 'sm', variant: 'ghost', icon: 'arrow-counter-clockwise', onClick: () => setStatus(r, 'new') })]
       : [
-        button({ label: 'Approve', size: 'sm', variant: 'secondary', icon: 'check', onClick: () => setStatus(r, 'approved') }),
-        button({ label: 'Decline', size: 'sm', variant: 'ghost', icon: 'x', onClick: () => setStatus(r, 'declined') }),
+        button({ label: words.approve, size: 'sm', variant: 'secondary', icon: 'check', onClick: () => setStatus(r, 'approved') }),
+        consultation ? null : button({ label: 'Decline', size: 'sm', variant: 'ghost', icon: 'x', onClick: () => setStatus(r, 'declined') }),
       ];
     const remove = button({
       label: 'Remove',
@@ -109,11 +125,11 @@ export function mount(ctx) {
           h('div', { class: 'ref-contacts' }, contactLinks(r))),
         h('time', { class: 'ppl-signed', datetime: r.created_at, title: when.full }, when.text)),
       h('div', { class: 'ppl-card-body' },
-        h('p', { class: 'ref-referrer' }, referrerLine(r), ' (',
+        consultation ? null : h('p', { class: 'ref-referrer' }, referrerLine(r), ' (',
           h('a', { href: `mailto:${r.referrer_email}` }, r.referrer_email), ')'),
         pills.length ? h('div', { class: 'ref-pills' }, pills) : null,
         r.note ? h('blockquote', { class: 'quote ppl-note' }, r.note) : null),
-      h('div', { class: 'ref-actions' }, ...decisions, remove));
+      h('div', { class: 'ref-actions' }, ...decisions.filter(Boolean), remove));
   }
 
   async function setStatus(r, status) {
@@ -123,14 +139,13 @@ export function mount(ctx) {
       ctx.toast({ text: 'That didn’t save. Refresh the page and try again.' });
       return;
     }
-    const done = { approved: 'approved', declined: 'declined', new: 'moved back to New' }[status];
-    ctx.toast({ text: `${r.family_name} ${done}.` });
+    ctx.toast({ text: `${r.family_name} ${decisionWords(r).done[status]}.` });
     render();
   }
 
   async function removeReferral(r) {
     const ok = await ctx.confirm({
-      title: `Remove the referral for ${r.family_name}?`,
+      title: `Remove the ${isConsultation(r) ? 'consultation request' : 'referral'} for ${r.family_name}?`,
       body: 'Their contact details are deleted. This can’t be undone.',
       confirmLabel: 'Remove',
       tone: 'danger',
@@ -142,7 +157,7 @@ export function mount(ctx) {
       ctx.toast({ text: 'That didn’t remove. Refresh the page and try again.' });
       return;
     }
-    ctx.toast({ text: 'Referral removed.' });
+    ctx.toast({ text: isConsultation(r) ? 'Consultation request removed.' : 'Referral removed.' });
     render();
   }
 

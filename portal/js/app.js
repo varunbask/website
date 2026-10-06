@@ -45,6 +45,7 @@ import { h } from './dom.js';
 import * as store from './store.js';
 import { startRouter, sameView, buildHash, withParams } from './router.js';
 import { mountShell } from './shell.js';
+import { mountPalette } from './palette.js';
 import { initDrawer, showDrawer, hideDrawer, drawerOpen, syncDrawerRow } from './drawer.js';
 import { navModel, ADMIN_PAGES } from './nav-model.js';
 import { navCounts } from './buckets.js';
@@ -54,13 +55,13 @@ import { toast, confirmDialog } from './overlays.js';
 import { dragInProgress, whenDragEnds } from './calendar-drag.js';
 import { errorCallout, skeletonRows, linkTabs } from './ui.js';
 import { displayName } from './format.js';
+import { isStale } from './freshness.js';
 import {
   normalizeRoute, isNamed, viewTitle, viewLabel, documentTitle, defaultCrumbs,
   reviewCounts, switcherHref, isScoped, clockCrossed,
 } from './app-model.js';
 
 const STAFF = new Set(['tutor', 'admin']);
-const STALE_MS = 5 * 60 * 1000;
 const SWAP_TIMEOUT_MS = 4000;
 const SCOPE_PARAM = { staff: 'student', parent: 'child' };
 
@@ -93,6 +94,17 @@ export function startApp(config) {
   let fresh = {};
   let perStudent = new Map();
   let lastRenderAt = Date.now();
+
+  // Cmd+K / Ctrl+K / "/" and the top bar search button (palette.js)
+  const palette = mountPalette({
+    me,
+    page,
+    store,
+    context: () => ({ scope: scopeCtx(), route, options: scope?.options ?? [] }),
+    go: (url) => router.go(url),
+    openDrawer: (id, extra) => router.openDrawer(id, extra),
+    switchScope: (id) => switchScope(id),
+  });
 
   try {
     history.scrollRestoration = 'manual';
@@ -154,6 +166,9 @@ export function startApp(config) {
       if (result.message) toast({ text: result.message });
       return false;
     }
+    // Switching to a student whose cache has gone stale (a sibling prefetched by
+    // the Overview hours ago): load them again instead of showing old data
+    if (result?.student) store.dropIfStale(result.student.id);
     const changedStudent = scope?.student?.id !== result?.student?.id;
     scope = result ?? { student: null, options: [], kind: null };
     scopeKey = key;
@@ -236,6 +251,7 @@ export function startApp(config) {
   }
 
   function closeAll() {
+    palette.close();
     hideDrawer({ restoreFocus: false });
     const confirmEl = document.getElementById('confirm');
     if (confirmEl?.open) confirmEl.close();
@@ -713,7 +729,7 @@ export function startApp(config) {
     if (document.visibilityState !== 'visible' || !route || !view) return;
     const id = scope?.student?.id ?? null;
     const times = [id ? await store.loadedAt(id) : null, staff ? await store.loadedAt(null) : null].filter(Boolean);
-    if (times.some((t) => Date.now() - t > STALE_MS)) {
+    if (times.some((t) => isStale(t))) {
       store.invalidate(id);
       return;
     }

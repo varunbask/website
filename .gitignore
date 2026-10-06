@@ -9,3 +9,6 @@ supabase/.temp/
 .env*.local
 node_modules/
 *.log
+
+# Local demo build (npm run demo)
+.demo/

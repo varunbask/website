@@ -3,6 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="48x48">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#FBF8F5">
   <meta name="robots" content="noindex">
@@ -20,7 +23,7 @@
       document.documentElement.dataset.theme = theme;
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=10">
+  <link rel="stylesheet" href="styles.css?v=12">
 </head>
 
 <body>
@@ -48,11 +51,11 @@
           <svg class="lang-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         </button>
         <ul class="lang-list" id="lang-list" role="listbox" aria-label="Language" hidden>
-          <li role="option" data-lang="en" tabindex="-1" aria-selected="true"><span class="lang-flag" aria-hidden="true">🇺🇸</span>English</li>
-          <li role="option" data-lang="zh" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇨🇳</span>中文</li>
-          <li role="option" data-lang="es" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇪🇸</span>Español</li>
-          <li role="option" data-lang="fr" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇫🇷</span>Français</li>
-          <li role="option" data-lang="ko" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇰🇷</span>한국어</li>
+          <li role="option" lang="en" data-lang="en" tabindex="-1" aria-selected="true"><span class="lang-flag" aria-hidden="true">🇺🇸</span>English</li>
+          <li role="option" lang="zh-Hans" data-lang="zh" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇨🇳</span>中文</li>
+          <li role="option" lang="es" data-lang="es" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇪🇸</span>Español</li>
+          <li role="option" lang="fr" data-lang="fr" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇫🇷</span>Français</li>
+          <li role="option" lang="ko" data-lang="ko" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇰🇷</span>한국어</li>
         </ul>
       </div>
       <button class="theme-toggle" id="theme-toggle" type="button"
@@ -120,8 +123,8 @@
     </div>
   </footer>
 
-  <script src="translations.js?v=6"></script>
-  <script src="i18n.js?v=7"></script>
+  <script src="translations.js?v=7"></script>
+  <script src="i18n.js?v=8"></script>
   <script src="theme.js?v=5"></script>
   <script src="review.js?v=1"></script>
 </body>

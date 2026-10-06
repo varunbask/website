@@ -12,12 +12,14 @@ import { deriveItems } from './buckets.js';
 import { loadUpdates } from './updates-feed.js';
 import { rememberSubjects } from './sessions-model.js';
 import { zonedIso } from './dates.js';
+import { STALE_MS, isStale, oldestStamp } from './freshness.js';
 
 const students = new Map();   // studentId -> Promise<StudentData>
 const updates = new Map();    // studentId -> Promise<Update[]>
 const sessions = new Map();   // studentId -> Promise<Session[]>
 const tutors = new Map();     // studentId -> Promise<{ tutor_id, full_name, subject }[]>
 const materials = new Map();  // studentId -> Promise<Material[]>
+const files = new Map();      // studentId -> Promise<Material[] with their task> (the Files page)
 const children = new Map();   // parentId -> Promise<Profile[]>
 let workspace = null;         // Promise<Workspace> | null
 let pending = null;           // Promise<number> | null
@@ -26,12 +28,17 @@ let billing = null;           // Promise<Billing> | null (admin's Account page)
 const listeners = new Set();
 let queued = null;            // ids changed since the last emit ('*' for everything)
 
-// Keeps a promise in a map until it fails
+const bornAt = new WeakMap();   // cached promise -> when it resolved (unset while it loads)
+
+// Keeps a promise in a map until it fails, noting when it resolved
 function remember(map, key, make) {
   if (map.has(key)) return map.get(key);
   const promise = make();
   map.set(key, promise);
-  promise.catch(() => { if (map.get(key) === promise) map.delete(key); });
+  promise.then(
+    () => { bornAt.set(promise, Date.now()); },
+    () => { if (map.get(key) === promise) map.delete(key); },
+  );
   return promise;
 }
 
@@ -137,6 +144,26 @@ export function getMaterials(studentId) {
   return remember(materials, String(studentId), () => loadMaterials(studentId));
 }
 
+// The Files page: the materials on a student's assignments and tasks, each
+// with its assignment (title, kind, due date) in one query. A plain read under
+// the same row level security as getMaterials: whoever can see the student's
+// materials sees these, and nobody sees more.
+export const FILE_FIELDS = `${MATERIAL_FIELDS}, task:tasks(id, title, kind, due_at, created_at, series_id)`;
+
+async function loadFiles(studentId) {
+  const { data, error } = await sb.from('materials').select(FILE_FIELDS)
+    .eq('student_id', studentId)
+    .not('task_id', 'is', null)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Material rows with `task` embedded (files-model.js turns them into entries)
+export function getFiles(studentId) {
+  return remember(files, String(studentId), () => loadFiles(studentId));
+}
+
 // ---------------------------------------------------------------------------
 // Staff workspace: every student the viewer can see, with their tasks and work
 
@@ -238,6 +265,11 @@ export function getPendingCount() {
 // migration adds, so only this query asks for it
 const BILLING_SESSION_FIELDS = 'id, student_id, tutor_id, series_id, subject, starts_at, ends_at, status, attendance, cancelled_at, created_at';
 
+// What the ledger reads of a sent statement. month_cents and previous_cents are
+// lifted out of the snapshot (null when it was sent before snapshots existed), so
+// Families can tell whether it needs sending again without loading the snapshot.
+const STATEMENT_FIELDS = 'parent_id, period, sent_on, due_cents, month_cents:snapshot->month_cents, previous_cents:snapshot->previous_cents';
+
 async function loadBilling() {
   const settings = await sb.from('billing_settings').select('*').eq('id', 1).maybeSingle();
   if (settings.error) throw settings.error;
@@ -257,7 +289,8 @@ async function loadBilling() {
     all('payouts', '*'),
     all('billing_adjustments', '*'),
     all('billing_contacts', '*', 'parent_id'),
-    selectAll(() => sb.from('statements').select('*').order('parent_id').order('period')),
+    // Not '*': a saved snapshot can be large and the ledger only needs two of its totals
+    selectAll(() => sb.from('statements').select(STATEMENT_FIELDS).order('parent_id').order('period')),
     selectAll(() => sb.from('parent_students').select('parent_id, student_id, bills, created_at').order('student_id').order('parent_id')),
     selectAll(() => sb.from('tutor_students').select('tutor_id, student_id, subject').order('student_id').order('tutor_id')),
     all('session_series', 'id, student_id, tutor_id, start_time, end_time, until'),
@@ -285,6 +318,7 @@ async function loadBilling() {
       statements: statements.data ?? [],
       parentLinks: parentLinks.data ?? [],
       names: new Map(profiles.map((p) => [String(p.id), displayName(p)])),
+      fullNames: new Map(profiles.map((p) => [String(p.id), (p.full_name ?? '').trim()])),
     },
     sessions: sess.data ?? [],
     links: links.data ?? [],
@@ -333,15 +367,36 @@ function emit(ids) {
   for (const id of ids) queued.add(id);
 }
 
+function dropStudent(studentId) {
+  const id = String(studentId);
+  for (const map of [students, updates, sessions, tutors, materials, files]) map.delete(id);
+}
+
+// When the oldest piece of a student's cache (data, sessions, updates, tutors,
+// materials) finished loading, or null when nothing settled is cached
+export function cachedSince(studentId) {
+  if (studentId === null || studentId === undefined) return null;
+  const id = String(studentId);
+  return oldestStamp([students, updates, sessions, tutors, materials, files]
+    .map((map) => map.get(id))
+    .filter(Boolean)
+    .map((promise) => bornAt.get(promise)));
+}
+
+// Drops a student's whole cache when its oldest piece is older than maxAge
+// (the window the app uses for the current student), so the next read loads
+// it again. Quiet: no change event, so no view remounts. For a sibling of the
+// student on screen (a parent's other children) and for a student about to be
+// switched to. Returns whether it dropped anything.
+export function dropIfStale(studentId, { now = Date.now(), maxAge = STALE_MS } = {}) {
+  if (!isStale(cachedSince(studentId), now, maxAge)) return false;
+  dropStudent(studentId);
+  return true;
+}
+
 // Clears one student's data and updates, and the workspace, then emits change
 export function invalidate(studentId) {
-  if (studentId !== null && studentId !== undefined) {
-    students.delete(String(studentId));
-    updates.delete(String(studentId));
-    sessions.delete(String(studentId));
-    tutors.delete(String(studentId));
-    materials.delete(String(studentId));
-  }
+  if (studentId !== null && studentId !== undefined) dropStudent(studentId);
   workspace = null;
   // Sessions changed: their money did too
   billing = null;
@@ -362,6 +417,7 @@ export function invalidateAll() {
   sessions.clear();
   tutors.clear();
   materials.clear();
+  files.clear();
   children.clear();
   workspace = null;
   pending = null;

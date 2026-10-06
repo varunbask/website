@@ -3,6 +3,7 @@
 //
 // navModel({ role, page, scope, route, counts, fresh }) returns
 //   { mode, groups: [{ key, label, switcher, items }], tabbar: [...], more: [...] }
+// Every role ends with a Help item (#/help) in its own last group and in `more`.
 // Item: { key, label, icon, href, current, ancestor, badge, railBadge, isNew, children }
 //   current   this exact item is the page (aria-current="page")
 //   ancestor  a child is current (parent label turns strong, no pill)
@@ -12,7 +13,7 @@
 // fresh:  { graded, updates, schedule } booleans for "New" (students and parents only)
 
 const STAFF_ROLES = new Set(['tutor', 'admin']);
-const STUDENT_VIEWS = new Set(['overview', 'assignments', 'tasks', 'calendar', 'updates']);
+const STUDENT_VIEWS = new Set(['overview', 'assignments', 'tasks', 'files', 'calendar', 'updates', 'report']);
 const SUBS = [['todo', 'To do'], ['in-review', 'In review'], ['graded', 'Graded'], ['archived', 'Archived']];
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -35,7 +36,7 @@ function item(key, label, icon, href, { current = false, badge: b = null, isNew 
   return { key, label, icon, href, current, ancestor, badge: isNew ? null : b, railBadge, isNew, children };
 }
 
-// Overview, Assignments (four subs), Tasks, Calendar, Updates for one student
+// Overview, Assignments (four subs), Tasks, Files, Calendar, Updates, Report for one student
 function studentItems({ route, counts, fresh, family, staff }) {
   const view = route?.view;
   const sub = route?.sub ?? 'todo';
@@ -62,6 +63,7 @@ function studentItems({ route, counts, fresh, family, staff }) {
       current: view === 'tasks',
       badge: badge(counts.tasksOpen, plural(counts.tasksOpen, 'open task', 'open tasks')),
     }),
+    item('files', 'Files', 'paperclip', '#/files', { current: view === 'files' }),
     item('calendar', 'Calendar', 'calendar-blank', '#/calendar', {
       current: calendarCurrent,
       isNew: family && Boolean(fresh.schedule),
@@ -70,6 +72,7 @@ function studentItems({ route, counts, fresh, family, staff }) {
       current: view === 'updates',
       isNew: family && Boolean(fresh.updates),
     }),
+    item('report', 'Report', 'file-text', '#/report', { current: view === 'report' }),
   ];
 }
 
@@ -105,6 +108,13 @@ function accountItem({ page }) {
   return item('account', 'Account', 'currency-dollar', '/portal/account.html#/dashboard', { current: page === 'account' });
 }
 
+// Help, for every role: the last item in the sidebar and in the phone More sheet.
+// The admin's own pages (People, Account) link back to the staff page, which owns #/help.
+function helpItem({ route, page }) {
+  const onPage = !ADMIN_PAGES.has(page);
+  return item('help', 'Help', 'question', `${onPage ? '' : '/portal/staff.html'}#/help`, { current: onPage && route?.view === 'help' });
+}
+
 // A tab bar slot: same item without children or "New", with the rail count
 function slot(it, label = it.label) {
   return {
@@ -128,15 +138,19 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
     const family = role === 'student' || role === 'parent';
     const noChild = role === 'parent' && !scope?.student;
     const all = studentItems({ route, counts: c, fresh, family, staff: false });
-    const items = noChild ? all.slice(0, 1) : all;
+    // Bills go to the parent, whichever child is shown (and with no child linked)
+    const bills = role === 'parent' ? item('billing', 'Billing', 'receipt', '#/billing', { current: route?.view === 'billing' }) : null;
+    const items = [...(noChild ? all.slice(0, 1) : all), ...(bills ? [bills] : [])];
     const k = byKey(items);
+    const help = helpItem({ route, page });
     let tabs = [k.overview];
-    let more = [];
-    if (!noChild && role === 'parent') { tabs = [k.overview, k.assignments, k.calendar, k.updates]; more = [k.tasks]; }
-    else if (!noChild) { tabs = [k.overview, k.assignments, k.tasks, k.calendar]; more = [k.updates]; }
+    let more = bills ? [bills] : [];
+    if (!noChild && role === 'parent') { tabs = [k.overview, k.assignments, k.calendar, k.updates]; more = [k.tasks, k.files, k.report, bills]; }
+    else if (!noChild) { tabs = [k.overview, k.assignments, k.tasks, k.calendar]; more = [k.files, k.updates, k.report]; }
+    more = [...more, help];
     return {
       mode: null,
-      groups: [{ key: 'main', label: null, switcher: false, items }],
+      groups: [{ key: 'main', label: null, switcher: false, items }, { key: 'help', label: null, switcher: false, items: [help] }],
       tabbar: [...tabs.map((i) => slot(i)), moreSlot(more)],
       more,
     };
@@ -152,6 +166,8 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
   const groups = [{ key: 'workspace', label: 'Workspace', switcher: false, items: work }];
   if (!onAdminPage) groups.push({ key: 'student', label: 'Student', switcher: true, items: student });
   if (people) groups.push({ key: 'admin', label: 'Admin', switcher: false, items: [people, account] });
+  const help = helpItem({ route, page });
+  groups.push({ key: 'help', label: null, switcher: false, items: [help] });
 
   const mode = !onAdminPage && isStudentMode(route, scope) ? 'student' : 'workspace';
   const w = byKey(work);
@@ -160,7 +176,7 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
   if (mode === 'student') {
     const s = byKey(student);
     tabs = [s.overview, s.assignments, s.tasks, s.calendar];
-    more = [s.updates, w.today, w.review, w.students, ...(people ? [people, account] : [])];
+    more = [s.files, s.updates, s.report, w.today, w.review, w.students, ...(people ? [people, account] : [])];
   } else if (isAdmin) {
     tabs = [w.today, w.review, w.students, people];
     more = [w['calendar-all'], account];
@@ -168,6 +184,7 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
     tabs = [w.today, w.review, w.students, w['calendar-all']];
     more = [];
   }
+  more = [...more, help];
   return {
     mode,
     groups,

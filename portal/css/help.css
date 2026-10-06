@@ -1,0 +1,48 @@
+/* Help view (#/help). Prefix: hlp-. Tokens and components come from app.css; no raw hex.
+
+   Markup (portal/js/views/help.js)
+     div.hlp-layout                      the view column, max 720px
+       section.card.hlp-card (+ .is-contact for the Contact card)
+         div.card-head > h2.card-title
+         p.read | ol.hlp-steps.read | ul.hlp-list.read | div.hlp-actions > a.btn
+*/
+
+.hlp-layout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  max-width: 720px;
+}
+
+.hlp-card { scroll-margin-top: calc(var(--sticky-top) + var(--s-4)); }
+.hlp-card > .card-head { margin-bottom: var(--s-2); }
+/* Space between the blocks after the heading (the heading has its own margin) */
+.hlp-card > :not(.card-head) + * { margin-top: var(--s-3); }
+
+/* Lists use the reading text size; the marker gets the quiet colour */
+.hlp-steps,
+.hlp-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding-left: var(--s-5);
+}
+.hlp-steps { list-style: decimal; }
+.hlp-list { list-style: disc; }
+.hlp-steps > li::marker,
+.hlp-list > li::marker { color: var(--text-3); }
+.hlp-steps > li { padding-left: var(--s-1); }
+
+.hlp-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+/* Contact: the first thing a stuck family looks for, so it carries the accent */
+.hlp-card.is-contact {
+  border-color: transparent;
+  background-color: var(--accent-soft);
+}
+.hlp-card.is-contact .link { color: var(--accent-text); }
+
+@media (max-width: 767.98px) {
+  .hlp-layout { gap: var(--s-3); }
+  .hlp-actions > .btn { flex: 1 1 100%; }
+}

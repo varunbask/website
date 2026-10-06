@@ -20,13 +20,24 @@
 // (only its SHA-256 is stored in portal_invites) so they can set their own
 // email and password on portal/join.html.
 //
+// Under Everyone, an Invites row of toggle chips (Needs an invite, Invited
+// not joined, Invite expired, All) shows who still has no login and how far
+// their invite has got, and narrows the list together with the role filter
+// and the search. It appears only while someone has no login. The states come
+// from the invites loaded once with the people (portal/js/invite-status-model.js);
+// nothing is queried per row.
+//
 // Pure helpers (normalizeRole, roleCounts, linkedTo, peopleIn, byCreated,
 // approveText) are exported for tests; they never touch the DOM.
 
 import { sb } from '../supabase.js';
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
-import { newInviteToken, inviteLink, inviteMessage, inviteState, parseFamilyLines, planFamilies, signupMatches } from '../invites-model.js';
+import { newInviteToken, inviteLink, inviteMessage, INVITE_DAYS, parseFamilyLines, planFamilies, signupMatches } from '../invites-model.js';
+import {
+  INVITE_FILTERS, INVITE_FILTER_LABELS, inviteStatuses, inviteCounts, hasNoLoginPeople, filterByInvite,
+  inviteSummary, inviteEmptyText,
+} from '../invite-status-model.js';
 import {
   avatar, button, iconButton, busy, pill, select, emptyState, errorCallout, skeletonRows,
   segmented, setSegmented, groupHeader, badgeText, visuallyHidden,
@@ -174,8 +185,9 @@ async function peopleApi(payload) {
 // ---------------------------------------------------------------------------
 // View
 
-// The Everyone search survives refresh re-renders, not a fresh visit
+// The Everyone search and the invite chip survive refresh re-renders, not a fresh visit
 let keptSearch = '';
+let keptInvite = 'all';
 
 const ENTER_LIMIT = 8;
 const cssEscape = (s) => (globalThis.CSS?.escape ? CSS.escape(String(s)) : String(s).replace(/["\\]/g, '\\$&'));
@@ -183,7 +195,10 @@ const cssEscape = (s) => (globalThis.CSS?.escape ? CSS.escape(String(s)) : Strin
 export function mount(ctx) {
   const view = ctx.route.view === 'everyone' ? 'everyone' : 'pending';
   const me = ctx.me;
-  if (!ctx.isRefresh) keptSearch = '';
+  if (!ctx.isRefresh) {
+    keptSearch = '';
+    keptInvite = 'all';
+  }
 
   // Header and link tabs. The waiting count fills in once the data arrives;
   // the tab links are updated in place so focus never drops.
@@ -219,6 +234,9 @@ export function mount(ctx) {
   let renderSeq = 0;
   let firstRender = true;
   let role = normalizeRole(ctx.route.params?.role);
+  let inviteFilter = keptInvite;
+  // Each person without a login -> { key, invite }, from the invites already loaded
+  let statuses = new Map();
 
   // Keeps the admin nav badge and the page default in step with the list
   function syncCounts() {
@@ -505,8 +523,15 @@ export function mount(ctx) {
 
   function drawEveryone() {
     const counts = roleCounts(data.people);
+    statuses = inviteStatuses(data.people, data.invites, Date.now());
+    // With nobody left without a login the chips are gone: never leave a filter on that hides the list
+    if (!hasNoLoginPeople(statuses)) {
+      inviteFilter = 'all';
+      keptInvite = 'all';
+    }
     if (!everyone) buildEveryone();
     updateSegmentCounts(counts);
+    updateInviteBar();
     fillEveryone();
   }
 
@@ -551,6 +576,7 @@ export function mount(ctx) {
       onChange: (value) => {
         role = normalizeRole(value);
         ctx.setParams({ role: role === 'all' ? null : role }, { replace: true });
+        updateInviteBar();
         fillEveryone();
       },
     });
@@ -559,14 +585,70 @@ export function mount(ctx) {
     const list = h('div', { class: 'ppl-everyone' });
     const status = h('p', { class: 'visually-hidden', role: 'status' });
     const adder = addWithoutLogin();
+    const invites = buildInviteBar();
     const toolbar = h('div', { class: 'ppl-toolbar' },
       h('div', { class: 'ppl-search' },
         h('label', { class: 'visually-hidden', for: inputId }, 'Find a person'),
         h('span', { class: 'input-icon' }, icon('magnifying-glass'), input)),
       h('div', { class: 'ppl-filter-wrap' }, seg),
+      invites.el,
       adder);
-    everyone = { input, seg, list, status, countSpans, toolbar };
+    everyone = { input, seg, list, status, countSpans, toolbar, invites };
     root.replaceChildren(toolbar, status, list);
+  }
+
+  // The Invites row: toggle chips with counts, and a sentence above the list
+  // that says how many people have no login and how far their invites have got.
+  // Built once and updated in place, so a focused chip stays focused.
+  function buildInviteBar() {
+    const countSpans = {};
+    const chips = INVITE_FILTERS.map((f) => {
+      countSpans[f] = h('span', { class: 'ppl-invchip-count num' });
+      return h('button', {
+        type: 'button',
+        class: 'ppl-invchip',
+        'aria-pressed': 'false',
+        dataset: { value: f, focusKey: `ppl-invite-filter-${f}` },
+        // Pressing the chip that is on turns the filter off
+        onClick: () => chooseInvite(f === 'all' || inviteFilter === f ? 'all' : f),
+      }, INVITE_FILTER_LABELS[f], h('span', { class: 'ppl-invchip-meta' }, visuallyHidden(', '), countSpans[f]));
+    });
+    const group = h('div', { class: 'ppl-invchips', role: 'group', 'aria-label': 'Filter by invite status' }, chips);
+    const summary = h('p', { class: 'ppl-invite-summary' });
+    const el = h('div', { class: 'ppl-invites', hidden: true },
+      h('div', { class: 'ppl-invites-row' }, h('span', { class: 'ppl-invites-label', 'aria-hidden': 'true' }, 'Invites'), group),
+      summary);
+    return { el, group, countSpans, summary };
+  }
+
+  // Counts, pressed chip and sentence, from the statuses and the role filter.
+  // The chips show only while someone has no login.
+  function updateInviteBar() {
+    const bar = everyone.invites;
+    bar.el.hidden = !hasNoLoginPeople(statuses);
+    const counts = inviteCounts(data.people, statuses, role);
+    for (const f of INVITE_FILTERS) bar.countSpans[f].textContent = String(counts[f]);
+    for (const btn of bar.group.querySelectorAll('button[data-value]')) {
+      btn.setAttribute('aria-pressed', btn.dataset.value === inviteFilter ? 'true' : 'false');
+    }
+    const text = inviteSummary(counts, role);
+    bar.summary.textContent = text ?? '';
+    bar.summary.hidden = !text;
+  }
+
+  // People just added have no invite, so a filter that would hide them is turned off
+  function showAllInvites() {
+    if (inviteFilter === 'invited' || inviteFilter === 'expired') {
+      inviteFilter = 'all';
+      keptInvite = 'all';
+    }
+  }
+
+  function chooseInvite(value) {
+    inviteFilter = value;
+    keptInvite = value;
+    updateInviteBar();
+    fillEveryone();
   }
 
   // A student or parent who has no account yet: a real portal account with no
@@ -621,6 +703,7 @@ export function mount(ctx) {
         nameInput.value = '';
         form.hidden = true;
         say(`Added ${name} as a ${newRole} without a login. Link them below, then use Invite when they are ready to sign in.`, 'success');
+        showAllInvites();
         await render({ key: `invite-${body.id}`, fallback: 'ppl-add-open' });
         syncCounts();
       });
@@ -704,6 +787,7 @@ export function mount(ctx) {
         text.value = '';
         say(`${done} Press Invite on a parent’s row when the family is ready to sign in.`, 'success');
       }
+      showAllInvites();
       await render({ fallback: 'ppl-list-open' });
       syncCounts();
     }));
@@ -717,36 +801,76 @@ export function mount(ctx) {
 
   // The latest invite of a person without a sign-in, and making a new one
   function inviteControls(person) {
-    if (!person.no_login || !['student', 'parent'].includes(person.role)) return null;
+    const first = statuses.get(person.id);
+    if (!first) return null;
     const name = displayName(person);
-    const state = inviteState(data.invites.filter((i) => i.profile_id === person.id), Date.now());
     const panel = h('div', { class: 'ppl-invite-panel', hidden: true });
     const when = (iso) => relativeTime(iso, ctx.now).text.toLowerCase();
-    const note = state.key === 'open'
-      ? `Invited ${when(state.invite.created_at)}${state.invite.emailed_to ? `, emailed to ${state.invite.emailed_to}` : ''}`
-      : state.key === 'expired' ? 'Invite expired' : null;
+    const noteOf = (s) => {
+      if (s.key === 'invited') return `Invited ${when(s.invite.created_at)}${s.invite.emailed_to ? `, emailed to ${s.invite.emailed_to}` : ''}`;
+      if (s.key === 'expired') return 'Invite expired';
+      if (s.key === 'joining') return 'Link used. Reload to see their sign-in.';
+      return '';
+    };
+    // An expired invite is replaced, not added to: the same button, worded for that
+    const labelOf = (s) => (s.key === 'invited' ? 'New invite link' : s.key === 'expired' ? 'Send a new invite' : 'Invite');
+    const ariaOf = (s) => (s.key === 'invited' ? `New invite link for ${name}` : s.key === 'expired' ? `Send a new invite to ${name}` : `Invite for ${name}`);
+    const note = h('span', { class: 'ppl-invite-note' });
+    // Makes the link and shows it; the new status, or null when it did not save
+    async function makeLink() {
+      const token = newInviteToken();
+      const token_hash = await sha256Hex(token);
+      const { data: rows, error } = await sb.from('portal_invites').insert({ profile_id: person.id, token_hash }).select('id');
+      if (!ctx.alive()) return null;
+      if (error || !rows?.length) {
+        say('That didn’t save: the invite could not be made. Refresh the page and try again.', 'error');
+        return null;
+      }
+      // The chips and the sentence count this link now, though the list is not redrawn while its link is open
+      const at = Date.now();
+      data.invites.push({
+        id: rows[0].id, profile_id: person.id, created_at: new Date(at).toISOString(),
+        expires_at: new Date(at + INVITE_DAYS * 86400000).toISOString(), used_at: null, emailed_to: null, emailed_at: null,
+      });
+      statuses = inviteStatuses(data.people, data.invites, at);
+      updateInviteBar();
+      showLink(panel, person, token);
+      return statuses.get(person.id);
+    }
     const make = button({
-      label: state.key === 'open' ? 'New invite link' : 'Invite',
+      label: labelOf(first),
       size: 'sm',
-      variant: state.key === 'open' ? 'ghost' : 'secondary',
+      variant: first.key === 'invited' ? 'ghost' : 'secondary',
       icon: 'envelope-simple',
       focusKey: `invite-${person.id}`,
-      onClick: () => busy(make, 'Making a link…', async () => {
-        const token = newInviteToken();
-        const token_hash = await sha256Hex(token);
-        const { data: rows, error } = await sb.from('portal_invites').insert({ profile_id: person.id, token_hash }).select('id');
-        if (!ctx.alive()) return;
-        if (error || !rows?.length) {
-          say('That didn’t save: the invite could not be made. Refresh the page and try again.', 'error');
-          return;
-        }
-        showLink(panel, person, token);
-      }),
+      onClick: async () => {
+        let made = null;
+        await busy(make, 'Making a link…', async () => { made = await makeLink(); });
+        // busy puts the old label back when it ends, so the new wording goes on after it
+        if (made) paint(made);
+      },
     });
-    make.setAttribute('aria-label', `${state.key === 'open' ? 'New invite link' : 'Invite'} for ${name}`);
+    function paint(s) {
+      note.textContent = noteOf(s);
+      note.hidden = !note.textContent;
+      make.querySelector('.btn-label').textContent = labelOf(s);
+      make.classList.toggle('btn-ghost', s.key === 'invited');
+      make.classList.toggle('btn-secondary', s.key !== 'invited');
+      make.setAttribute('aria-label', ariaOf(s));
+    }
+    paint(first);
     return h('div', { class: 'ppl-invite' },
-      h('div', { class: 'ppl-invite-row' }, pill({ label: 'No sign-in yet', tone: 'warning', icon: 'clock' }), note ? h('span', { class: 'ppl-invite-note' }, note) : null, make),
+      h('div', { class: 'ppl-invite-row' }, pill({ label: 'No sign-in yet', tone: 'warning', icon: 'clock' }), note, make),
       panel);
+  }
+
+  // Where focus goes when emailing a link takes the person out of the filtered
+  // list: the next row's Invite button, else the one before, else the chip
+  function inviteFocusFallback(person) {
+    const own = `invite-${person.id}`;
+    const keys = [...everyone.list.querySelectorAll('button[data-focus-key^="invite-"]')].map((b) => b.dataset.focusKey);
+    const at = keys.indexOf(own);
+    return keys[at + 1] ?? (at > 0 ? keys[at - 1] : null) ?? `ppl-invite-filter-${inviteFilter}`;
   }
 
   // The link is shown once (only its hash is kept): copy it, or email it from here
@@ -778,7 +902,7 @@ export function mount(ctx) {
       if (!ctx.alive()) return;
       if (status === 200) {
         say(`Invite emailed to ${address}. ${name} can set up their sign-in from the link.`, 'success');
-        await render({ key: `invite-${person.id}` });
+        await render({ key: `invite-${person.id}`, fallback: inviteFocusFallback(person) });
         return;
       }
       say(`That didn’t send: ${status === 422 ? 'check the email address.' : status === 503 ? 'email is not set up; copy the link instead.' : 'please try again, or copy the link instead.'}`, 'error');
@@ -805,16 +929,19 @@ export function mount(ctx) {
   function fillEveryone() {
     const { list, input, status } = everyone;
     const focus = focusTarget();
-    const groups = peopleIn(data.people, { role, search: input.value });
+    const groups = peopleIn(filterByInvite(data.people, statuses, inviteFilter), { role, search: input.value });
     const total = groups.reduce((n, g) => n + g.people.length, 0);
-    status.textContent = input.value.trim() ? `${total} ${total === 1 ? 'person' : 'people'} found` : '';
+    const narrowed = Boolean(input.value.trim()) || inviteFilter !== 'all';
+    status.textContent = narrowed ? `${total} ${total === 1 ? 'person' : 'people'} found` : '';
 
     if (!groups.length) {
       const counts = roleCounts(data.people);
       let text;
-      if (input.value.trim()) text = 'Nobody matches that search.';
+      if (input.value.trim()) text = inviteFilter === 'all' ? 'Nobody matches that search.' : 'Nobody matches that search and invite filter.';
+      else if (inviteFilter !== 'all') text = inviteEmptyText(inviteFilter, role);
       else if (role === 'all' || !counts[role]) text = role === 'all' ? 'Nobody has joined yet.' : `No ${GROUP_NOUNS[role]} yet.`;
       list.replaceChildren(emptyState({ icon: 'users-three', text }));
+      restoreFocus(focus);
       return;
     }
 

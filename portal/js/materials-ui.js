@@ -32,6 +32,70 @@ async function sign(material) {
   return data.signedUrl;
 }
 
+// One observer for every lazily signed file, so a long list signs only what
+// is near the screen
+const lazyWork = new WeakMap();
+let nearScreen = null;
+function whenNearScreen(el, work) {
+  if (typeof IntersectionObserver === 'undefined') {
+    work();
+    return;
+  }
+  nearScreen ??= new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      nearScreen.unobserve(entry.target);
+      lazyWork.get(entry.target)?.();
+      lazyWork.delete(entry.target);
+    }
+  }, { rootMargin: '400px 0px' });
+  lazyWork.set(el, work);
+  nearScreen.observe(el);
+}
+
+// Makes an element open a stored file from a short-lived signed link, signed
+// again when it is stale (the links last 10 minutes, and are renewed after 8).
+//   el       an <a>, whose href becomes the signed link, so a plain, middle or
+//            modified click just works; or a <button>, whose click opens the
+//            link in a new tab
+//   onError  called when the file cannot be opened
+//   lazy     sign when the element comes near the screen instead of at once
+//            (a long list); hovering or focusing it signs it too
+export function wireFileOpen(el, material, { onError, lazy = false } = {}) {
+  const isAnchor = el.tagName === 'A';
+  let url = '';
+  let signedAt = 0;
+  let inFlight = null;
+  const stale = () => !signedAt || Date.now() - signedAt >= RESIGN_AFTER_MS;
+  const refresh = () => {
+    inFlight ??= sign(material).then((signed) => {
+      url = signed;
+      if (isAnchor) el.href = signed;
+      signedAt = Date.now();
+      return signed;
+    }).finally(() => { inFlight = null; });
+    return inFlight;
+  };
+  // Middle-click and "Open in new tab" use the href as it is, so a stale link
+  // is signed again when the pointer or focus reaches it
+  const warm = () => { if (stale()) refresh().catch(() => { /* signed on click instead */ }); };
+  if (lazy) whenNearScreen(el, warm);
+  else warm();
+  el.addEventListener('pointerenter', warm);
+  el.addEventListener('focus', warm);
+  el.addEventListener('click', async (event) => {
+    const fresh = !stale();
+    if (isAnchor && fresh) return;
+    event.preventDefault();
+    try {
+      window.open(fresh ? url : await refresh(), '_blank', 'noopener');
+    } catch (error) {
+      console.error(error);
+      onError?.(error);
+    }
+  });
+}
+
 // Uploads files to the materials bucket and adds a material row for each, on
 // a session ({ session_id }) or an assignment ({ task_id }). A file that fails
 // is reported, never half added: its upload is removed when the row fails.
@@ -183,32 +247,7 @@ export function materialsSection(dctx, {
     }, h('span', { class: 'mat-title' }, m.title), h('span', { class: 'mat-meta' }, materialMeta(m)));
 
     if (!isLink(m)) {
-      // Signed now so a plain click (or middle click) just works; signed again
-      // on click once the link is older than 8 minutes
-      let signedAt = 0;
-      const refresh = async () => {
-        const url = await sign(m);
-        open.href = url;
-        signedAt = Date.now();
-        return url;
-      };
-      const stale = () => !signedAt || Date.now() - signedAt >= RESIGN_AFTER_MS;
-      refresh().catch(() => { /* signed on click instead */ });
-      // Middle-click and "Open in new tab" use the href as it is, so a stale
-      // link is signed again when the pointer or focus reaches it
-      const warm = () => { if (stale()) refresh().catch(() => {}); };
-      open.addEventListener('pointerenter', warm);
-      open.addEventListener('focus', warm);
-      open.addEventListener('click', async (event) => {
-        if (!stale()) return;
-        event.preventDefault();
-        try {
-          window.open(await refresh(), '_blank', 'noopener');
-        } catch (error) {
-          console.error(error);
-          showError('This file could not be opened. Try again.');
-        }
-      });
+      wireFileOpen(open, m, { onError: () => showError('This file could not be opened. Try again.') });
     }
 
     const remove = canEdit

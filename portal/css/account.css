@@ -14,7 +14,6 @@
          dl.acct-summary > div.acct-summary-row(.is-total) > dt + dd
          div.acct-pay-form, div.acct-inline-form(.is-tight) > label.acct-inline-field > span + control
      section.card.acct-period
-     article.acct-statement                                                    statement and pay slip (prints alone)
 */
 
 .acct-root { display: flex; flex-direction: column; gap: var(--s-5); }
@@ -154,38 +153,3 @@ a.acct-line-what:hover .acct-line-when { text-decoration: underline; }
 .acct-history ul { margin: var(--s-1) 0 0; padding-left: var(--s-5); }
 .acct-history li.is-voided { text-decoration: line-through; }
 .acct-reason .field { margin: var(--s-3) 0; }
-
-/* Statement and pay slip */
-.acct-print-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
-.acct-statement {
-  max-width: 52rem; padding: var(--s-8); border: 1px solid var(--line-strong); border-radius: var(--r-md);
-  background-color: var(--surface); color: var(--text);
-}
-.acct-statement-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--s-4); margin-bottom: var(--s-6); }
-.acct-statement-org { font: var(--t-meta); color: var(--text-3); }
-.acct-statement-head h1 { font: var(--t-h1); }
-.acct-statement-meta { display: grid; grid-template-columns: auto auto; gap: 2px var(--s-4); margin: 0; font: var(--t-meta); }
-.acct-statement-meta dt { color: var(--text-3); }
-.acct-statement-meta dd { margin: 0; text-align: right; }
-.acct-statement-lines { width: 100%; border-collapse: collapse; font: var(--t-ui); }
-.acct-statement-lines th, .acct-statement-lines td { padding: 6px var(--s-2); text-align: left; border-bottom: 1px solid var(--line); }
-.acct-statement-lines thead th { font: var(--t-caption); color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; }
-.acct-statement-lines .num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.acct-statement-lines tr.is-cancelled td { color: var(--text-4); }
-.acct-statement-lines tfoot th, .acct-statement-lines tfoot td { border-bottom: 0; }
-.acct-statement-lines tfoot tr.is-total th, .acct-statement-lines tfoot tr.is-total td { font-weight: 600; border-top: 2px solid var(--text); }
-.acct-statement-note { margin-top: var(--s-4); font: var(--t-meta); color: var(--text-2); white-space: pre-line; }
-
-@media (max-width: 767.98px) {
-  .acct-statement { padding: var(--s-4); }
-  .acct-statement-lines { font: var(--t-meta); }
-}
-
-@page { margin: 12mm; }
-@media print {
-  body.app-body { background: #fff; }
-  .sidebar, .topbar-wrap, .tabbar, .toasts, .view-header, .tabs, .acct-print-bar, .skip-link { display: none !important; }
-  .app, .panel, #main, .view-root, .view { display: block !important; margin: 0 !important; padding: 0 !important; max-width: none !important; }
-  .acct-statement { max-width: none; border: 0; padding: 0; color: #000; background: #fff; }
-  .acct-statement-lines th, .acct-statement-lines td { border-color: #ccc; }
-}

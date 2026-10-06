@@ -8,6 +8,9 @@
 //
 // Store changes re-render the detail in place (dctx.onRefresh) so focus and
 // scroll survive; the create, edit and notes forms keep what was typed.
+//
+// Staff see "Before you start" (prep-model.js, session-prep.js) above the plan
+// on a lesson that has not ended: last lesson, homework since, what waits.
 
 import { h } from './dom.js';
 import { icon } from './icons.js';
@@ -27,6 +30,8 @@ import {
 import { sessionForm, sessionNotesForm, callout } from './session-form.js';
 import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, homeworkDueKey } from './materials-model.js';
+import { buildPrep } from './prep-model.js';
+import { prepSection } from './session-prep.js';
 import { getGoogleStatus, syncSoon } from './google.js';
 import { ownGoogleLink, syncNote } from './google-model.js';
 import { buildContext, billingFact, inPaidPeriod } from './billing-model.js';
@@ -193,14 +198,17 @@ async function loadExtras(dctx, found) {
     // The admin sees what the session is worth (Account page); nobody else loads billing
     dctx.me?.role === 'admin' && store.getBilling ? priced(store) : null,
   ]);
-  const items = data
-    ? store.itemsFor(data, { now: new Date(), audience: dctx.audience, viewerId: dctx.me?.id })
-      .filter((item) => item.task.session_id !== null && item.task.session_id !== undefined
-        && String(item.task.session_id) === String(found.session.id))
+  const all = data ? store.itemsFor(data, { now: new Date(), audience: dctx.audience, viewerId: dctx.me?.id }) : null;
+  const items = all
+    ? all.filter((item) => item.task.session_id !== null && item.task.session_id !== undefined
+      && String(item.task.session_id) === String(found.session.id))
     : null;
   return {
     materials: materials ? materialsFor(materials, { sessionId: found.session.id }) : null,
     homework: items,
+    // The student's every item and submission, for staff's "Before you start"
+    allItems: all,
+    allSubs: data?.submissions ?? null,
     google,
     rule,
     billing,
@@ -638,6 +646,18 @@ function buildDetail(dctx, found, { now, names, actions }) {
   if (staff && !editable) {
     nodes.push(h('p', { class: 'note ses-readonly' }, icon('info'),
       h('span', {}, `Only ${tutorName || 'the tutor'} or an admin can change this session.`)));
+  }
+
+  // Before you start (staff, lesson not over): last lesson, homework since, what waits
+  if (staff && found.allItems) {
+    const prep = prepSection(buildPrep({ session, sessions, items: found.allItems, subs: found.allSubs, now }), {
+      studentId: found.studentId,
+      hash: typeof location === 'undefined' ? '' : location.hash,
+      now,
+      names,
+      pillFor: (attendance) => pill(ATTENDANCE_PILLS[attendance]),
+    });
+    if (prep) nodes.push(prep);
   }
 
   // Plan

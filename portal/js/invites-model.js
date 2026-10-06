@@ -62,8 +62,9 @@ export function joinError(status, body = {}) {
 }
 
 // The state of a person's latest invite: 'none' | 'open' | 'used' | 'expired'
+// (created_at is compared as an instant, so rows written with different offsets still order)
 export function inviteState(invites, now = Date.now()) {
-  const latest = (invites ?? []).reduce((best, i) => (!best || i.created_at > best.created_at ? i : best), null);
+  const latest = (invites ?? []).reduce((best, i) => (!best || Date.parse(i.created_at) > Date.parse(best.created_at) ? i : best), null);
   if (!latest) return { key: 'none', invite: null };
   if (latest.used_at) return { key: 'used', invite: latest };
   if (Date.parse(latest.expires_at) < now) return { key: 'expired', invite: latest };

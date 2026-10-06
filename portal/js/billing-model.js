@@ -14,7 +14,7 @@
 //     rules     session_series rows (id, start_time, end_time)
 //     billing   store.getBilling(): settings, policies, familyRates, tutorRates,
 //               sessionBilling, edits, payments, payouts, adjustments, contacts,
-//               statements, parentLinks, names
+//               statements, parentLinks, names, fullNames
 //     adminIds  ids of admins, so their own edits are not flagged
 
 import { dayKey, addDays, parseKey, weekday } from './dates.js';
@@ -307,6 +307,9 @@ export function buildContext({ sessions = [], links = [], rules = [], billing, n
       return s && String(s).trim() ? String(s).trim() : null;
     },
     nameOf: (id) => (billing.names?.get?.(String(id)) ?? '').trim() || 'Unknown',
+    // The person's real full name, or null: nameOf falls back to an email, which
+    // must never be printed on a statement the parent reads
+    fullNameOf: (id) => (billing.fullNames?.get?.(String(id)) ?? '').trim() || null,
   };
   ctx.rows = (sessions ?? [])
     .filter((s) => dayKey(s.starts_at) >= settings.ledger_start)

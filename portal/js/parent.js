@@ -11,7 +11,7 @@ startApp({
   me,
   page: 'parent',
   audience: 'family',
-  table: familyRoutes(),
+  table: familyRoutes('parent'),
   defaultRoute: () => '#/overview',
   // ?child= must name a linked child; otherwise the first child (replaceState)
   loadScope: async ({ search, store }) => {
