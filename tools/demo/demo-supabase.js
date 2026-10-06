@@ -234,10 +234,10 @@
   // lesson materials on Maya's most recent Algebra session, and a link
   const lastAlgebra = db.sessions.filter((s) => s.student_id === 'u-maya' && s.subject === 'Algebra' && Date.parse(s.starts_at) < NOW).pop();
   if (lastAlgebra) {
-    db.materials.push({ id: id(), student_id: 'u-maya', session_id: lastAlgebra.id, task_id: null, title: 'Systems of equations slides', storage_path: 'u-maya/slides.svg', file_type: 'image/svg+xml', size_bytes: 48213, url: null, created_by: 'u-daniel', created_at: lastAlgebra.ends_at });
+    db.materials.push({ id: id(), student_id: 'u-maya', session_id: lastAlgebra.id, task_id: null, title: 'Systems of equations slides', storage_path: 'u-maya/slides.pdf', file_type: 'application/pdf', size_bytes: 48213, url: null, created_by: 'u-daniel', created_at: lastAlgebra.ends_at });
     db.materials.push({ id: id(), student_id: 'u-maya', session_id: lastAlgebra.id, task_id: null, title: 'Khan Academy: elimination', storage_path: null, file_type: null, size_bytes: null, url: 'https://www.khanacademy.org/math/algebra', created_by: 'u-daniel', created_at: lastAlgebra.ends_at });
   }
-  db.materials.push({ id: id(), student_id: 'u-leo', session_id: null, task_id: ratio.id, title: 'Ratio worksheet', storage_path: 'u-leo/ratio.svg', file_type: 'image/svg+xml', size_bytes: 21811, url: null, created_by: 'u-daniel', created_at: ago(8) });
+  db.materials.push({ id: id(), student_id: 'u-leo', session_id: null, task_id: ratio.id, title: 'Ratio worksheet', storage_path: 'u-leo/ratio.pdf', file_type: 'application/pdf', size_bytes: 21811, url: null, created_by: 'u-daniel', created_at: ago(8) });
   // a family payment for two months ago, so the Account page has history
   db.payments.push({ id: id(), client_key: 'demo-pay-1', parent_id: 'u-jin', payer_name: 'Jin Park', period: monthStart(-2), amount_cents: 24000, method: 'zelle', received_on: dayKey(-25), reference: 'ZL-2201', note: null, lines: [], owed_cents: 24000, recorded_by: 'u-admin', created_at: ago(25), voided_at: null, void_reason: null });
 
