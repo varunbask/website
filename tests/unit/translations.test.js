@@ -67,7 +67,7 @@ describe('translations', () => {
 
 describe('the booking links', () => {
   test('every Book button goes to the booking section, and none opens a mail program', () => {
-    const buttons = [...html.matchAll(/<a [^>]*class="btn btn-primary[^>]*>[^<]*<\/a>/g)].map((m) => m[0]).filter((a) => /Book/.test(a));
+    const buttons = [...html.matchAll(/<a [^>]*class="btn btn-primary[^>]*>[^<]*<\/a>/g)].map((m) => m[0]).filter((a) => /Book|consultation/.test(a));
     expect(buttons.length).toBe(5);   // header (full and short), hero, closing note, sticky bar
     for (const b of buttons) expect(b).toContain('href="#book"');
     expect(html).not.toMatch(/<a [^>]*class="btn[^>]*href="mailto:/);
