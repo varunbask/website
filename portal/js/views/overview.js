@@ -661,9 +661,13 @@ function mountWelcome(ctx) {
 // Parent with two or more children: one compact item per child, linking to
 // that child's Overview. Each child loads on its own, so one failure leaves a
 // small note on that item and the rest of the page is untouched.
-async function loadChildSummaries(ctx, children) {
+async function loadChildSummaries(ctx, children, currentId) {
   return Promise.all(children.map(async (child) => {
     try {
+      // The page keeps the student on screen fresh itself. A sibling read from
+      // a cache older than the app's refresh window (a tab left open overnight)
+      // is dropped quietly, with no change event, and loaded again.
+      if (String(child.id) !== String(currentId)) ctx.store.dropIfStale(child.id);
       const [data, sessions] = await Promise.all([
         ctx.store.getStudentData(child.id).catch(() => null),
         ctx.store.getSessions(child.id).catch(() => null),
@@ -791,7 +795,7 @@ async function mountParent(ctx) {
   // The children load beside the page's own data (both are cached by the
   // store). Failing to list them just means no "Your children" row.
   const kidsLoad = ctx.store.getChildren(ctx.me.id).then((kids) => kids ?? [], () => []);
-  const summariesLoad = kidsLoad.then((kids) => (showChildrenRow(kids) ? loadChildSummaries(ctx, kids) : null));
+  const summariesLoad = kidsLoad.then((kids) => (showChildrenRow(kids) ? loadChildSummaries(ctx, kids, student.id) : null));
 
   let loaded;
   try {
