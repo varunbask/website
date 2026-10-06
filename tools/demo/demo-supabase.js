@@ -326,8 +326,9 @@
     sessions: (r) => canTeach(r.student_id),
     session_series: (r) => canTeach(r.student_id),
     materials: (r) => canTeach(r.student_id),
-    submissions: (r) => role() === 'student' && r.student_id === meId,
-    submission_drafts: (r) => r.student_id === meId,
+    // student_id defaults to the signed-in student, like the real column
+    submissions: (r) => role() === 'student' && (r.student_id ?? meId) === meId,
+    submission_drafts: (r) => (r.student_id ?? meId) === meId,
     tutor_students: () => role() === 'admin',
     parent_students: () => role() === 'admin',
     grades: (r) => canTeach(r.student_id),
@@ -365,6 +366,7 @@
       base.id = v.id ?? `ser-${id()}`;
       Object.assign(base, { until: null, updated_at: stamp });
     }
+    if (table === 'submissions' || table === 'submission_drafts') base.student_id = meId;
     if (table === 'submissions') Object.assign(base, { status: 'pending', attempts: 1, error: null, status_changed_at: stamp, note: null, body: null, body_doc: null, storage_path: null, file_type: null });
     if (table === 'parent_students') base.bills = !db.parent_students.some((l) => l.student_id === v.student_id && l.bills);
     if (table === 'tutor_students') base.subject = null;
@@ -745,6 +747,12 @@
     for (const fn of authListeners) fn(pid ? 'SIGNED_IN' : 'SIGNED_OUT', session());
   };
   const DEMO_FILE = (bucket) => (bucket === 'materials' ? '/tools/demo/demo-slides.svg' : '/tools/demo/demo-work.svg');
+  // Files uploaded in this visit open as themselves; sample rows show demo pictures
+  const uploads = new Map();
+  const fileUrl = (bucket, path) => {
+    const blob = uploads.get(`${bucket}/${path}`);
+    return blob ? URL.createObjectURL(blob) : DEMO_FILE(bucket);
+  };
 
   const client = {
     from: (table) => new Query(table),
@@ -753,10 +761,17 @@
     removeChannel: () => {},
     storage: {
       from: (bucket) => ({
-        createSignedUrl: async () => ({ data: { signedUrl: DEMO_FILE(bucket) }, error: null }),
-        createSignedUrls: async (paths) => ({ data: paths.map((path) => ({ path, signedUrl: DEMO_FILE(bucket), error: null })), error: null }),
-        upload: async (path) => { await new Promise((r) => setTimeout(r, 400)); return { data: { path }, error: null }; },
-        copy: async (from, to) => ({ data: { path: to }, error: null }),
+        createSignedUrl: async (path) => ({ data: { signedUrl: fileUrl(bucket, path) }, error: null }),
+        createSignedUrls: async (paths) => ({ data: paths.map((path) => ({ path, signedUrl: fileUrl(bucket, path), error: null })), error: null }),
+        upload: async (path, body) => {
+          await new Promise((r) => setTimeout(r, 400));
+          if (body instanceof Blob) uploads.set(`${bucket}/${path}`, body);
+          return { data: { path }, error: null };
+        },
+        copy: async (from, to) => {
+          if (uploads.has(`${bucket}/${from}`)) uploads.set(`${bucket}/${to}`, uploads.get(`${bucket}/${from}`));
+          return { data: { path: to }, error: null };
+        },
         remove: async (paths) => ({ data: paths, error: null }),
       }),
     },
