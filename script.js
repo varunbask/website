@@ -33,6 +33,7 @@ function reviewFigure(voice, kind, lang) {
   const fig = el("figure", "review");
 
   const stars = el("div", "stars", "★★★★★");
+  stars.setAttribute("role", "img");
   stars.setAttribute("aria-label", VB_I18N.translate("5 out of 5 stars", lang));
 
   const quoteBox = el("p", "i18n-h");
@@ -105,12 +106,26 @@ function selectTab(tab) {
 tabs.forEach((tab, i) => {
   tab.addEventListener("click", () => selectTab(tab));
   tab.addEventListener("keydown", (e) => {
-    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    let next;
+    if (e.key === "ArrowRight") next = tabs[(i + 1) % tabs.length];
+    else if (e.key === "ArrowLeft") next = tabs[(i - 1 + tabs.length) % tabs.length];
+    else if (e.key === "Home") next = tabs[0];
+    else if (e.key === "End") next = tabs[tabs.length - 1];
+    else return;
     e.preventDefault();
-    const next = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
     next.focus();
     selectTab(next);
   });
+});
+
+/* ------------------------------------------------------------
+   Team photos: if one fails to load, remove it so the initials
+   behind it show. Handles images that already failed before this
+   script ran (complete, but with no width) as well as later ones.
+   ------------------------------------------------------------ */
+document.querySelectorAll(".member-photo img").forEach((img) => {
+  if (img.complete && !img.naturalWidth) img.remove();
+  else img.addEventListener("error", () => img.remove(), { once: true });
 });
 
 /* ------------------------------------------------------------

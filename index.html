@@ -66,11 +66,11 @@
           <svg class="lang-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
         </button>
         <ul class="lang-list" id="lang-list" role="listbox" aria-label="Language" hidden>
-          <li role="option" data-lang="en" tabindex="-1" aria-selected="true"><span class="lang-flag" aria-hidden="true">🇺🇸</span>English</li>
-          <li role="option" data-lang="zh" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇨🇳</span>中文</li>
-          <li role="option" data-lang="es" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇪🇸</span>Español</li>
-          <li role="option" data-lang="fr" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇫🇷</span>Français</li>
-          <li role="option" data-lang="ko" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇰🇷</span>한국어</li>
+          <li role="option" lang="en" data-lang="en" tabindex="-1" aria-selected="true"><span class="lang-flag" aria-hidden="true">🇺🇸</span>English</li>
+          <li role="option" lang="zh-Hans" data-lang="zh" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇨🇳</span>中文</li>
+          <li role="option" lang="es" data-lang="es" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇪🇸</span>Español</li>
+          <li role="option" lang="fr" data-lang="fr" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇫🇷</span>Français</li>
+          <li role="option" lang="ko" data-lang="ko" tabindex="-1" aria-selected="false"><span class="lang-flag" aria-hidden="true">🇰🇷</span>한국어</li>
         </ul>
       </div>
       <button class="theme-toggle" id="theme-toggle" type="button" data-no-translate
@@ -139,10 +139,10 @@
 
         <div class="tabs" role="tablist" aria-label="Reviews by">
           <button type="button" role="tab" id="tab-parents" aria-selected="true" aria-controls="panel-parents">
-            <span class="i18n-w">Parents</span> <span class="tab-count mono" id="count-parents" data-no-translate>6</span>
+            <span class="i18n-w">Parents</span> <span class="tab-count mono" id="count-parents" data-no-translate></span>
           </button>
           <button type="button" role="tab" id="tab-students" aria-selected="false" aria-controls="panel-students" tabindex="-1">
-            <span class="i18n-w">Students</span> <span class="tab-count mono" id="count-students" data-no-translate>10</span>
+            <span class="i18n-w">Students</span> <span class="tab-count mono" id="count-students" data-no-translate></span>
           </button>
         </div>
 
@@ -154,11 +154,11 @@
     <!-- 3. What we teach -->
     <section class="services" id="services">
       <div class="section-inner">
-        <h2>What we teach</h2>
+        <h2 class="i18n-h"><span>What we teach</span></h2>
 
         <div class="svc-grid">
           <div class="svc-col">
-            <h3>Core academics</h3>
+            <h3 class="i18n-h"><span>Core academics</span></h3>
             <p class="svc-sub i18n-h"><span>Kindergarten through 12th grade</span></p>
             <ul>
               <li><span class="i18n-h"><span>Math</span></span></li>
@@ -169,7 +169,7 @@
             </ul>
           </div>
           <div class="svc-col">
-            <h3>Test prep</h3>
+            <h3 class="i18n-h"><span>Test prep</span></h3>
             <p class="svc-sub i18n-h"><span>Admissions exams</span></p>
             <ul>
               <li><span class="i18n-h"><span>SAT</span></span></li>
@@ -178,7 +178,7 @@
             </ul>
           </div>
           <div class="svc-col">
-            <h3>Competition math</h3>
+            <h3 class="i18n-h"><span>Competition math</span></h3>
             <p class="svc-sub i18n-h"><span>Enrichment</span></p>
             <ul>
               <li><span class="i18n-h"><span>AMC 8</span></span></li>
@@ -189,7 +189,7 @@
         </div>
 
         <div class="svc-ap">
-          <h3>AP exams</h3>
+          <h3 class="i18n-h"><span>AP exams</span></h3>
           <p class="svc-sub i18n-h"><span>Math, science, English, and history</span></p>
           <div class="svc-ap-groups">
             <div>
@@ -260,7 +260,7 @@
           <article class="member">
             <div class="member-photo">
               <span class="member-initials" aria-hidden="true">EP</span>
-              <picture><source srcset="assets/ethan-poon.avif" type="image/avif"><img src="assets/ethan-poon.jpg" alt="Ethan Poon" width="560" height="747" loading="lazy" decoding="async" onerror="this.remove()"></picture>
+              <picture><source srcset="assets/ethan-poon.avif" type="image/avif"><img src="assets/ethan-poon.jpg" alt="Ethan Poon" width="560" height="747" loading="lazy" decoding="async"></picture>
             </div>
             <h3>Ethan Poon</h3>
             <p class="member-meta i18n-h"><span>Graduated from UCLA, major in Linguistics and Computer Science</span></p>
@@ -272,7 +272,7 @@
           <article class="member">
             <div class="member-photo">
               <span class="member-initials" aria-hidden="true">LV</span>
-              <picture><source srcset="assets/lauren-vitalicia.avif" type="image/avif"><img src="assets/lauren-vitalicia.jpg" alt="Lauren Vitalicia" width="560" height="840" loading="lazy" decoding="async" onerror="this.remove()"></picture>
+              <picture><source srcset="assets/lauren-vitalicia.avif" type="image/avif"><img src="assets/lauren-vitalicia.jpg" alt="Lauren Vitalicia" width="560" height="840" loading="lazy" decoding="async"></picture>
             </div>
             <h3>Lauren Vitalicia</h3>
             <p class="member-meta i18n-h"><span>Graduated from Johns Hopkins University, major in Molecular and Cellular Biology and Psychology</span></p>
@@ -284,7 +284,7 @@
           <article class="member">
             <div class="member-photo">
               <span class="member-initials" aria-hidden="true">MT</span>
-              <picture><source srcset="assets/marcus-tien.avif" type="image/avif"><img src="assets/marcus-tien.jpg" alt="Marcus Tien" width="560" height="558" loading="lazy" decoding="async" onerror="this.remove()"></picture>
+              <picture><source srcset="assets/marcus-tien.avif" type="image/avif"><img src="assets/marcus-tien.jpg" alt="Marcus Tien" width="560" height="558" loading="lazy" decoding="async"></picture>
             </div>
             <h3>Marcus Tien</h3>
             <p class="member-meta i18n-h"><span>Graduated from UC Santa Barbara, major in Statistics and Data Science</span></p>
@@ -295,11 +295,12 @@
 
           <!-- Each additional tutor: copy this block, fill it in, drop the photo
                in assets/, and add the Chinese for each new line to i18n.js.
-               If there is no photo, the initials show instead.
+               If there is no photo (or it fails to load), the initials show instead;
+               script.js removes a team photo that cannot load.
           <article class="member">
             <div class="member-photo">
               <span class="member-initials" aria-hidden="true">AB</span>
-              <img src="assets/first-last.jpg" alt="First Last" onerror="this.remove()">
+              <img src="assets/first-last.jpg" alt="First Last">
             </div>
             <h3>First Last</h3>
             <p class="member-meta i18n-h"><span>Graduated from School, major in Subject</span></p>
@@ -427,9 +428,9 @@
     <a class="btn btn-primary" href="mailto:vbmgroupsllc@gmail.com?subject=Free%20consultation%20for%20my%20child">Book a free consultation</a>
   </div>
 
-  <script src="translations.js?v=6"></script>
-  <script src="i18n.js?v=7"></script>
-  <script src="script.js?v=7"></script>
-  <script src="theme.js?v=5"></script>
+  <script defer src="translations.js?v=6"></script>
+  <script defer src="i18n.js?v=8"></script>
+  <script defer src="script.js?v=8"></script>
+  <script defer src="theme.js?v=5"></script>
 </body>
 </html>
