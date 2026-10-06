@@ -32,8 +32,23 @@ export function canHaveSessions(role) {
   return role === 'tutor' || role === 'admin';
 }
 
+// People added without a login get a made-up address on this domain
+// (no-login+<uuid>@people.varunbaskaran.com). It is a placeholder for the
+// database, never something to show or write to.
+export const PLACEHOLDER_EMAIL_DOMAIN = 'people.varunbaskaran.com';
+
+export function isPlaceholderEmail(email) {
+  return typeof email === 'string' && email.trim().toLowerCase().endsWith(`@${PLACEHOLDER_EMAIL_DOMAIN}`);
+}
+
+// The address to show for someone, or '' when there is none worth showing
+export function visibleEmail(email) {
+  const text = typeof email === 'string' ? email.trim() : '';
+  return text && !isPlaceholderEmail(text) ? text : '';
+}
+
 export function displayName(profile) {
-  return profile?.full_name?.trim() || profile?.email || 'Unknown';
+  return profile?.full_name?.trim() || visibleEmail(profile?.email) || 'Unknown';
 }
 
 // PostgREST returns a to-one embed as an object (or null); tolerate an array too

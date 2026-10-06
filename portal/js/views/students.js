@@ -11,7 +11,7 @@
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import { avatar, emptyState, errorCallout, skeletonRows } from '../ui.js';
-import { displayName, byDue, one } from '../format.js';
+import { displayName, byDue, one, visibleEmail } from '../format.js';
 import { filterPeople, reviewCounts } from '../app-model.js';
 import { deriveItems } from '../buckets.js';
 import { dueLabel, relativeTime, todayKey } from '../dates.js';
@@ -80,7 +80,8 @@ export function studentSummaries(ws, now = new Date(), { names = new Map() } = {
     return {
       student,
       name: displayName(student),
-      email: student.email ?? '',
+      // A no-login person's made-up address is never shown (or searched)
+      email: visibleEmail(student.email),
       review: review.get(student.id) ?? 0,
       next: nextDue(items),
       nextSession: nextSessionOf(sessionsBy.get(student.id) ?? [], now),
@@ -180,7 +181,7 @@ export function mount(ctx) {
     const results = h('div', { class: 'stu-results' });
 
     const fill = (animate) => {
-      const shown = filterPeople(summaries.map((s) => ({ ...s.student, summary: s })), input.value)
+      const shown = filterPeople(summaries.map((s) => ({ ...s.student, email: s.email, summary: s })), input.value)
         .map((p) => p.summary);
       count.textContent = countLabel(shown.length, summaries.length);
       results.replaceChildren(shown.length
