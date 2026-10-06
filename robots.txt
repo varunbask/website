@@ -1,0 +1,5 @@
+# The portal and review pages carry noindex; they stay crawlable so that tag is seen.
+User-agent: *
+Disallow: /api/
+
+Sitemap: https://www.varunbaskaran.com/sitemap.xml
