@@ -9,15 +9,27 @@ import { fileURLToPath } from 'node:url';
 
 const here = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 const args = process.argv.slice(2);
-const srcAt = args.indexOf('--src');
-const root = srcAt === -1 ? here : resolve(args[srcAt + 1]);
-const outArg = args.filter((a, i) => a !== '--src' && i !== srcAt + 1)[0];
+let srcArg = null;
+let outArg = null;
+for (let i = 0; i < args.length; i += 1) {
+  if (args[i] === '--src') { srcArg = args[i + 1]; i += 1; } else if (!outArg) outArg = args[i];
+}
+if (args.includes('--src') && !srcArg) throw new Error('--src needs a checkout path');
+const root = srcArg ? resolve(srcArg) : here;
 const out = resolve(root, outArg ?? '.demo');
 const SUPABASE = /<script src="https:\/\/cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@[^"]+"[^>]*><\/script>/;
 const SKIP = new Set(['.git', '.demo', '.worktrees', '.vercel', '.claude', '.agents', 'node_modules', 'supabase', 'tests', 'docs', 'api', 'scripts']);
 
+// Only ever replace an earlier demo build (or an empty or missing folder), so a
+// wrong argument can never delete a checkout or anything else
+const MARK = '.demo-build';
+const looksBuilt = (dir) => existsSync(join(dir, MARK)) || existsSync(join(dir, 'tools/demo/demo-supabase.js'));
+if (existsSync(out) && readdirSync(out).length && !looksBuilt(out)) {
+  throw new Error(`Refusing to replace ${out}: it is not an earlier demo build. Pick an empty or new folder.`);
+}
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
+writeFileSync(join(out, MARK), 'Built by tools/demo/build.mjs; safe to delete.\n');
 for (const entry of readdirSync(root, { withFileTypes: true })) {
   if (SKIP.has(entry.name) || entry.name.startsWith('.env')) continue;
   cpSync(join(root, entry.name), join(out, entry.name), { recursive: true });

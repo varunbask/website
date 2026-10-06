@@ -71,7 +71,7 @@
 
   const db = {
     profiles: [
-      profile('u-admin', 'Varun Baskaran', 'bvarun2004@gmail.com', 'admin'),
+      profile('u-admin', 'Varun Baskaran', 'varun@example.com', 'admin'),
       profile('u-daniel', 'Daniel Ortiz', 'daniel.ortiz@example.com', 'tutor'),
       profile('u-priya', 'Priya Shah', 'priya.shah@example.com', 'tutor'),
       profile('u-maya', 'Maya Lin', 'maya.lin@example.com', 'student'),
