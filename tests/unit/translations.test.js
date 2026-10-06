@@ -40,7 +40,7 @@ describe('translations', () => {
   });
 
   test('the booking section has a translation for every string on it', () => {
-    const strings = visibleStrings(between('<section class="refer book"', '<!-- 6. Refer a family'));
+    const strings = visibleStrings(between('<section class="refer book"', '<section class="refer" id="refer"'));
     expect(strings.length).toBeGreaterThan(30);
     for (const s of strings) expect(UI, s).toHaveProperty([s]);
   });
