@@ -16,6 +16,9 @@
   --btn-fg: #FFFFFF;
   --marigold: #F0B93B;
   --rule: #E6D9D2;
+  /* Borders of controls (inputs, chips, toggles) must reach 3:1 against the
+     page (WCAG 1.4.11), which --rule does not. --rule stays for hairlines. */
+  --field-border: #857377;
   --radius: 6px;
   /* Latin faces first, Noto Sans SC as the CJK fallback. Latin text keeps
      its face in both languages; only CJK glyphs fall through to Noto. */
@@ -40,9 +43,10 @@
   --pen: #E4575D;
   --pen-dark: #F07176;
   --btn-bg: #D4383E;
-  --btn-bg-hover: #E4575D;
+  --btn-bg-hover: #C2323A;
   --marigold: #F2C15A;
   --rule: #3B2D31;
+  --field-border: #85757A;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -70,6 +74,11 @@ a:focus-visible, button:focus-visible {
   outline: 3px solid var(--pen);
   outline-offset: 3px;
   border-radius: 4px;
+}
+/* Form controls keep their own radius, so only the ring is set here. */
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid var(--pen);
+  outline-offset: 2px;
 }
 
 .mono { font-family: var(--font-mono); }
@@ -233,7 +242,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   line-height: 1.4;
   padding: 8px 14px;
   border-radius: var(--radius);
-  border: 1.5px solid var(--rule);
+  border: 1.5px solid var(--field-border);
   background: transparent;
   color: var(--ink-2);
   cursor: pointer;
@@ -262,7 +271,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   padding: 6px;
   list-style: none;
   background: var(--paper);
-  border: 1.5px solid var(--rule);
+  border: 1.5px solid var(--field-border);
   border-radius: var(--radius);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 }
@@ -282,7 +291,8 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   cursor: pointer;
 }
 .lang-list li:hover,
-.lang-list li:focus-visible { color: var(--pen); outline: none; background: var(--rule); }
+.lang-list li:focus-visible { color: var(--pen); background: var(--rule); }
+.lang-list li:focus-visible { outline: 3px solid var(--pen); outline-offset: -3px; }
 .lang-list li[aria-selected="true"] { color: var(--pen); }
 
 .theme-toggle { padding: 8px 10px; }
@@ -431,6 +441,10 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   border-bottom-color: var(--pen);
 }
 .tab-count {
+  /* Two digits of room, so the tab is the same width before and after
+     script.js writes the number in. */
+  display: inline-block;
+  min-width: 2ch;
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--slate);
@@ -628,7 +642,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 .refer-field textarea {
   width: 100%;
   padding: 11px 13px;
-  border: 1.5px solid var(--rule);
+  border: 1.5px solid var(--field-border);
   border-radius: var(--radius);
   background: var(--paper);
   color: var(--ink);
@@ -638,7 +652,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 .refer-field textarea { resize: vertical; min-height: 88px; }
 .refer-field input:focus,
-.refer-field textarea:focus { outline: none; border-color: var(--pen); }
+.refer-field textarea:focus { border-color: var(--pen); }
 .refer-field input[aria-invalid="true"],
 .refer-field textarea[aria-invalid="true"] { border-color: var(--pen); }
 .refer-field input::placeholder { color: var(--slate); }
@@ -649,7 +663,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   align-items: center;
   gap: 8px;
   padding: 9px 14px;
-  border: 1.5px solid var(--rule);
+  border: 1.5px solid var(--field-border);
   border-radius: var(--radius);
   font-weight: 600;
   font-size: 0.95rem;
@@ -657,6 +671,11 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   cursor: pointer;
 }
 .refer-choice:has(input:checked) { border-color: var(--pen); color: var(--pen); }
+/* The whole chip gets the focus ring (not just the small radio) where :has() exists */
+@supports selector(:has(*)) {
+  .refer-choice:has(input:focus-visible) { outline: 3px solid var(--pen); outline-offset: 2px; }
+  .refer-choice input:focus-visible { outline: none; }
+}
 .refer-choice input,
 .refer-consent input { accent-color: var(--pen); width: 18px; height: 18px; margin: 0; flex: none; }
 
@@ -893,3 +912,46 @@ html[lang^="ko"] .hero-note { transform: none; font-size: 1.25rem; line-height: 
 .hero-note > .i18n-ghost { font-size: 1.6rem; line-height: 1.1; }
 .hero-note > .i18n-ghost:lang(zh),
 .hero-note > .i18n-ghost:lang(ko) { font-size: 1.25rem; line-height: 1.76rem; }
+
+/* ============================================================
+   Print
+   Content only, black on white: no header, menus, toggles, form,
+   or sticky button. Both themes print the same.
+   ============================================================ */
+
+@media print {
+  :root,
+  :root[data-theme="dark"] {
+    color-scheme: light;
+    --ink: #000;
+    --ink-2: #000;
+    --paper: #fff;
+    --slate: #000;
+    --pen: #000;
+    --pen-dark: #000;
+    --btn-bg: #fff;
+    --btn-bg-hover: #fff;
+    --btn-fg: #000;
+    --marigold: #000;
+    --rule: #999;
+    --field-border: #000;
+  }
+
+  body { background: #fff; color: #000; font-size: 11pt; }
+
+  .site-header,
+  .skip-link,
+  .sticky-cta,
+  .lang-list,
+  form,
+  .refer,
+  .footer-links a[href="#refer"] { display: none !important; }
+
+  a { color: #000; }
+  .btn { border: 1.5px solid #000; }
+
+  .hero, .reviews, .services, .team { padding-top: 24px; padding-bottom: 24px; }
+  h2 { margin-bottom: 20px; }
+  h2, h3, h4 { break-after: avoid; }
+  .review, .member, .svc-col, .svc-ap-groups > div, .record-row { break-inside: avoid; }
+}

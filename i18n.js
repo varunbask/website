@@ -26,6 +26,7 @@ const LANG_CODES = Object.keys(LANGS);
 const STORAGE_KEY = "vb-lang";
 
 const normalize = (s) => s.replace(/\s+/g, " ").trim();
+const isLang = (code) => Object.prototype.hasOwnProperty.call(LANGS, code);
 
 /* English key -> that language's string (English itself, or a fallback). */
 function translate(key, lang) {
@@ -90,8 +91,10 @@ function collectTextNodes() {
   return nodes;
 }
 
-function applyLanguage(lang) {
-  if (!LANGS[lang]) lang = "en";
+/* `save` is false only for a language that came from a ?lang= link: that
+   is shown for this visit, and only a pick from the menu is remembered. */
+function applyLanguage(lang, { save = true } = {}) {
+  if (!isLang(lang)) lang = "en";
 
   for (const node of collectTextNodes()) {
     if (!originalText.has(node)) originalText.set(node, node.nodeValue);
@@ -123,10 +126,12 @@ function applyLanguage(lang) {
 
   updateMenu(lang);
 
-  try {
-    localStorage.setItem(STORAGE_KEY, lang);
-  } catch (e) {
-    /* private browsing: the choice just will not persist */
+  if (save) {
+    try {
+      localStorage.setItem(STORAGE_KEY, lang);
+    } catch (e) {
+      /* private browsing: the choice just will not persist */
+    }
   }
 
   document.dispatchEvent(new CustomEvent("langchange", { detail: { lang } }));
@@ -175,6 +180,7 @@ menuButton.addEventListener("keydown", (e) => {
 options.forEach((o) => {
   o.addEventListener("click", () => {
     applyLanguage(o.dataset.lang);
+    forgetLinkLang();
     closeMenu(true);
   });
 });
@@ -211,23 +217,59 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* ------------------------------------------------------------
-   Pick the starting language: saved choice, else the browser's
-   language if we have it, else English.
+   Pick the starting language: a ?lang= link (so a family can be sent
+   a link in their language), else the saved choice, else the
+   browser's language if we have it, else English.
    ------------------------------------------------------------ */
+
+/* "?lang=zh" gives "zh"; "ZH" and "zh-CN" do too. Anything else gives null. */
+function langFromQuery(search) {
+  const value = new URLSearchParams(search || "").get("lang") || "";
+  const match = /^([a-z]{2})(?:[-_].*)?$/i.exec(value.trim());
+  const code = match ? match[1].toLowerCase() : "";
+  return isLang(code) ? code : null;
+}
+
+/* Pure: { lang, fromLink } from the three places a language can come from. */
+function pickLang({ search, saved, languages }) {
+  const linked = langFromQuery(search);
+  if (linked) return { lang: linked, fromLink: true };
+  if (isLang(saved)) return { lang: saved, fromLink: false };
+  for (const tag of languages || []) {
+    const code = String(tag).toLowerCase().slice(0, 2);
+    if (isLang(code)) return { lang: code, fromLink: false };
+  }
+  return { lang: "en", fromLink: false };
+}
+
 function startingLang() {
+  let saved = null;
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (LANGS[saved]) return saved;
+    saved = localStorage.getItem(STORAGE_KEY);
   } catch (e) {
     /* storage blocked */
   }
-  for (const tag of navigator.languages || [navigator.language || ""]) {
-    const code = tag.toLowerCase().slice(0, 2);
-    if (LANGS[code]) return code;
-  }
-  return "en";
+  return pickLang({
+    search: location.search,
+    saved,
+    languages: navigator.languages || [navigator.language || ""]
+  });
 }
 
-window.VB_I18N = { LANGS, LANG_CODES, translate, currentLang, setGhosts, ghostsFor, applyLanguage };
+/* Once the visitor picks a language themselves, the link's ?lang= must
+   not win again on reload, so it comes out of the address. */
+function forgetLinkLang() {
+  try {
+    const url = new URL(location.href);
+    if (!url.searchParams.has("lang")) return;
+    url.searchParams.delete("lang");
+    history.replaceState(history.state, "", url.href);
+  } catch (e) {
+    /* nothing to tidy */
+  }
+}
 
-applyLanguage(startingLang());
+window.VB_I18N = { LANGS, LANG_CODES, translate, currentLang, setGhosts, ghostsFor, applyLanguage, langFromQuery, pickLang };
+
+const startLang = startingLang();
+applyLanguage(startLang.lang, { save: !startLang.fromLink });
