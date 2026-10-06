@@ -1,0 +1,163 @@
+/* Files view (#/files). Prefix: fil-. Tokens and components come from app.css; no raw hex.
+
+   div.fil-view
+     div.fil-toolbar > div.fil-search (label + span.input-icon > svg + input.input)
+                     + div.fil-filter-wrap > div.segmented.fil-filter (type chips with .fil-seg-count)
+     p.fil-count[role=status]
+     div.fil-results > div.fil-group > .group-header + ul.fil-list > li.fil-item
+       span.fil-icon + div.fil-main (span.fil-title, span.fil-meta,
+         span.fil-from > a.fil-from-link (svg + span.fil-from-title) + span.fil-when + span.fil-repeats)
+       + div.fil-action > .btn.fil-open
+     or an .empty-state (nothing matches) with its "Show all files" button
+*/
+
+
+/* 1. Search and type chips ------------------------------------------------------ */
+
+.fil-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3) var(--s-4);
+}
+.fil-search { flex: 1 1 240px; max-width: 320px; min-width: 0; }
+.fil-filter-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.fil-filter-wrap::-webkit-scrollbar { display: none; }
+.fil-seg-count {
+  margin-left: 6px;
+  font: 400 12px/16px var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.fil-filter > button[aria-pressed="true"] .fil-seg-count { color: var(--text-2); }
+.fil-filter > button:disabled { opacity: .45; cursor: not-allowed; }
+
+.fil-count {
+  margin: var(--s-3) 0 var(--s-4);
+  font: var(--t-meta);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+
+/* 2. Months and rows ------------------------------------------------------------ */
+
+.fil-group + .fil-group { margin-top: var(--s-6); }
+.fil-group > .group-header { margin-bottom: var(--s-1); }
+
+.fil-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.fil-item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3);
+}
+.fil-item + .fil-item { border-top: 1px solid var(--line); }
+
+.fil-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+.fil-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.fil-title {
+  font: var(--t-ui);
+  font-weight: 500;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.fil-meta {
+  font: var(--t-meta);
+  color: var(--text-3);
+}
+.fil-from {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--s-2);
+  margin-top: 2px;
+  font: var(--t-meta);
+  color: var(--text-3);
+}
+.fil-from-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  color: var(--text-2);
+  font-weight: 500;
+  text-decoration: none;
+  border-radius: var(--r-xs);
+}
+.fil-from-link > .icon { flex: none; color: var(--text-3); }
+.fil-from-title { overflow-wrap: anywhere; }
+.fil-from-link:hover .fil-from-title { text-decoration: underline; text-underline-offset: 3px; }
+.fil-from-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fil-repeats { color: var(--text-3); }
+
+.fil-action { display: flex; align-items: center; }
+.fil-open { white-space: nowrap; }
+
+
+/* 3. Phones --------------------------------------------------------------------- */
+
+@media (max-width: 767.98px) {
+  .fil-search { flex-basis: 100%; max-width: none; }
+  .fil-filter-wrap { flex: 1 1 100%; }
+  .fil-filter { display: flex; width: 100%; min-width: max-content; }
+  .fil-filter > button { flex: 1 0 auto; padding: 0 8px; }
+  /* Too tight to show: hidden from sight only, so screen readers still hear
+     "PDFs, 3" */
+  .fil-seg-count {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+/* Narrow phones: the text wraps beside Open, and the icon and button sit at the top */
+@media (max-width: 479.98px) {
+  .fil-item { align-items: start; gap: var(--s-3) 10px; padding: var(--s-3) 10px; }
+  .fil-action { align-self: start; }
+}
+
+
+/* 4. Forced colours ------------------------------------------------------------- */
+
+@media (forced-colors: active) {
+  .fil-list,
+  .fil-icon { border: 1px solid CanvasText; }
+  .fil-item + .fil-item { border-top-color: CanvasText; }
+}

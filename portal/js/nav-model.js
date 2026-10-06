@@ -12,7 +12,7 @@
 // fresh:  { graded, updates, schedule } booleans for "New" (students and parents only)
 
 const STAFF_ROLES = new Set(['tutor', 'admin']);
-const STUDENT_VIEWS = new Set(['overview', 'assignments', 'tasks', 'calendar', 'updates']);
+const STUDENT_VIEWS = new Set(['overview', 'assignments', 'tasks', 'files', 'calendar', 'updates']);
 const SUBS = [['todo', 'To do'], ['in-review', 'In review'], ['graded', 'Graded'], ['archived', 'Archived']];
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -35,7 +35,7 @@ function item(key, label, icon, href, { current = false, badge: b = null, isNew 
   return { key, label, icon, href, current, ancestor, badge: isNew ? null : b, railBadge, isNew, children };
 }
 
-// Overview, Assignments (four subs), Tasks, Calendar, Updates for one student
+// Overview, Assignments (four subs), Tasks, Files, Calendar, Updates for one student
 function studentItems({ route, counts, fresh, family, staff }) {
   const view = route?.view;
   const sub = route?.sub ?? 'todo';
@@ -62,6 +62,7 @@ function studentItems({ route, counts, fresh, family, staff }) {
       current: view === 'tasks',
       badge: badge(counts.tasksOpen, plural(counts.tasksOpen, 'open task', 'open tasks')),
     }),
+    item('files', 'Files', 'paperclip', '#/files', { current: view === 'files' }),
     item('calendar', 'Calendar', 'calendar-blank', '#/calendar', {
       current: calendarCurrent,
       isNew: family && Boolean(fresh.schedule),
@@ -132,8 +133,8 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
     const k = byKey(items);
     let tabs = [k.overview];
     let more = [];
-    if (!noChild && role === 'parent') { tabs = [k.overview, k.assignments, k.calendar, k.updates]; more = [k.tasks]; }
-    else if (!noChild) { tabs = [k.overview, k.assignments, k.tasks, k.calendar]; more = [k.updates]; }
+    if (!noChild && role === 'parent') { tabs = [k.overview, k.assignments, k.calendar, k.updates]; more = [k.tasks, k.files]; }
+    else if (!noChild) { tabs = [k.overview, k.assignments, k.tasks, k.calendar]; more = [k.files, k.updates]; }
     return {
       mode: null,
       groups: [{ key: 'main', label: null, switcher: false, items }],
@@ -160,7 +161,7 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
   if (mode === 'student') {
     const s = byKey(student);
     tabs = [s.overview, s.assignments, s.tasks, s.calendar];
-    more = [s.updates, w.today, w.review, w.students, ...(people ? [people, account] : [])];
+    more = [s.files, s.updates, w.today, w.review, w.students, ...(people ? [people, account] : [])];
   } else if (isAdmin) {
     tabs = [w.today, w.review, w.students, people];
     more = [w['calendar-all'], account];

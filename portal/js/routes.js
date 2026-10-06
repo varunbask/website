@@ -3,6 +3,7 @@
 import * as overview from './views/overview.js';
 import * as assignments from './views/assignments.js';
 import * as tasks from './views/tasks.js';
+import * as files from './views/files.js';
 import * as calendar from './views/calendar.js';
 import * as updates from './views/updates.js';
 import * as today from './views/today.js';
@@ -43,6 +44,7 @@ function studentViews({ overviewScoped }) {
     overview: { mount: (ctx) => overview.mount(ctx), title: fixed('Overview'), scoped: overviewScoped, named: true },
     assignments: assignmentsEntry(),
     tasks: { mount: (ctx) => tasks.mount(ctx), title: fixed('Tasks'), scoped: true },
+    files: { mount: (ctx) => files.mount(ctx), title: fixed('Files'), scoped: true },
     calendar: { mount: (ctx) => calendar.mount(ctx), title: fixed('Calendar'), scoped: true, wide: true },
     updates: { mount: (ctx) => updates.mount(ctx), title: fixed('Updates'), scoped: true },
   };

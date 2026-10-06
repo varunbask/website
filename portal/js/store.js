@@ -18,6 +18,7 @@ const updates = new Map();    // studentId -> Promise<Update[]>
 const sessions = new Map();   // studentId -> Promise<Session[]>
 const tutors = new Map();     // studentId -> Promise<{ tutor_id, full_name, subject }[]>
 const materials = new Map();  // studentId -> Promise<Material[]>
+const files = new Map();      // studentId -> Promise<Material[] with their task> (the Files page)
 const children = new Map();   // parentId -> Promise<Profile[]>
 let workspace = null;         // Promise<Workspace> | null
 let pending = null;           // Promise<number> | null
@@ -135,6 +136,26 @@ async function loadMaterials(studentId) {
 // Every material of one student, on their sessions and their assignments
 export function getMaterials(studentId) {
   return remember(materials, String(studentId), () => loadMaterials(studentId));
+}
+
+// The Files page: the materials on a student's assignments and tasks, each
+// with its assignment (title, kind, due date) in one query. A plain read under
+// the same row level security as getMaterials: whoever can see the student's
+// materials sees these, and nobody sees more.
+export const FILE_FIELDS = `${MATERIAL_FIELDS}, task:tasks(id, title, kind, due_at, created_at, series_id)`;
+
+async function loadFiles(studentId) {
+  const { data, error } = await sb.from('materials').select(FILE_FIELDS)
+    .eq('student_id', studentId)
+    .not('task_id', 'is', null)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// Material rows with `task` embedded (files-model.js turns them into entries)
+export function getFiles(studentId) {
+  return remember(files, String(studentId), () => loadFiles(studentId));
 }
 
 // ---------------------------------------------------------------------------
@@ -341,6 +362,7 @@ export function invalidate(studentId) {
     sessions.delete(String(studentId));
     tutors.delete(String(studentId));
     materials.delete(String(studentId));
+    files.delete(String(studentId));
   }
   workspace = null;
   // Sessions changed: their money did too
@@ -362,6 +384,7 @@ export function invalidateAll() {
   sessions.clear();
   tutors.clear();
   materials.clear();
+  files.clear();
   children.clear();
   workspace = null;
   pending = null;
