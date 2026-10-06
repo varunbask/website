@@ -321,6 +321,10 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   align-items: stretch;
 }
 
+/* <picture> wraps each photo for its AVIF source; it lays out as if absent */
+.hero-portrait picture,
+.member-photo picture { display: contents; }
+
 .hero-portrait img {
   width: 100%;
   height: auto;
