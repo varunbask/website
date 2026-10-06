@@ -9,7 +9,7 @@ const SPEC_NAMES = [
   'pencil-simple', 'pencil-simple-line', 'note-pencil', 'trash', 'arrow-square-out',
   'arrow-counter-clockwise', 'sign-out', 'sun', 'moon', 'circle', 'clock', 'warning-circle',
   'hourglass-medium', 'x-circle', 'check-circle', 'check', 'archive', 'minus-circle', 'file-text',
-  'file-pdf', 'image-square', 'eye', 'eye-slash', 'envelope-simple', 'trend-up', 'trend-down', 'info',
+  'file-pdf', 'image-square', 'eye', 'eye-slash', 'envelope-simple', 'trend-up', 'trend-down', 'info', 'question',
   // Lesson materials and homework (schedules spec)
   'presentation', 'paperclip', 'link-simple', 'book-open-text', 'corners-out', 'repeat',
   // Account view (billing spec)

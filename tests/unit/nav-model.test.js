@@ -29,11 +29,12 @@ describe('badge', () => {
 describe('student', () => {
   const model = navModel({ role: 'student', page: 'student', scope: MAYA, route: route('assignments', 'graded'), counts: COUNTS, fresh: { graded: true, updates: false } });
 
-  test('one unlabelled group with the family items', () => {
+  test('the family items, then Help in a group of its own', () => {
     expect(model.mode).toBeNull();
-    expect(model.groups).toHaveLength(1);
-    expect(model.groups[0].label).toBeNull();
+    expect(model.groups.map((g) => [g.key, g.label])).toEqual([['main', null], ['help', null]]);
     expect(keys(model.groups[0].items)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'updates']);
+    expect(keys(model.groups[1].items)).toEqual(['help']);
+    expect(find(model, 'help')).toMatchObject({ label: 'Help', icon: 'question', href: '#/help', current: false, badge: null, isNew: false });
     expect(keys(find(model, 'assignments').children)).toEqual(['todo', 'in-review', 'graded', 'archived']);
     expect(find(model, 'overview')).toMatchObject({ label: 'Overview', icon: 'house', href: '#/overview' });
     expect(find(model, 'assignments')).toMatchObject({ icon: 'clipboard-text', href: '#/assignments/todo' });
@@ -70,7 +71,7 @@ describe('student', () => {
 
   test('tab bar: Overview, Assignments, Tasks, Calendar, More (Updates)', () => {
     expect(keys(model.tabbar)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'more']);
-    expect(keys(model.more)).toEqual(['updates']);
+    expect(keys(model.more)).toEqual(['updates', 'help']);
     const assignments = model.tabbar.find((i) => i.key === 'assignments');
     expect(assignments.current).toBe(true);
     expect(assignments.badge).toEqual(find(model, 'todo').badge);
@@ -90,16 +91,16 @@ describe('parent', () => {
     const m = navModel({ role: 'parent', page: 'parent', scope: MAYA, route: route('updates'), counts: COUNTS, fresh: { updates: true } });
     expect(keys(m.groups[0].items)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'updates']);
     expect(keys(m.tabbar)).toEqual(['overview', 'assignments', 'calendar', 'updates', 'more']);
-    expect(keys(m.more)).toEqual(['tasks']);
+    expect(keys(m.more)).toEqual(['tasks', 'help']);
     expect(find(m, 'updates').isNew).toBe(true);
     expect(m.tabbar.find((i) => i.key === 'updates')).toMatchObject({ current: true, isNew: false });
   });
 
-  test('no linked child: Overview only', () => {
+  test('no linked child: Overview and Help only', () => {
     const m = navModel({ role: 'parent', page: 'parent', scope: null, route: route('overview'), counts: {} });
-    expect(keys(flat(m))).toEqual(['overview']);
+    expect(keys(flat(m))).toEqual(['overview', 'help']);
     expect(keys(m.tabbar)).toEqual(['overview', 'more']);
-    expect(m.more).toEqual([]);
+    expect(keys(m.more)).toEqual(['help']);
   });
 });
 
@@ -107,7 +108,7 @@ describe('tutor', () => {
   test('workspace group and a Student group with only the switcher before a student is chosen', () => {
     const m = navModel({ role: 'tutor', page: 'staff', scope: null, route: route('today'), counts: COUNTS });
     expect(m.mode).toBe('workspace');
-    expect(m.groups.map((g) => [g.key, g.label, g.switcher])).toEqual([['workspace', 'Workspace', false], ['student', 'Student', true]]);
+    expect(m.groups.map((g) => [g.key, g.label, g.switcher])).toEqual([['workspace', 'Workspace', false], ['student', 'Student', true], ['help', null, false]]);
     expect(keys(m.groups[0].items)).toEqual(['today', 'review', 'students', 'calendar-all']);
     expect(m.groups[1].items).toEqual([]);
     expect(find(m, 'today')).toMatchObject({ label: 'Today', icon: 'house', href: '#/today', current: true });
@@ -117,7 +118,8 @@ describe('tutor', () => {
     expect(find(m, 'calendar-all')).toMatchObject({ label: 'Calendar', icon: 'calendar-blank', href: '#/calendar?scope=all' });
     expect(keys(m.tabbar)).toEqual(['today', 'review', 'students', 'calendar-all', 'more']);
     expect(m.tabbar[1].label).toBe('Review');
-    expect(m.more).toEqual([]);
+    expect(keys(m.more)).toEqual(['help']);
+    expect(find(m, 'help')).toMatchObject({ icon: 'question', href: '#/help' });
   });
 
   test('student items once a student is chosen; staff never see New', () => {
@@ -129,7 +131,7 @@ describe('tutor', () => {
     expect(find(m, 'updates').isNew).toBe(false);
     expect(current(m)).toEqual(['in-review']);
     expect(keys(m.tabbar)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'more']);
-    expect(keys(m.more)).toEqual(['updates', 'today', 'review', 'students']);
+    expect(keys(m.more)).toEqual(['updates', 'today', 'review', 'students', 'help']);
   });
 
   test('calendar: the Workspace item is current with scope=all, the Student item otherwise', () => {
@@ -150,13 +152,13 @@ describe('tutor', () => {
 describe('admin', () => {
   test('adds an Admin group with People (and the pending count) and Account', () => {
     const m = navModel({ role: 'admin', page: 'staff', scope: null, route: route('today'), counts: COUNTS });
-    expect(m.groups.map((g) => g.key)).toEqual(['workspace', 'student', 'admin']);
-    expect(keys(m.groups.at(-1).items)).toEqual(['people', 'account']);
+    expect(m.groups.map((g) => g.key)).toEqual(['workspace', 'student', 'admin', 'help']);
+    expect(keys(m.groups.find((g) => g.key === 'admin').items)).toEqual(['people', 'account']);
     expect(find(m, 'people')).toMatchObject({ label: 'People', icon: 'identification-badge', href: '/portal/people.html#/pending', current: false });
     expect(find(m, 'people').badge).toEqual({ n: 3, text: '3', tone: 'neutral', context: '3 people waiting' });
     expect(find(m, 'account')).toMatchObject({ label: 'Account', icon: 'currency-dollar', href: '/portal/account.html#/dashboard', current: false, badge: null });
     expect(keys(m.tabbar)).toEqual(['today', 'review', 'students', 'people', 'more']);
-    expect(keys(m.more)).toEqual(['calendar-all', 'account']);
+    expect(keys(m.more)).toEqual(['calendar-all', 'account', 'help']);
   });
 
   test('tutors never get Account', () => {
@@ -168,12 +170,13 @@ describe('admin', () => {
   test('student mode adds People and Account to More', () => {
     const m = navModel({ role: 'admin', page: 'staff', scope: MAYA, route: route('overview'), counts: COUNTS });
     expect(keys(m.tabbar)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'more']);
-    expect(keys(m.more)).toEqual(['updates', 'today', 'review', 'students', 'people', 'account']);
+    expect(keys(m.more)).toEqual(['updates', 'today', 'review', 'students', 'people', 'account', 'help']);
   });
 
   test('on account.html: no Student group, Account is current, links go back to the staff page', () => {
     const m = navModel({ role: 'admin', page: 'account', scope: MAYA, route: route('dashboard'), counts: COUNTS });
-    expect(m.groups.map((g) => g.key)).toEqual(['workspace', 'admin']);
+    expect(m.groups.map((g) => g.key)).toEqual(['workspace', 'admin', 'help']);
+    expect(find(m, 'help').href).toBe('/portal/staff.html#/help');
     expect(find(m, 'students').href).toBe('/portal/staff.html#/students');
     expect(current(m)).toEqual(['account']);
     expect(m.mode).toBe('workspace');
@@ -182,12 +185,47 @@ describe('admin', () => {
 
   test('on people.html: no Student group, links go back to the staff page', () => {
     const m = navModel({ role: 'admin', page: 'people', scope: null, route: route('pending'), counts: { ...COUNTS, pending: 1 } });
-    expect(m.groups.map((g) => g.key)).toEqual(['workspace', 'admin']);
+    expect(m.groups.map((g) => g.key)).toEqual(['workspace', 'admin', 'help']);
+    expect(find(m, 'help')).toMatchObject({ href: '/portal/staff.html#/help', current: false });
     expect(find(m, 'today').href).toBe('/portal/staff.html#/today');
     expect(find(m, 'calendar-all').href).toBe('/portal/staff.html#/calendar?scope=all');
     expect(current(m)).toEqual(['people']);
     expect(find(m, 'people').badge.context).toBe('1 person waiting');
     expect(m.mode).toBe('workspace');
+  });
+});
+
+describe('help', () => {
+  const rows = [
+    ['student', 'student', MAYA], ['parent', 'parent', MAYA], ['parent', 'parent', null],
+    ['tutor', 'staff', null], ['tutor', 'staff', MAYA], ['admin', 'staff', null], ['admin', 'staff', MAYA],
+  ];
+
+  test('every role has Help as the last sidebar item, with a plain #/help link', () => {
+    for (const [role, page, scope] of rows) {
+      const m = navModel({ role, page, scope, route: route('help'), counts: COUNTS });
+      expect(keys(m.groups.at(-1).items), `${role} ${page} ${scope?.student?.id}`).toEqual(['help']);
+      expect(m.groups.at(-1).label).toBeNull();
+      expect(find(m, 'help')).toMatchObject({ label: 'Help', href: '#/help', current: true });
+      expect(current(m)).toEqual(['help']);
+    }
+  });
+
+  test('Help is in the phone More sheet, which turns current on it', () => {
+    for (const [role, page, scope] of rows) {
+      const m = navModel({ role, page, scope, route: route('help'), counts: COUNTS });
+      expect(keys(m.more).at(-1)).toBe('help');
+      expect(m.tabbar.at(-1)).toMatchObject({ key: 'more', current: true });
+      // and not when another page is open
+      const other = navModel({ role, page, scope, route: route(role === 'tutor' || role === 'admin' ? 'today' : 'overview'), counts: COUNTS });
+      expect(other.tabbar.at(-1).current).toBe(false);
+    }
+  });
+
+  test('on a staff student route, Help leaves Student mode like the Workspace pages', () => {
+    const m = navModel({ role: 'tutor', page: 'staff', scope: MAYA, route: route('help'), counts: COUNTS });
+    expect(m.mode).toBe('workspace');
+    expect(keys(m.tabbar)).toEqual(['today', 'review', 'students', 'calendar-all', 'more']);
   });
 });
 

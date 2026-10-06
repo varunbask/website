@@ -20,6 +20,7 @@ import { menu } from './overlays.js';
 import { itemStatus, submissionStatus } from './status.js';
 import { dueLabel, dayKey, parseKey, todayKey, relativeTime } from './dates.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
+import { SUPPORT_EMAIL, supportMailto } from './help-model.js';
 import { workLabel, workIcon } from './labels.js';
 import { displayName, firstName } from './format.js';
 import { staffNames } from './updates-feed.js';
@@ -37,7 +38,13 @@ import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './t
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SUBMITTED = 'Work submitted. Your tutor will review it soon.';
 const GONE = 'This item was changed or removed. Refresh the page and try again.';
-const AT_CAP = 'You’ve used all 5 attempts for this assignment. Message your tutor if you need to send another file.';
+// The portal has no messaging, so the way out of the attempt limit is the
+// support address (also on the Help page). A sentence with a mail link.
+const atCapText = () => [
+  `You’ve used all ${MAX_SUBMISSIONS} attempts for this assignment. If you need to send another file, ask your tutor or email `,
+  h('a', { class: 'link', href: supportMailto('Another attempt on an assignment') }, SUPPORT_EMAIL),
+  '.',
+];
 const MISSING = 'This assignment isn’t available. It may have been deleted.';
 const HAS_WORK = 'This assignment has submitted work, so it cannot be deleted.';
 const SOME_HAVE_WORK = 'Some of these have submitted work, so they cannot be deleted. Refresh the page and try again.';
@@ -592,7 +599,7 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
     nodes.push(kept);
   } else if (isStudent) {
     if (item.attempts >= MAX_SUBMISSIONS) {
-      nodes.push(section('Submit your work', callout({ tone: 'neutral', icon: 'info', text: AT_CAP })));
+      nodes.push(section('Submit your work', callout({ tone: 'neutral', icon: 'info', text: atCapText() })));
     } else if (item.canSubmit) {
       nodes.push(submitWorkSection(dctx, item, {
         onSubmitted: () => actions.submitted(found.studentId),
