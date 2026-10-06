@@ -2006,6 +2006,28 @@ details.group[open] > summary .group-caret { transform: rotate(90deg); }
 .empty-state > .btn { margin-top: var(--s-1); }
 @media (max-width: 767.98px) { .empty-state { padding: var(--s-6); } }
 
+/* A section that takes files dragged from the computer (file-drop.js): while
+   files are over it, div.drop-overlay covers it with a dashed outline */
+.drop-target { position: relative; }
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1.5px dashed var(--accent);
+  border-radius: var(--r-md);
+  background-color: var(--accent-soft);
+  color: var(--accent-text);
+  font: 500 14px/20px var(--font-ui);
+  text-align: center;
+  pointer-events: none;
+}
+.drop-overlay > .icon { flex: none; }
+
 .callout {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
