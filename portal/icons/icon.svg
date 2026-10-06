@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>VP Education Group portal</title>
+  <rect width="512" height="512" fill="#0F6E66"/>
+  <g fill="#F6FBFA">
+    <path d="M106 161H152L178 260L204 161H250L200 351H156Z"/>
+    <path fill-rule="evenodd" d="M270 161H350A57 57 0 0 1 350 275H314V351H270ZM314 199V237H350A19 19 0 0 0 350 199Z"/>
+  </g>
+</svg>

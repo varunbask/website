@@ -18,6 +18,7 @@ import * as accountPrint from './views/account-print.js';
 import * as report from './views/report.js';
 import * as referrals from './views/referrals.js';
 import * as reviews from './views/reviews.js';
+import * as help from './views/help.js';
 import { normalizeFilter } from './review-model.js';
 
 export const ASSIGNMENT_SUBS = Object.freeze(['todo', 'in-review', 'graded', 'archived']);
@@ -38,6 +39,10 @@ function assignmentsEntry() {
   };
 }
 
+// Help is the same for every page that shows it (student, parent, staff); the
+// view reads the role from ctx. Not scoped: it needs no student.
+const helpEntry = () => ({ mount: (ctx) => help.mount(ctx), title: fixed('Help') });
+
 // Student-scoped views shared by every page that shows one student
 function studentViews({ overviewScoped }) {
   return {
@@ -53,7 +58,7 @@ function studentViews({ overviewScoped }) {
 // student.html and parent.html. A parent with no linked child only has Overview
 // (the welcome), which is why Overview itself is not scoped here.
 export function familyRoutes() {
-  return studentViews({ overviewScoped: false });
+  return { ...studentViews({ overviewScoped: false }), help: helpEntry() };
 }
 
 // staff.html: Workspace views, then the student-scoped ones (need ?student)
@@ -76,6 +81,7 @@ export function staffRoutes() {
     },
     students: { mount: (ctx) => students.mount(ctx), title: fixed('Students') },
     ...student,
+    help: helpEntry(),
     // One calendar route: scope=all is the Workspace calendar, otherwise the student's
     calendar: { ...student.calendar, scoped: (r) => r.params?.scope !== 'all' },
   };

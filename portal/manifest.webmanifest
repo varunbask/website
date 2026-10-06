@@ -1,0 +1,19 @@
+{
+  "name": "VP Education Group portal",
+  "short_name": "VP Portal",
+  "description": "Homework, schedule and updates for VP Education Group students, families and tutors.",
+  "id": "/portal/",
+  "start_url": "/portal/",
+  "scope": "/portal/",
+  "display": "standalone",
+  "lang": "en",
+  "categories": ["education"],
+  "theme_color": "#EEEFF2",
+  "background_color": "#EEEFF2",
+  "icons": [
+    { "src": "/portal/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/portal/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/portal/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/portal/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

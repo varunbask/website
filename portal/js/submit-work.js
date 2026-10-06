@@ -28,6 +28,7 @@ import { validateUpload, prepareUpload, storagePath, ACCEPT } from './upload.js'
 import { startGrading } from './grading.js';
 import { sb } from './supabase.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
+import { SUPPORT_EMAIL, supportMailto } from './help-model.js';
 import { toast } from './overlays.js';
 import { openAnswerEditor, MAX_ANSWER_CHARS } from './answer-editor.js';
 import { normalizeDoc, docToText, wordCount, isEmptyDoc } from './rich-doc.js';
@@ -39,10 +40,17 @@ const SUCCESS = 'Work submitted. Your tutor will review it soon.';
 // The work is saved even when grading could not start (rate limit, network);
 // the daily sweep grades it, so the student must not spend another attempt.
 const GRADING_LATER = 'Your work is saved, but grading could not start yet. It will be graded within a day, so you don’t need to submit again.';
-const AT_LIMIT = `You’ve used all ${MAX_SUBMISSIONS} attempts for this assignment. Message your tutor if you need to send another answer.`;
+// The portal has no messaging: these lines point to the support address (also
+// on the Help page). Each is a sentence with a mail link, built where it is shown.
+const mailLink = (subject) => h('a', { class: 'link', href: supportMailto(subject) }, SUPPORT_EMAIL);
+const atLimitText = () => [
+  `You’ve used all ${MAX_SUBMISSIONS} attempts for this assignment. If you need to send another answer, ask your tutor or email `,
+  mailLink('Another attempt on an assignment'),
+  '.',
+];
 const NOTHING = 'Write your answer, or attach a file.';
 const TOO_LONG = `Your answer is too long to submit. Keep it under ${MAX_ANSWER_CHARS.toLocaleString('en-US')} characters, or attach the rest as a file.`;
-const FAILED = 'Your work could not be submitted. Try again, or email it to your tutor.';
+const failedText = () => ['Your work could not be submitted. Try again, or email it to ', mailLink('Work that would not submit'), '.'];
 
 // "340 KB", "2.4 MB"
 function fileSize(bytes) {
@@ -62,8 +70,8 @@ function fileIcon(type) {
 // The message a failed submission shows (spec 5.6: errors unchanged)
 function failureText(error) {
   const message = error?.message ?? '';
-  if (atLimit(error)) return AT_LIMIT;
-  return message.startsWith('This photo') ? message : FAILED;
+  if (atLimit(error)) return atLimitText();
+  return message.startsWith('This photo') ? message : failedText();
 }
 
 // The database refused a submission over the cap: the trigger in
