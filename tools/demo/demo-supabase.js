@@ -154,7 +154,7 @@
     db.tasks.push(row);
     return row;
   };
-  const submit = (t, { daysAgo = 1, body, status = 'graded', score = null, feedback = null, released = false, attempts = 1 }) => {
+  const submit = (t, { daysAgo = 1, body, status = 'ai_graded', score = null, feedback = null, released = false, attempts = 1 }) => {
     const s = {
       id: id(), student_id: t.student_id, task_id: t.id, storage_path: body ? null : `${t.student_id}/${t.id}/work.svg`, file_type: body ? null : 'image/svg+xml',
       note: null, status, attempts, error: null, status_changed_at: ago(daysAgo, '19:30'), created_at: ago(daysAgo, '19:00'), body: body ?? null, body_doc: null,
@@ -170,7 +170,7 @@
   const systems = task('u-maya', 'assignment', 'Systems of equations practice', 1, { details: 'Solve by substitution and by elimination.' });
   submit(systems, { daysAgo: 0.5, score: 91, feedback: 'Clean elimination work. Double-check the sign on number 7.' });
   const decimals = task('u-leo', 'assignment', 'Decimals practice', -3);
-  submit(decimals, { daysAgo: 4, status: 'graded', score: 74, feedback: 'Watch place value when you multiply by 10 and 100.', released: true });
+  submit(decimals, { daysAgo: 4, status: 'ai_graded', score: 74, feedback: 'Watch place value when you multiply by 10 and 100.', released: true });
   const quadratics = task('u-maya', 'assignment', 'Quadratics: factoring', -6);
   submit(quadratics, { daysAgo: 7, score: 95, feedback: 'Excellent. Every factor checked by expanding.', released: true });
   const essay = task('u-ava', 'assignment', 'Persuasive essay draft', 3, { by: 'u-priya', details: 'Five paragraphs on whether school should start later. Use two sources.' });
@@ -532,7 +532,7 @@
 
   function gradeDraft(s) {
     if (db.grades.some((g) => g.submission_id === s.id)) return;
-    s.status = 'graded';
+    s.status = 'ai_graded';
     s.status_changed_at = new Date().toISOString();
     db.grades.push({ submission_id: s.id, student_id: s.student_id, score: 86, feedback: 'Demo draft: clear work on most problems. Check the last two answers.', reviewed_by: null, reviewed_at: null, released_at: null });
     notify();
