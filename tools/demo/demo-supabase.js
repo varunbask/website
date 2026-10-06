@@ -241,33 +241,40 @@
   // a family payment for two months ago, so the Account page has history
   db.payments.push({ id: id(), client_key: 'demo-pay-1', parent_id: 'u-jin', payer_name: 'Jin Park', period: monthStart(-2), amount_cents: 24000, method: 'zelle', received_on: dayKey(-25), reference: 'ZL-2201', note: null, lines: [], owed_cents: 24000, recorded_by: 'u-admin', created_at: ago(25), voided_at: null, void_reason: null });
 
-  // A statement sent to Grace for last month, saved the way Account > Families
-  // saves it (statements.snapshot), so Billing has something to show
-  (function sentStatement() {
-    const month = monthStart(-1);
-    const next = monthStart(0);
+  // Statements sent to Grace, saved the way Account > Families saves them
+  // (statements.snapshot), so Billing has something to show: the month before
+  // last was left unpaid and is carried into last month as Brought forward, and
+  // part of last month's bill has been paid since it was sent.
+  (function sentStatements() {
     const rate = { Algebra: 7500, 'SAT Reading': 9500 };
-    const lines = db.sessions
-      .filter((x) => x.student_id === 'u-maya' && x.starts_at.slice(0, 10) >= month && x.starts_at.slice(0, 10) < next && x.status !== 'cancelled')
-      .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
-      .map((x) => {
-        const minutes = Math.round((Date.parse(x.ends_at) - Date.parse(x.starts_at)) / 60000);
-        return {
-          day: PT_DAY.format(Date.parse(x.starts_at)), starts_at: x.starts_at, ends_at: x.ends_at, student: 'Maya Lin', subject: x.subject,
-          tutor: db.profiles.find((p) => p.id === x.tutor_id)?.full_name ?? '', minutes, rate_cents: rate[x.subject] ?? 7500,
-          amount_cents: Math.round((minutes / 60) * (rate[x.subject] ?? 7500)), note: null, cancelled: false,
-        };
+    const statement = (month, end, previous) => {
+      const sentOn = end; // billed on the 1st of the next month
+      const lines = db.sessions
+        .filter((x) => x.student_id === 'u-maya' && x.starts_at.slice(0, 10) >= month && x.starts_at.slice(0, 10) < end && x.status !== 'cancelled')
+        .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+        .map((x) => {
+          const minutes = Math.round((Date.parse(x.ends_at) - Date.parse(x.starts_at)) / 60000);
+          return {
+            day: PT_DAY.format(Date.parse(x.starts_at)), starts_at: x.starts_at, ends_at: x.ends_at, student: 'Maya Lin', subject: x.subject,
+            tutor: db.profiles.find((p) => p.id === x.tutor_id)?.full_name ?? '', minutes, rate_cents: rate[x.subject] ?? 7500,
+            amount_cents: Math.round((minutes / 60) * (rate[x.subject] ?? 7500)), note: null, cancelled: false,
+          };
+        });
+      const total = lines.reduce((t, l) => t + l.amount_cents, 0);
+      db.statements.push({
+        parent_id: 'u-grace', period: month, sent_on: sentOn, sent_by: 'u-admin', due_cents: previous + total,
+        snapshot: {
+          v: 1, number: `${month.slice(0, 7)}-UGRACE`, business: 'VP Education Group', pay_note: db.billing_settings[0].pay_note,
+          name: 'Grace Lin', month, bill_date: sentOn, due_date: `${sentOn.slice(0, 8)}15`, lines, adjustments: [], previous_cents: previous,
+          month_cents: total, payments: [], due_cents: previous + total, paid_total_cents: 0,
+        },
       });
-    const total = lines.reduce((t, l) => t + l.amount_cents, 0);
-    db.statements.push({
-      parent_id: 'u-grace', period: month, sent_on: next, sent_by: 'u-admin', due_cents: total,
-      snapshot: {
-        v: 1, number: `${month.slice(0, 7)}-UGRACE`, business: 'VP Education Group', pay_note: db.billing_settings[0].pay_note,
-        name: 'Grace Lin', month, bill_date: next, due_date: `${next.slice(0, 8)}15`, lines, adjustments: [], previous_cents: 0,
-        month_cents: total, payments: [], due_cents: total,
-      },
-    });
-    db.payments.push({ id: id(), client_key: 'demo-pay-2', parent_id: 'u-grace', payer_name: 'Grace Lin', period: month, amount_cents: Math.round(total / 2), method: 'zelle', received_on: next, reference: 'ZL-3310', note: 'First half', lines: [], owed_cents: total, recorded_by: 'u-admin', created_at: ago(1), voided_at: null, void_reason: null });
+      return total;
+    };
+    const earlier = statement(monthStart(-2), monthStart(-1), 0);
+    const total = statement(monthStart(-1), monthStart(0), earlier);
+    // paid in part after the last one was sent, recorded under last month
+    db.payments.push({ id: id(), client_key: 'demo-pay-2', parent_id: 'u-grace', payer_name: 'Grace Lin', period: monthStart(-1), amount_cents: Math.round(total / 2), method: 'zelle', received_on: monthStart(0), reference: 'ZL-3310', note: 'First half', lines: [], owed_cents: total, recorded_by: 'u-admin', created_at: ago(1), voided_at: null, void_reason: null });
   })();
 
   // ---------------------------------------------------------------------------
@@ -370,6 +377,8 @@
     if (table === 'submissions') Object.assign(base, { status: 'pending', attempts: 1, error: null, status_changed_at: stamp, note: null, body: null, body_doc: null, storage_path: null, file_type: null });
     if (table === 'parent_students') base.bills = !db.parent_students.some((l) => l.student_id === v.student_id && l.bills);
     if (table === 'tutor_students') base.subject = null;
+    // statements.sent_on and sent_by default to today and the admin
+    if (table === 'statements') Object.assign(base, { sent_on: dayKey(0), sent_by: meId, snapshot: null, due_cents: null });
     if (['family_rates', 'tutor_rates', 'billing_policies', 'payments', 'payouts', 'billing_adjustments'].includes(table)) {
       Object.assign(base, { voided_at: null, void_reason: null, note: null, created_by: meId, recorded_by: meId });
     }
@@ -401,6 +410,10 @@
   // Embedded relations in select strings, e.g. grade:grades(score, ...)
   function embed(table, row, cols) {
     const out = { ...row };
+    // JSON path aliases, e.g. month_cents:snapshot->month_cents
+    for (const [, alias, col, key] of String(cols ?? '').matchAll(/(\w+):(\w+)->(\w+)/g)) out[alias] = row[col]?.[key] ?? null;
+    // a named column list does not carry the (large) statement snapshot
+    if (table === 'statements' && cols !== '*' && !/(^|,)\s*snapshot\s*(,|$)/.test(String(cols))) delete out.snapshot;
     for (const [, alias, target] of String(cols ?? '').matchAll(/(\w+):(\w+)(?:![\w]+)?\(/g)) {
       if (table === 'submissions' && target === 'grades') {
         const g = db.grades.find((x) => x.submission_id === row.id);
@@ -595,7 +608,8 @@
       case 'my_statements': {
         const rows = db.statements.filter((x) => x.parent_id === meId && x.snapshot).map((x) => ({
           period: x.period, sent_on: x.sent_on, due_cents: x.due_cents ?? x.snapshot.due_cents,
-          paid_cents: db.payments.filter((p) => p.parent_id === meId && p.period === x.period && !p.voided_at).reduce((t, p) => t + p.amount_cents, 0),
+          // every payment of theirs to date, not voided: any month, or none
+          paid_total_cents: db.payments.filter((p) => p.parent_id === meId && !p.voided_at).reduce((t, p) => t + p.amount_cents, 0),
           snapshot: x.snapshot,
         }));
         return { data: rows.sort((a, b) => b.period.localeCompare(a.period)), error: null };
