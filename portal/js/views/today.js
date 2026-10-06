@@ -1,19 +1,29 @@
 // Staff Today, #/today (spec 5.4). Today's tutoring sessions first, then what
 // needs review, what is due this week across every student, and what was
 // released recently. Reads the workspace (getWorkspace), so its counts match
-// the Review queue badge. A tutor sees their own sessions, an admin everyone's.
+// the Review queue badge. A tutor sees their own sessions; an admin chooses
+// Mine (the default) or Everyone.
+//
+// After a lesson: a finished session with no attendance gets Present, Late and
+// Absent buttons that save in one tap, and a "Write notes" button that opens
+// the notes form on its own (open=notes-s<id>). Earlier sessions from the last
+// 30 days that still lack attendance or notes are listed under "Catch up".
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
+import { sb } from '../supabase.js';
 import { displayName } from '../format.js';
 import { deriveItems } from '../buckets.js';
 import { itemStatus } from '../status.js';
-import { dueLabel, todayKey } from '../dates.js';
-import { avatar, button, drawerHref, emptyState, errorCallout, pill, rowList, visuallyHidden } from '../ui.js';
+import { dayKey, dueLabel, todayKey } from '../dates.js';
+import { avatar, button, drawerHref, emptyState, errorCallout, pill, rowList, segmented } from '../ui.js';
 import { staffNames } from '../updates-feed.js';
-import { sessionTitle, timeRange, toneClass } from '../sessions-model.js';
+import { ATTENDANCE, canEditSession, shortDayText, sessionTitle, timeRange, toneClass } from '../sessions-model.js';
+import { GONE } from '../session-form-model.js';
 import {
-  todayPlan, todayPill, todayRowLabel, nextLine, needsNotesDetail, placeText, canJoin,
+  todayPlan, todayPill, todayRowLabel, nextLine, placeText, canJoin, sessionGaps, gapsText, catchUpWindow,
+  showAllLabel, sessionCount, attendanceSaved, attendanceErrorText, quickLabel, notesDrawerId, QUICK_ATTENDANCE,
+  SCOPE_LABELS, normalizeScope, scopeTutorId, getTodayScope, setTodayScope,
 } from '../schedule-summary.js';
 import { queueRow, releasedRow } from '../review-row.js';
 import {
@@ -24,7 +34,14 @@ const NEEDS_REVIEW_ROWS = 5;
 const DUE_ROWS = 6;
 const PEOPLE_PENDING = '/portal/people.html#/pending';
 const SESSIONS_CALENDAR = '#/calendar?scope=all';
-const NOTES_CALENDAR = '#/calendar?scope=all&view=list';
+const SETTLE_MS = 4000;   // a saved row stays locked this long, until the refresh replaces it
+const ATTENDANCE_ICONS = { present: 'check-circle', late: 'clock', absent: 'minus-circle' };
+
+// One-tap saves in flight, by session id: a second tap on a row that is saving does nothing
+const saving = new Set();
+// "Show all" on the Catch up list. Kept through refresh renders (a save elsewhere),
+// reset when the view is opened again.
+let catchUpExpanded = false;
 
 function card({ title, meta, link, className }, ...content) {
   return h('section', { class: ['card', 'is-list', 'rvw-card', className].filter(Boolean).join(' ') },
@@ -93,31 +110,143 @@ function opensSession(ctx, id) {
   };
 }
 
-// One of today's sessions: time, student, subject (in its colour), the place and
-// a pill. Opens the session drawer. The live one says "Now"; the next to start
-// is shaded. An online session near its start gets a Join link under the row
-// (a sibling, so the row stays one link).
-function sessionRow(ctx, s, { plan, studentNames, staff, admin }) {
+// The same for "Write notes": the notes form alone, in the drawer
+function opensNotes(ctx, id) {
+  return (e) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    ctx.open(notesDrawerId(id));
+  };
+}
+
+// Locks or unlocks a row's three buttons. aria-disabled (not disabled) keeps
+// keyboard focus where it is while the save runs.
+function setBusy(group, on, chosen = null) {
+  group.classList.toggle('is-busy', on);
+  if (on) group.setAttribute('aria-busy', 'true');
+  else group.removeAttribute('aria-busy');
+  for (const b of group.querySelectorAll('button')) {
+    if (on) b.setAttribute('aria-disabled', 'true');
+    else b.removeAttribute('aria-disabled');
+    b.classList.toggle('is-chosen', on && b.dataset.value === chosen);
+  }
+}
+
+// Writes one session's attendance (null clears it): a single update by id that
+// must return the row. Toasts the reason when it does not. Refreshes the
+// workspace on success. Resolves whether it saved.
+async function saveAttendance(ctx, session, value) {
+  let result;
+  try {
+    result = await sb.from('sessions').update({ attendance: value }).eq('id', session.id).select('id');
+  } catch (error) {
+    result = { error };
+  }
+  if (result.error || !result.data?.length) {
+    if (result.error) console.error(result.error);
+    ctx.toast({ text: result.error ? attendanceErrorText(result.error) : GONE });
+    return false;
+  }
+  ctx.store.invalidate(session.student_id);
+  return true;
+}
+
+// One tap on Present, Late or Absent. The row stays locked after it saves: the
+// refresh that follows replaces it, and focus moves on from there (to Write
+// notes when notes are still missing, else the next row).
+async function quickMark(ctx, session, value, { student, group }) {
+  if (saving.has(session.id)) return;
+  saving.add(session.id);
+  setBusy(group, true, value);
+  const ok = await saveAttendance(ctx, session, value);
+  if (!ok) {
+    saving.delete(session.id);
+    if (group.isConnected) setBusy(group, false);
+    return;
+  }
+  ctx.toast({
+    text: attendanceSaved(student, value),
+    action: {
+      label: 'Undo',
+      run: async () => {
+        if (await saveAttendance(ctx, session, null)) ctx.toast({ text: attendanceSaved(student, null) });
+      },
+    },
+  });
+  setTimeout(() => saving.delete(session.id), SETTLE_MS);
+}
+
+// What a finished session still needs, as buttons under its row: Present, Late
+// and Absent while attendance is empty, and Write notes while the recap is
+// empty. Null when nothing is missing, or when the viewer may not change it.
+function quickActions(ctx, s, { student, today, links }) {
+  const gaps = sessionGaps(s, ctx.now);
+  if ((!gaps.attendance && !gaps.notes) || !canEditSession(s, ctx.me, { links })) return null;
+  const parts = [];
+  if (gaps.attendance) {
+    const group = h('div', { class: 'tdy-att', role: 'group', 'aria-label': 'Mark attendance' });
+    for (const value of QUICK_ATTENDANCE) {
+      const btn = button({
+        label: ATTENDANCE[value],
+        size: 'sm',
+        icon: ATTENDANCE_ICONS[value],
+        ariaLabel: quickLabel(value, s, { student, today }),
+        focusKey: `qa-${value}-${s.id}`,
+        onClick: () => quickMark(ctx, s, value, { student, group }),
+      });
+      btn.dataset.value = value;
+      group.append(btn);
+    }
+    if (saving.has(s.id)) setBusy(group, true);
+    parts.push(group);
+  }
+  if (gaps.notes) {
+    parts.push(button({
+      label: 'Write notes',
+      size: 'sm',
+      icon: 'note-pencil',
+      href: drawerHref(typeof location === 'undefined' ? '' : location.hash, notesDrawerId(s.id)),
+      ariaLabel: quickLabel('notes', s, { student, today }),
+      focusKey: `row-${notesDrawerId(s.id)}`,
+      onClick: opensNotes(ctx, s.id),
+    }));
+  }
+  return h('div', { class: 'tdy-actions tdy-quick' }, parts);
+}
+
+// One session: time, student, subject (in its colour), the place and a pill.
+// Opens the session drawer. In today's list the live one says "Now" and the
+// next to start is shaded; an online session near its start gets a Join link
+// under the row (a sibling, so the row stays one link). A finished one that
+// lacks attendance or notes gets the one-tap buttons there instead. In the
+// Catch up list (catchUp) the first column is the date and the pill says what
+// is missing.
+function sessionRow(ctx, s, { plan, studentNames, staff, showTutor, links, catchUp = false }) {
   const now = ctx.now;
-  const upNext = plan.upNextId === s.id;
-  const live = plan.liveIds.has(s.id);
-  const state = todayPill(s, now, { upNext });
+  const today = todayKey(now);
+  const upNext = !catchUp && plan.upNextId === s.id;
+  const live = !catchUp && plan.liveIds.has(s.id);
+  const gaps = sessionGaps(s, now);
+  const state = catchUp ? { label: gapsText(gaps), tone: 'warning' } : todayPill(s, now, { upNext });
   const student = studentNames.get(s.student_id) ?? 'Student';
-  const tutor = admin ? (staff.get(String(s.tutor_id)) ?? null) : null;
+  const tutor = showTutor ? (staff.get(String(s.tutor_id)) ?? null) : null;
   const place = placeText(s);
   const subject = sessionTitle(s);
-  const label = todayRowLabel(s, { student, tutor, now, pill: state });
+  const day = shortDayText(dayKey(s.starts_at), today);
+  const spoken = todayRowLabel(s, { student, tutor, now, pill: state });
 
   const caret = icon('caret-right');
   caret.classList.add('tdy-caret');
   const link = h('a', {
     class: ['row', 'tdy-row', toneClass(s.subject)].join(' '),
     href: drawerHref(typeof location === 'undefined' ? '' : location.hash, `s${s.id}`),
-    'aria-label': label,
+    'aria-label': catchUp ? `${day}, ${spoken}` : spoken,
     dataset: { focusKey: `row-s${s.id}`, sessionId: String(s.id) },
     onClick: opensSession(ctx, s.id),
   },
-  h('span', { class: 'tdy-time num' }, timeRange(s)),
+  catchUp
+    ? h('span', { class: 'tdy-time tdy-when num' }, h('span', { class: 'tdy-day' }, day), h('span', { class: 'tdy-clock' }, timeRange(s)))
+    : h('span', { class: 'tdy-time num' }, timeRange(s)),
   h('span', { class: 'tdy-main' },
     h('span', { class: 'tdy-student' }, student),
     h('span', { class: 'tdy-meta' },
@@ -127,7 +256,7 @@ function sessionRow(ctx, s, { plan, studentNames, staff, admin }) {
   h('span', { class: 'tdy-state' }, pill({ label: state.label, tone: state.tone })),
   caret);
 
-  const join = canJoin(s, now)
+  const join = !catchUp && canJoin(s, now)
     ? h('div', { class: 'tdy-actions' },
       button({
         label: 'Join',
@@ -140,19 +269,33 @@ function sessionRow(ctx, s, { plan, studentNames, staff, admin }) {
   join?.firstElementChild.setAttribute('target', '_blank');
   join?.firstElementChild.setAttribute('rel', 'noopener noreferrer');
 
-  return h('li', { class: ['tdy-item', live ? 'is-live' : null, upNext ? 'is-next' : null].filter(Boolean).join(' ') }, link, join);
+  return h('li', { class: ['tdy-item', live ? 'is-live' : null, upNext ? 'is-next' : null].filter(Boolean).join(' ') },
+    link, join, quickActions(ctx, s, { student, today, links }));
 }
 
-// Today's sessions, then the line for the next one when nothing is left today,
-// then the "Needs notes" count
-function sessionsCard(ctx, ws, { studentNames, staff, admin }) {
+// Mine / Everyone for an admin, remembered per person. One element for the
+// whole visit: the cards around it are rebuilt, it is moved into the new one.
+function scopeControl(scope, onChange) {
+  const group = segmented({
+    label: 'Whose sessions',
+    className: 'tdy-scope',
+    options: Object.entries(SCOPE_LABELS).map(([value, label]) => ({ value, label })),
+    value: scope,
+    onChange,
+  });
+  // The same keys let a refresh render hand focus to the new control
+  for (const b of group.querySelectorAll('button')) b.dataset.focusKey = `tdy-scope-${b.dataset.value}`;
+  return group;
+}
+
+// Today's sessions, then the line for the next one when nothing is left today
+function sessionsCard(ctx, plan, { studentNames, staff, showTutor, links, scopeEl, emptyText, onRetry, error }) {
   const now = ctx.now;
-  const plan = todayPlan(ws.sessions ?? [], now, { tutorId: admin ? null : ctx.me.id, links: admin ? null : ws.links });
   const today = todayKey(now);
   const titleId = uid('tdy-title');
 
   const rows = plan.today.map((s, i) => {
-    const li = sessionRow(ctx, s, { plan, studentNames, staff, admin });
+    const li = sessionRow(ctx, s, { plan, studentNames, staff, showTutor, links });
     if (!ctx.isRefresh && i < 8) {
       li.classList.add('enter');
       li.style.setProperty('--i', String(i));
@@ -173,34 +316,47 @@ function sessionsCard(ctx, ws, { studentNames, staff, admin }) {
         student: studentNames.get(s.student_id) ?? 'Student',
         tutor: staff.get(String(s.tutor_id)) ?? null,
         today,
-        admin,
+        admin: showTutor,
       }))));
-  }
-  if (plan.needsNotes > 0) {
-    const caret = icon('caret-right');
-    caret.classList.add('tdy-notes-caret');
-    foot.push(h('a', { class: 'tdy-notes', href: NOTES_CALENDAR },
-      icon('note-pencil'),
-      h('span', { class: 'tdy-notes-text' },
-        h('strong', {}, 'Needs notes'),
-        visuallyHidden(': '),
-        h('span', { class: 'tdy-notes-count' }, needsNotesDetail(plan.needsNotes))),
-      caret));
   }
 
   const count = plan.today.length;
-  const card = h('section', { class: 'card is-list tdy-card', 'aria-labelledby': titleId },
+  return h('section', { class: 'card is-list tdy-card', 'aria-labelledby': titleId },
     h('div', { class: 'card-head' },
       h('h2', { class: 'card-title', id: titleId }, 'Today’s sessions'),
       count ? h('span', { class: 'card-meta num' }, String(count)) : null,
+      scopeEl,
       h('a', { class: 'link card-link', href: SESSIONS_CALENDAR }, 'Open calendar')),
-    ws.sessionsError
-      ? errorCallout({ title: 'We couldn’t load sessions.', text: 'Try again in a moment.', onRetry: () => ctx.store.invalidate(null) })
+    error
+      ? errorCallout({ title: 'We couldn’t load sessions.', text: 'Try again in a moment.', onRetry })
       : rows.length
         ? h('ul', { class: 'tdy-list', 'aria-label': 'Today’s sessions' }, rows)
-        : quiet('calendar-blank', 'No sessions today.'),
+        : quiet('calendar-blank', emptyText),
     foot.length ? h('div', { class: 'card-foot tdy-foot' }, foot) : null);
-  return { card, count };
+}
+
+// Finished sessions from the last 30 days that still need attendance or notes,
+// newest first. Eight show; "Show all" opens the rest.
+function catchUpCard(ctx, list, { studentNames, staff, showTutor, links, scopeNote, onShowAll }) {
+  const titleId = uid('tdy-catchup');
+  const { shown, hidden } = catchUpWindow(list, { expanded: catchUpExpanded });
+  const rows = shown.map((s) => sessionRow(ctx, s, { plan: null, studentNames, staff, showTutor, links, catchUp: true }));
+  return h('section', { class: 'card is-list tdy-card tdy-catchup', 'aria-labelledby': titleId },
+    h('div', { class: 'card-head' },
+      h('h2', { class: 'card-title', id: titleId }, 'Catch up'),
+      h('span', { class: 'card-meta num' }, `${sessionCount(list.length)}${scopeNote}`)),
+    h('ul', { class: 'tdy-list', 'aria-label': 'Sessions to catch up on' }, rows),
+    hidden
+      ? h('div', { class: 'card-foot tdy-foot' },
+        button({
+          label: showAllLabel(list.length),
+          variant: 'secondary',
+          size: 'sm',
+          icon: 'caret-down',
+          focusKey: 'cu-show-all',
+          onClick: () => onShowAll(shown.length),
+        }))
+      : null);
 }
 
 function enter(li, index, ctx) {
@@ -213,6 +369,7 @@ function enter(li, index, ctx) {
 
 export async function mount(ctx) {
   const admin = ctx.role === 'admin';
+  if (!ctx.isRefresh) catchUpExpanded = false;
   const header = ctx.setHeader({ title: 'Today', display: true });
   const body = h('div', { class: 'rvw-today' }, skeleton());
   ctx.host.append(body);
@@ -273,9 +430,51 @@ export async function mount(ctx) {
   const ledeText = todayLede(queue.length, queueStudents);
   header?.querySelector('.view-heading')?.append(h('p', { class: 'view-lede' }, ledeText));
 
-  // Today's tutoring sessions, above everything else
-  const sessions = sessionsCard(ctx, ws, { studentNames: names, staff, admin });
-  nodes.push(sessions.card);
+  // Today's tutoring sessions and the Catch up list, above everything else. An
+  // admin who also tutors starts on Mine and can switch to Everyone (remembered);
+  // a tutor only ever has their own. Switching rebuilds just these two cards.
+  let scope = admin ? getTodayScope(ctx.me.id) : 'mine';
+  const sessionLinks = admin ? null : ws.links;
+  const area = h('div', { class: 'tdy-area' });
+  const scopeEl = admin ? scopeControl(scope, (value) => {
+    scope = normalizeScope(value);
+    setTodayScope(ctx.me.id, scope);
+    paintSessions();
+  }) : null;
+  let listed = { today: 0, catchUp: [] };
+
+  function paintSessions() {
+    // Moving the control into the new card would drop its focus
+    const scopeHadFocus = Boolean(scopeEl?.contains(document.activeElement));
+    const showTutor = admin && scope === 'all';
+    const plan = todayPlan(ws.sessions ?? [], now, { tutorId: scopeTutorId(ctx.role, scope, ctx.me.id), links: sessionLinks });
+    const shared = { studentNames: names, staff, showTutor, links: sessionLinks };
+    const cards = [sessionsCard(ctx, plan, {
+      ...shared,
+      scopeEl,
+      emptyText: admin && scope === 'mine' ? 'No sessions of yours today.' : 'No sessions today.',
+      error: Boolean(ws.sessionsError),
+      onRetry: () => ctx.store.invalidate(null),
+    })];
+    if (plan.catchUp.length && !ws.sessionsError) {
+      cards.push(catchUpCard(ctx, plan.catchUp, {
+        ...shared,
+        scopeNote: admin ? (scope === 'all' ? ', everyone’s' : ', yours') : '',
+        onShowAll: (firstHidden) => {
+          catchUpExpanded = true;
+          paintSessions();
+          // The button that was pressed is gone: land on the first row it revealed
+          const next = listed.catchUp[firstHidden];
+          if (next) area.querySelector(`[data-focus-key="row-s${next.id}"]`)?.focus({ preventScroll: true });
+        },
+      }));
+    }
+    listed = { today: plan.today.length, catchUp: plan.catchUp };
+    area.replaceChildren(...cards);
+    if (scopeHadFocus) scopeEl.querySelector('[aria-pressed="true"]')?.focus({ preventScroll: true });
+  }
+  paintSessions();
+  nodes.push(area);
 
   let index = 0;
 
@@ -341,8 +540,7 @@ export async function mount(ctx) {
     h('div', { class: 'span-12' }, releasedCard)));
 
   body.replaceChildren(...nodes);
-  const sessionsSaid = sessions.count
-    ? `${sessions.count} ${sessions.count === 1 ? 'session' : 'sessions'}. `
-    : '';
-  ctx.announce(`Today, ${sessionsSaid}${ledeText}`);
+  const sessionsSaid = listed.today ? `${sessionCount(listed.today)}. ` : '';
+  const catchUpSaid = listed.catchUp.length ? `${sessionCount(listed.catchUp.length)} to catch up. ` : '';
+  ctx.announce(`Today, ${sessionsSaid}${catchUpSaid}${ledeText}`);
 }

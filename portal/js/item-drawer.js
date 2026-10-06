@@ -30,6 +30,8 @@ import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, lessonLabel } from './materials-model.js';
 import { toneClass } from './sessions-model.js';
 import { renderSessionCreate, renderSessionDetail } from './session-drawer.js';
+import { renderSessionNotes } from './session-notes-drawer.js';
+import { notesDrawerSession } from './schedule-summary.js';
 import { sb } from './supabase.js';
 import { answerView } from './rich-doc-dom.js';
 import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './task-repeat-model.js';
@@ -66,8 +68,10 @@ function section(title, ...children) {
 }
 
 export function renderItemDrawer(dctx) {
-  // Tutoring sessions share the drawer: open=s<id> and open=new-session
+  // Tutoring sessions share the drawer: open=s<id>, open=new-session and, from
+  // Today, open=notes-s<id> (the notes form on its own)
   if (dctx.taskId === 'new-session') return renderSessionCreate(dctx);
+  if (notesDrawerSession(dctx.taskId)) return renderSessionNotes(dctx);
   if (/^s\d+$/.test(dctx.taskId)) return renderSessionDetail(dctx);
   if (dctx.taskId === 'new') return renderCreate(dctx);
   return renderItem(dctx);

@@ -6,12 +6,13 @@
 import { dayKey, todayKey, daysBetween, weekday, longDate, parseKey, viewerIsInBusinessZone } from './dates.js';
 import {
   clockText, timeRange, shortDayText, sessionTitle, sessionState, isCancelled, sortSessions,
-  upcomingSessions, recentChanges, toneClass,
+  upcomingSessions, recentChanges, toneClass, canEditSession,
 } from './sessions-model.js';
 import { isNewSince } from './seen.js';
 
 export const JOIN_LEAD_MINUTES = 15;   // the Join link shows this long before a session starts
-export const NOTES_WINDOW_DAYS = 7;    // "Needs notes" looks back this far
+export const NOTES_WINDOW_DAYS = 30;   // "Needs notes" and the Catch up list look back this far
+export const CATCH_UP_ROWS = 8;        // the Catch up list shows this many before "Show all"
 export const SUBJECT_MAX = 60;         // tutor_students.subject is at most 60 characters
 
 const MIN_MS = 60_000;
@@ -192,21 +193,150 @@ export function normalizeSubject(value) {
 // ---------------------------------------------------------------------------
 // Today (tutor and admin)
 
-// Sessions that ended in the last 7 days, were not cancelled and still have no
-// attendance, so no session notes were written. tutorId limits it to one tutor.
-export function needsNotesCount(sessions, now = new Date(), { days = NOTES_WINDOW_DAYS, tutorId = null } = {}) {
-  const t = ms(now);
-  const from = t - days * DAY_MS;
-  return (sessions ?? []).filter((s) => (tutorId === null || same(s.tutor_id, tutorId))
-    && !isCancelled(s)
-    && (s.attendance === null || s.attendance === undefined)
-    && ms(s.ends_at) <= t
-    && ms(s.ends_at) > from).length;
+const hasAttendance = (s) => s?.attendance !== null && s?.attendance !== undefined && s?.attendance !== '';
+
+// What a session that has ended still lacks: { attendance, notes }. Both are
+// false before it ends and for a cancelled session (nothing to write up).
+export function sessionGaps(session, now = new Date()) {
+  if (!session || isCancelled(session) || !(ms(session.ends_at) <= ms(now))) return { attendance: false, notes: false };
+  return { attendance: !hasAttendance(session), notes: blank(session.recap) };
 }
 
-// "1 session in the last 7 days", "3 sessions in the last 7 days"
-export function needsNotesDetail(n, { days = NOTES_WINDOW_DAYS } = {}) {
-  return `${n} ${n === 1 ? 'session' : 'sessions'} in the last ${days} days`;
+// "Needs attendance and notes", "Needs attendance", "Needs notes", or '' when nothing is missing
+export function gapsText(gaps) {
+  if (gaps?.attendance && gaps?.notes) return 'Needs attendance and notes';
+  if (gaps?.attendance) return 'Needs attendance';
+  if (gaps?.notes) return 'Needs notes';
+  return '';
+}
+
+// Sessions that ended in the last 30 days, were not cancelled and still lack
+// attendance or a recap, newest first. tutorId limits it to one tutor; links
+// (the tutor's own tutor_students rows) drops sessions with a student the
+// tutor no longer teaches, which they cannot write up.
+export function catchUpSessions(sessions, now = new Date(), { days = NOTES_WINDOW_DAYS, tutorId = null, links = null } = {}) {
+  const t = ms(now);
+  const from = t - days * DAY_MS;
+  return (sessions ?? [])
+    .filter((s) => (tutorId === null || same(s.tutor_id, tutorId))
+      && (!links || links.some((l) => same(l.tutor_id, s.tutor_id) && same(l.student_id, s.student_id)))
+      && ms(s.ends_at) > from
+      && (() => { const g = sessionGaps(s, now); return g.attendance || g.notes; })())
+    .sort((a, b) => (ms(b.ends_at) - ms(a.ends_at)) || (Number(b.id) - Number(a.id)));
+}
+
+// How many sessions need attendance or notes (see catchUpSessions)
+export function needsNotesCount(sessions, now = new Date(), options = {}) {
+  return catchUpSessions(sessions, now, options).length;
+}
+
+// The first CATCH_UP_ROWS of a list unless expanded: { shown, hidden }
+export function catchUpWindow(list, { expanded = false, limit = CATCH_UP_ROWS } = {}) {
+  const all = list ?? [];
+  if (expanded || all.length <= limit) return { shown: all, hidden: 0 };
+  return { shown: all.slice(0, limit), hidden: all.length - limit };
+}
+
+// "Show all 12", for the button under a trimmed Catch up list
+export function showAllLabel(total) {
+  return `Show all ${total}`;
+}
+
+// "3 sessions", "1 session"
+export function sessionCount(n) {
+  return `${n} ${n === 1 ? 'session' : 'sessions'}`;
+}
+
+// ---------------------------------------------------------------------------
+// One tap attendance and notes on Today
+
+// 'present' | 'late' | 'absent' for the three one-tap buttons
+export const QUICK_ATTENDANCE = Object.freeze(['present', 'late', 'absent']);
+
+// "Marked Leo Park present"; clearing it (undo) says "Attendance cleared for Leo Park"
+export function attendanceSaved(student, value) {
+  const who = blank(student) ? 'the student' : student;
+  return value ? `Marked ${who} ${String(value).toLowerCase()}` : `Attendance cleared for ${who}`;
+}
+
+// Why a one-tap attendance save failed. The billing guard (a session that
+// already happened, a paid period) explains itself; a refused write is the
+// database's row security; anything else is the connection.
+export function attendanceErrorText(error) {
+  if (error?.code === 'VP002') return `${String(error.message ?? '').replace(/\.?$/, '.')}`;
+  if (error?.code === '42501') return 'You can only change attendance on sessions you tutor.';
+  return 'Attendance didn’t save. Check your connection and try again.';
+}
+
+// The accessible name of one of a row's buttons. They repeat down a list, so
+// each starts with its visible words and then says whose session it is:
+//   "Present, Leo Park, Math, Mon, Oct 12"   "Write notes, Leo Park, Math, Mon, Oct 12"
+export function quickLabel(action, session, { student = null, today } = {}) {
+  const words = { present: 'Present', late: 'Late', absent: 'Absent', notes: 'Write notes' }[action] ?? String(action);
+  return [words, student, sessionTitle(session), shortDayText(dayKey(session.starts_at), today)].filter(Boolean).join(', ');
+}
+
+// The drawer that holds one session's notes form opens on open=notes-s<id>
+export const notesDrawerId = (sessionId) => `notes-s${sessionId}`;
+
+// The session id in a notes drawer id ('notes-s12' -> '12'), or null for any other drawer id
+export function notesDrawerSession(taskId) {
+  const m = /^notes-s(\d+)$/.exec(String(taskId ?? ''));
+  return m ? m[1] : null;
+}
+
+// Why the notes form cannot be used for a session, in words, or null when it can:
+// the session has to have started, not be cancelled, and be the viewer's to change
+export function notesBlockedText(session, me, { links = null, now = new Date() } = {}) {
+  if (!session) return 'This session isn’t available. It may have been cancelled or removed.';
+  if (isCancelled(session)) return 'This session was cancelled, so there are no notes to write.';
+  if (ms(session.starts_at) > ms(now)) return 'This session hasn’t started yet. Notes can be written once it begins.';
+  if (!canEditSession(session, me, { links })) return 'Only the session’s tutor or an admin can write these notes.';
+  return null;
+}
+
+// Which of Mine and Everyone a stored or typed value means (Mine unless 'all')
+export function normalizeScope(value) {
+  return value === 'all' ? 'all' : 'mine';
+}
+
+export const SCOPE_LABELS = Object.freeze({ mine: 'Mine', all: 'Everyone' });
+
+// Whose sessions Today lists: a tutor sees their own; an admin their own
+// (Mine, the default) or everyone's. null means everyone.
+export function scopeTutorId(role, scope, meId) {
+  return role === 'admin' && normalizeScope(scope) === 'all' ? null : meId;
+}
+
+const scopeKey = (meId) => `vb-today-scope-${meId}`;
+
+function defaultStorage() {
+  try {
+    return globalThis.localStorage;
+  } catch {
+    return undefined;
+  }
+}
+
+// The admin's saved choice ('mine' | 'all'); Mine when nothing is saved or storage is unavailable
+export function getTodayScope(meId, storage = defaultStorage()) {
+  try {
+    if (!storage || typeof storage.getItem !== 'function') return 'mine';
+    return normalizeScope(storage.getItem(scopeKey(meId)));
+  } catch {
+    return 'mine';
+  }
+}
+
+// Remembers the choice; returns whether it was saved
+export function setTodayScope(meId, scope, storage = defaultStorage()) {
+  try {
+    if (!storage || typeof storage.setItem !== 'function') return false;
+    storage.setItem(scopeKey(meId), normalizeScope(scope));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // What the Today card shows for a viewer. tutorId limits it to one tutor's
@@ -215,7 +345,9 @@ export function needsNotesDetail(n, { days = NOTES_WINDOW_DAYS } = {}) {
 //   liveIds     Set of ids happening now
 //   upNextId    the first session today that has not started (never a cancelled one), or null
 //   later       with nothing left to start today, the next upcoming session on a later day
-//   needsNotes  count for the "Needs notes" line
+//   catchUp     earlier sessions still missing attendance or a recap, newest first
+//               (not the ones already listed under today)
+//   needsNotes  how many sessions in all, today's included, still need attendance or notes
 // links: the tutor's own tutor_students rows; past sessions with a student
 // they no longer teach cannot take notes, so they do not count as needing them
 export function todayPlan(sessions, now = new Date(), { tutorId = null, links = null } = {}) {
@@ -226,12 +358,15 @@ export function todayPlan(sessions, now = new Date(), { tutorId = null, links = 
   const liveIds = new Set(today.filter((s) => sessionState(s, now).key === 'now').map((s) => s.id));
   const upNext = today.find((s) => !isCancelled(s) && ms(s.starts_at) > t) ?? null;
   const later = upNext ? null : upcomingSessions(mine, now).find((s) => dayKey(s.starts_at) > key) ?? null;
+  const needing = catchUpSessions(mine, now, { links });
+  const listed = new Set(today.map((s) => s.id));
   return {
     today,
     liveIds,
     upNextId: upNext ? upNext.id : null,
     later,
-    needsNotes: needsNotesCount(links ? mine.filter((s) => links.some((l) => same(l.tutor_id, s.tutor_id) && same(l.student_id, s.student_id))) : mine, now),
+    catchUp: needing.filter((s) => !listed.has(s.id)),
+    needsNotes: needing.length,
   };
 }
 
