@@ -197,9 +197,12 @@ const hasAttendance = (s) => s?.attendance !== null && s?.attendance !== undefin
 
 // What a session that has ended still lacks: { attendance, notes }. Both are
 // false before it ends and for a cancelled session (nothing to write up).
+// The rule every list of "sessions to catch up on" follows: attendance is
+// missing, or the student came (present or late, or attendance not marked yet)
+// and the recap is blank. An absent session needs no recap.
 export function sessionGaps(session, now = new Date()) {
   if (!session || isCancelled(session) || !(ms(session.ends_at) <= ms(now))) return { attendance: false, notes: false };
-  return { attendance: !hasAttendance(session), notes: blank(session.recap) };
+  return { attendance: !hasAttendance(session), notes: blank(session.recap) && session.attendance !== 'absent' };
 }
 
 // "Needs attendance and notes", "Needs attendance", "Needs notes", or '' when nothing is missing
@@ -211,7 +214,8 @@ export function gapsText(gaps) {
 }
 
 // Sessions that ended in the last 30 days, were not cancelled and still lack
-// attendance or a recap, newest first. tutorId limits it to one tutor; links
+// attendance, or have a student who attended (present or late) and no recap,
+// newest first (see sessionGaps). tutorId limits it to one tutor; links
 // (the tutor's own tutor_students rows) drops sessions with a student the
 // tutor no longer teaches, which they cannot write up.
 export function catchUpSessions(sessions, now = new Date(), { days = NOTES_WINDOW_DAYS, tutorId = null, links = null } = {}) {
@@ -268,6 +272,18 @@ export function attendanceErrorText(error) {
   return 'Attendance didn’t save. Check your connection and try again.';
 }
 
+// A one-tap save only lands while the session still has the value the tap was
+// made against (compare and set): marking needs attendance still empty, Undo
+// needs it still at the value it undoes. { op: 'is' | 'eq', value }
+export function attendanceGuard(from) {
+  return from === null || from === undefined || from === '' ? { op: 'is', value: null } : { op: 'eq', value: from };
+}
+
+// What to say when the guarded write changed no rows: someone else got there first
+export function attendanceTakenText(from) {
+  return attendanceGuard(from).op === 'is' ? 'Already marked. Refreshing.' : 'Attendance was changed since. Refreshing.';
+}
+
 // The accessible name of one of a row's buttons. They repeat down a list, so
 // each starts with its visible words and then says whose session it is:
 //   "Present, Leo Park, Math, Mon, Oct 12"   "Write notes, Leo Park, Math, Mon, Oct 12"
@@ -318,14 +334,30 @@ function defaultStorage() {
   }
 }
 
-// The admin's saved choice ('mine' | 'all'); Mine when nothing is saved or storage is unavailable
-export function getTodayScope(meId, storage = defaultStorage()) {
+// The admin's saved choice: 'mine', 'all', or null when none was ever made
+// (or storage is unavailable)
+export function savedTodayScope(meId, storage = defaultStorage()) {
   try {
-    if (!storage || typeof storage.getItem !== 'function') return 'mine';
-    return normalizeScope(storage.getItem(scopeKey(meId)));
+    if (!storage || typeof storage.getItem !== 'function') return null;
+    const value = storage.getItem(scopeKey(meId));
+    return value === 'mine' || value === 'all' ? value : null;
   } catch {
-    return 'mine';
+    return null;
   }
+}
+
+// Does this person tutor anyone around now: a session of theirs that ended in
+// the last 30 days, is on today or is still to come?
+export function hasOwnSessions(sessions, meId, now = new Date(), { days = NOTES_WINDOW_DAYS } = {}) {
+  const from = ms(now) - days * DAY_MS;
+  return (sessions ?? []).some((s) => same(s.tutor_id, meId) && ms(s.ends_at) > from);
+}
+
+// Which scope Today starts on for an admin: what they chose last time, else
+// Mine, or Everyone when they have no sessions of their own to show
+export function startScope({ saved = null, sessions, meId, now = new Date() } = {}) {
+  if (saved === 'mine' || saved === 'all') return saved;
+  return hasOwnSessions(sessions, meId, now) ? 'mine' : 'all';
 }
 
 // Remembers the choice; returns whether it was saved

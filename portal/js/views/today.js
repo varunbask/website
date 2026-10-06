@@ -19,11 +19,10 @@ import { dayKey, dueLabel, todayKey } from '../dates.js';
 import { avatar, button, drawerHref, emptyState, errorCallout, pill, rowList, segmented } from '../ui.js';
 import { staffNames } from '../updates-feed.js';
 import { ATTENDANCE, canEditSession, shortDayText, sessionTitle, timeRange, toneClass } from '../sessions-model.js';
-import { GONE } from '../session-form-model.js';
 import {
   todayPlan, todayPill, todayRowLabel, nextLine, placeText, canJoin, sessionGaps, gapsText, catchUpWindow,
-  showAllLabel, sessionCount, attendanceSaved, attendanceErrorText, quickLabel, notesDrawerId, QUICK_ATTENDANCE,
-  SCOPE_LABELS, normalizeScope, scopeTutorId, getTodayScope, setTodayScope,
+  showAllLabel, sessionCount, attendanceSaved, attendanceErrorText, attendanceGuard, attendanceTakenText, quickLabel,
+  notesDrawerId, QUICK_ATTENDANCE, SCOPE_LABELS, normalizeScope, scopeTutorId, savedTodayScope, setTodayScope, startScope,
 } from '../schedule-summary.js';
 import { queueRow, releasedRow } from '../review-row.js';
 import {
@@ -37,8 +36,31 @@ const SESSIONS_CALENDAR = '#/calendar?scope=all';
 const SETTLE_MS = 4000;   // a saved row stays locked this long, until the refresh replaces it
 const ATTENDANCE_ICONS = { present: 'check-circle', late: 'clock', absent: 'minus-circle' };
 
-// One-tap saves in flight, by session id: a second tap on a row that is saving does nothing
+// Rows whose one-tap save is in flight or just landed, by session id. A second
+// tap on a locked row does nothing. A row unlocks when its save fails, when an
+// Undo or a refused write has put it back, or SETTLE_MS after a save (by then
+// the refresh has replaced it).
 const saving = new Set();
+const settling = new Map();   // session id -> the timer that unlocks it
+
+function lockRow(id) {
+  unlockRow(id);
+  saving.add(id);
+}
+
+function unlockRow(id) {
+  clearTimeout(settling.get(id));
+  settling.delete(id);
+  saving.delete(id);
+}
+
+function unlockRowSoon(id) {
+  clearTimeout(settling.get(id));
+  settling.set(id, setTimeout(() => unlockRow(id), SETTLE_MS));
+}
+
+// The admin's choice this visit, for when localStorage will not keep it
+const scopeThisVisit = new Map();
 // "Show all" on the Catch up list. Kept through refresh renders (a save elsewhere),
 // reset when the view is opened again.
 let catchUpExpanded = false;
@@ -132,23 +154,35 @@ function setBusy(group, on, chosen = null) {
   }
 }
 
-// Writes one session's attendance (null clears it): a single update by id that
-// must return the row. Toasts the reason when it does not. Refreshes the
-// workspace on success. Resolves whether it saved.
-async function saveAttendance(ctx, session, value) {
+// Writes one session's attendance (null clears it) as a compare and set: the
+// update only lands while the session still has `from` (empty for a mark, the
+// marked value for an Undo), so a mark someone else made meanwhile is never
+// written over. One update by id, which must return the row. Resolves
+//   'saved'   written; the workspace refreshes
+//   'taken'   no row changed (someone else got there first, or the session is gone);
+//             says so and refreshes to show what is there now
+//   'failed'  an error; says why, nothing refreshes
+// A row whose attendance is cleared or refused unlocks before the refresh
+// renders it, so it comes back enabled.
+async function saveAttendance(ctx, session, value, from = null) {
+  const guard = attendanceGuard(from);
   let result;
   try {
-    result = await sb.from('sessions').update({ attendance: value }).eq('id', session.id).select('id');
+    const update = sb.from('sessions').update({ attendance: value }).eq('id', session.id);
+    result = await (guard.op === 'is' ? update.is('attendance', null) : update.eq('attendance', guard.value)).select('id');
   } catch (error) {
     result = { error };
   }
-  if (result.error || !result.data?.length) {
-    if (result.error) console.error(result.error);
-    ctx.toast({ text: result.error ? attendanceErrorText(result.error) : GONE });
-    return false;
+  if (result.error) {
+    console.error(result.error);
+    ctx.toast({ text: attendanceErrorText(result.error) });
+    return 'failed';
   }
+  const landed = Boolean(result.data?.length);
+  if (!landed) ctx.toast({ text: attendanceTakenText(from) });
+  if (!landed || value === null) unlockRow(session.id);
   ctx.store.invalidate(session.student_id);
-  return true;
+  return landed ? 'saved' : 'taken';
 }
 
 // One tap on Present, Late or Absent. The row stays locked after it saves: the
@@ -156,11 +190,11 @@ async function saveAttendance(ctx, session, value) {
 // notes when notes are still missing, else the next row).
 async function quickMark(ctx, session, value, { student, group }) {
   if (saving.has(session.id)) return;
-  saving.add(session.id);
+  lockRow(session.id);
   setBusy(group, true, value);
-  const ok = await saveAttendance(ctx, session, value);
-  if (!ok) {
-    saving.delete(session.id);
+  const outcome = await saveAttendance(ctx, session, value, null);
+  if (outcome !== 'saved') {
+    unlockRow(session.id);
     if (group.isConnected) setBusy(group, false);
     return;
   }
@@ -169,11 +203,16 @@ async function quickMark(ctx, session, value, { student, group }) {
     action: {
       label: 'Undo',
       run: async () => {
-        if (await saveAttendance(ctx, session, null)) ctx.toast({ text: attendanceSaved(student, null) });
+        lockRow(session.id);
+        const undone = await saveAttendance(ctx, session, null, value);
+        unlockRow(session.id);
+        // The row on screen (if the refresh has not replaced it yet) takes taps again
+        if (group.isConnected) setBusy(group, false);
+        if (undone === 'saved') ctx.toast({ text: attendanceSaved(student, null) });
       },
     },
   });
-  setTimeout(() => saving.delete(session.id), SETTLE_MS);
+  unlockRowSoon(session.id);
 }
 
 // What a finished session still needs, as buttons under its row: Present, Late
@@ -431,13 +470,17 @@ export async function mount(ctx) {
   header?.querySelector('.view-heading')?.append(h('p', { class: 'view-lede' }, ledeText));
 
   // Today's tutoring sessions and the Catch up list, above everything else. An
-  // admin who also tutors starts on Mine and can switch to Everyone (remembered);
-  // a tutor only ever has their own. Switching rebuilds just these two cards.
-  let scope = admin ? getTodayScope(ctx.me.id) : 'mine';
+  // admin chooses Mine or Everyone and the choice is remembered; before they
+  // choose it starts on Mine, or on Everyone when they have no sessions of their
+  // own around now. A tutor only ever has their own. Switching rebuilds just
+  // these two cards.
+  const saved = admin ? (savedTodayScope(ctx.me.id) ?? scopeThisVisit.get(ctx.me.id) ?? null) : null;
+  let scope = admin ? startScope({ saved, sessions: ws.sessions, meId: ctx.me.id, now }) : 'mine';
   const sessionLinks = admin ? null : ws.links;
   const area = h('div', { class: 'tdy-area' });
   const scopeEl = admin ? scopeControl(scope, (value) => {
     scope = normalizeScope(value);
+    scopeThisVisit.set(ctx.me.id, scope);
     setTodayScope(ctx.me.id, scope);
     paintSessions();
   }) : null;

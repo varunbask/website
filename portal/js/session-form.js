@@ -673,16 +673,19 @@ export function sessionNotesForm(dctx, { session, studentName = null, onCancel, 
   const when = whenText(session);
   const sub = h('p', { class: 'ses-form-sub' }, [studentName, sessionTitle(session), when.date, when.time].filter(Boolean).join(', '));
 
-  // Typed but unsaved text from an earlier visit comes back
+  // Typed but unsaved text from an earlier visit comes back. An attendance
+  // counts as the person's own only once they pressed one here (touched);
+  // otherwise the session's current value stands, whoever set it.
   const draft = recallDraft(session);
   let attendance = draft ? draft.attendance : (session.attendance ?? null);
-  const keepDraft = () => { rememberDraft(session, { attendance, recap: recapInput.value }); };
+  let touched = Boolean(draft?.touched);
+  const keepDraft = () => { rememberDraft(session, { attendance, recap: recapInput.value, touched }); };
   const group = segmented({
     label: 'Attendance',
     block: true,
     options: Object.entries(ATTENDANCE).map(([value, label]) => ({ value, label })),
     value: attendance,
-    onChange: (value) => { attendance = value; keepDraft(); },
+    onChange: (value) => { attendance = value; touched = true; keepDraft(); },
   });
   const attendanceField = groupField('Attendance', group);
 
@@ -711,6 +714,7 @@ export function sessionNotesForm(dctx, { session, studentName = null, onCancel, 
         onClick: () => {
           forgetDraft(session.id);
           attendance = session.attendance ?? null;
+          touched = false;
           setSegmented(group, attendance ?? '');
           recapInput.value = session.recap ?? '';
           setFieldError(recapField, '');
@@ -745,8 +749,10 @@ export function sessionNotesForm(dctx, { session, studentName = null, onCancel, 
     saving = true;
     try {
       await busy(submit, 'Saving…', async () => {
+        // Attendance goes along only when it was chosen here: an untouched one
+        // may have been set elsewhere since the form opened
         const result = await sb.from('sessions')
-          .update({ attendance, recap: recap || null })
+          .update(touched ? { attendance, recap: recap || null } : { recap: recap || null })
           .eq('id', session.id)
           .select('id');
         if (result.error || !result.data?.length) {

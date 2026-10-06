@@ -5,7 +5,8 @@ import {
   nextSessionOf, nextSessionParts, clockLabel, SUBJECT_MAX, NOTES_WINDOW_DAYS, CATCH_UP_ROWS,
   sessionGaps, gapsText, catchUpSessions, catchUpWindow, showAllLabel, sessionCount, attendanceSaved, attendanceErrorText, quickLabel,
   notesDrawerId, notesDrawerSession, notesBlockedText,
-  normalizeScope, scopeTutorId, getTodayScope, setTodayScope, SCOPE_LABELS, QUICK_ATTENDANCE,
+  normalizeScope, scopeTutorId, savedTodayScope, setTodayScope, hasOwnSessions, startScope, SCOPE_LABELS, QUICK_ATTENDANCE,
+  attendanceGuard, attendanceTakenText,
 } from '../../portal/js/schedule-summary.js';
 import { zonedIso } from '../../portal/js/dates.js';
 
@@ -331,6 +332,22 @@ describe('Needs notes', () => {
     expect(catchUpSessions(list, NOW).map((s) => s.id)).toEqual([list[0].id, list[2].id, list[3].id]);
   });
 
+  test('an absent session needs no recap; present, late and unmarked ones do', () => {
+    const absent = ended('2026-10-13', { attendance: 'absent' });
+    const absentNoted = ended('2026-10-12', { attendance: 'absent', recap: 'Called in sick' });
+    const late = ended('2026-10-11', { attendance: 'late' });
+    const present = ended('2026-10-10', { attendance: 'present', recap: null });
+    const unmarked = ended('2026-10-09');
+    const list = [absent, absentNoted, late, present, unmarked];
+    expect(catchUpSessions(list, NOW).map((s) => s.id)).toEqual([late.id, present.id, unmarked.id]);
+    expect(sessionGaps(absent, NOW)).toEqual({ attendance: false, notes: false });
+    expect(sessionGaps(late, NOW)).toEqual({ attendance: false, notes: true });
+    expect(needsNotesCount(list, NOW)).toBe(3);
+    // marking an unmarked session absent is all it needs
+    expect(sessionGaps({ ...unmarked, attendance: 'absent' }, NOW)).toEqual({ attendance: false, notes: false });
+    expect(gapsText(sessionGaps(unmarked, NOW))).toBe('Needs attendance and notes');
+  });
+
   test('leaves out cancelled sessions and ones that have not ended', () => {
     const list = [
       ended('2026-10-12', { status: 'cancelled' }),
@@ -367,6 +384,7 @@ describe('Needs notes', () => {
     expect(sessionGaps({ ...done, attendance: 'present' }, NOW)).toEqual({ attendance: false, notes: true });
     expect(sessionGaps({ ...done, recap: 'Fractions' }, NOW)).toEqual({ attendance: true, notes: false });
     expect(sessionGaps({ ...done, attendance: 'absent', recap: 'Missed' }, NOW)).toEqual({ attendance: false, notes: false });
+    expect(sessionGaps({ ...done, attendance: 'absent' }, NOW)).toEqual({ attendance: false, notes: false });
     expect(sessionGaps({ ...done, status: 'cancelled' }, NOW)).toEqual({ attendance: false, notes: false });
     expect(sessionGaps(session(TODAY, '16:00', '17:00'), NOW)).toEqual({ attendance: false, notes: false });
     expect(sessionGaps(null, NOW)).toEqual({ attendance: false, notes: false });
@@ -409,6 +427,15 @@ describe('Needs notes', () => {
     expect(attendanceErrorText({ code: '42501' })).toBe('You can only change attendance on sessions you tutor.');
     expect(attendanceErrorText({ message: 'Failed to fetch' })).toBe('Attendance didn’t save. Check your connection and try again.');
     expect(attendanceErrorText(null)).toBe('Attendance didn’t save. Check your connection and try again.');
+  });
+
+  test('a one-tap save is a compare and set', () => {
+    expect(attendanceGuard(null)).toEqual({ op: 'is', value: null });
+    expect(attendanceGuard(undefined)).toEqual({ op: 'is', value: null });
+    expect(attendanceGuard('')).toEqual({ op: 'is', value: null });
+    expect(attendanceGuard('present')).toEqual({ op: 'eq', value: 'present' });
+    expect(attendanceTakenText(null)).toBe('Already marked. Refreshing.');
+    expect(attendanceTakenText('late')).toBe('Attendance was changed since. Refreshing.');
   });
 
   test('the notes drawer id round-trips and rejects other drawer ids', () => {
@@ -479,22 +506,52 @@ describe('Today: Mine and Everyone', () => {
     expect(scopeTutorId('admin', 'all', 'a1')).toBeNull();
   });
 
-  test('the choice is remembered per person', () => {
+  test('the choice is remembered per person; nothing saved reads as null', () => {
     const storage = memory();
-    expect(getTodayScope('a1', storage)).toBe('mine');
+    expect(savedTodayScope('a1', storage)).toBeNull();
     expect(setTodayScope('a1', 'all', storage)).toBe(true);
-    expect(getTodayScope('a1', storage)).toBe('all');
-    expect(getTodayScope('a2', storage)).toBe('mine');
+    expect(savedTodayScope('a1', storage)).toBe('all');
+    expect(savedTodayScope('a2', storage)).toBeNull();
     setTodayScope('a1', 'mine', storage);
-    expect(getTodayScope('a1', storage)).toBe('mine');
+    expect(savedTodayScope('a1', storage)).toBe('mine');
+    storage.setItem('vb-today-scope-a3', 'garbage');
+    expect(savedTodayScope('a3', storage)).toBeNull();
   });
 
   test('storage that is missing or throws never breaks it', () => {
     const broken = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
-    expect(getTodayScope('a1', broken)).toBe('mine');
+    expect(savedTodayScope('a1', broken)).toBeNull();
     expect(setTodayScope('a1', 'all', broken)).toBe(false);
-    expect(getTodayScope('a1', null)).toBe('mine');
+    expect(savedTodayScope('a1', null)).toBeNull();
     expect(setTodayScope('a1', 'all', null)).toBe(false);
+  });
+
+  describe('where an admin starts', () => {
+    const own = (key, extra = {}) => session(key, '16:00', '17:00', { tutor_id: 'a1', ...extra });
+
+    test('sessions of their own in the last 30 days, today or still to come', () => {
+      expect(hasOwnSessions([own('2026-10-13')], 'a1', NOW)).toBe(true);
+      expect(hasOwnSessions([own('2026-09-20')], 'a1', NOW)).toBe(true);    // 24 days ago
+      expect(hasOwnSessions([own(TODAY)], 'a1', NOW)).toBe(true);
+      expect(hasOwnSessions([own('2026-10-21')], 'a1', NOW)).toBe(true);    // next week
+      expect(hasOwnSessions([own('2026-09-01')], 'a1', NOW)).toBe(false);   // six weeks ago
+      expect(hasOwnSessions([session('2026-10-13')], 'a1', NOW)).toBe(false); // someone else's
+      expect(hasOwnSessions([], 'a1', NOW)).toBe(false);
+      expect(hasOwnSessions(null, 'a1', NOW)).toBe(false);
+    });
+
+    test('Mine when they tutor, Everyone when they teach nothing', () => {
+      expect(startScope({ sessions: [own('2026-10-13')], meId: 'a1', now: NOW })).toBe('mine');
+      expect(startScope({ sessions: [session('2026-10-13')], meId: 'a1', now: NOW })).toBe('all');
+      expect(startScope({ sessions: [], meId: 'a1', now: NOW })).toBe('all');
+    });
+
+    test('a remembered choice always wins', () => {
+      expect(startScope({ saved: 'mine', sessions: [], meId: 'a1', now: NOW })).toBe('mine');
+      expect(startScope({ saved: 'all', sessions: [own('2026-10-13')], meId: 'a1', now: NOW })).toBe('all');
+      expect(startScope({ saved: null, sessions: [own('2026-10-13')], meId: 'a1', now: NOW })).toBe('mine');
+      expect(startScope({ saved: 'bogus', sessions: [], meId: 'a1', now: NOW })).toBe('all');
+    });
   });
 });
 
