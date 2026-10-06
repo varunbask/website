@@ -15,7 +15,7 @@
 // staffDataItems()  students, assignments, tasks and sessions of the workspace
 // familyDataItems() assignments, tasks and sessions of the one student on screen
 
-import { displayName, byDue } from './format.js';
+import { displayName, byDue, visibleEmail } from './format.js';
 import { navModel } from './nav-model.js';
 import { deriveItems } from './buckets.js';
 import { upcomingSessions, sessionTitle, shortDayText } from './sessions-model.js';
@@ -181,11 +181,13 @@ export function studentItems(students, { page = 'staff' } = {}) {
   const base = page === 'staff' ? '' : STAFF_PAGE;
   return (students ?? []).map((s) => {
     const name = displayName(s);
+    // People added without a login have a made-up address: never show or search it
+    const email = visibleEmail(s.email);
     return {
       key: `student:${s.id}`,
       type: 'student',
       title: name,
-      meta: s.email && s.email !== name ? s.email : null,
+      meta: email && email !== name ? email : null,
       avatar: name,
       target: { href: `${base}?student=${encodeURIComponent(s.id)}#/overview` },
       weight: 2,

@@ -181,6 +181,14 @@ describe('staticItems', () => {
 });
 
 describe('studentItems', () => {
+  test('a made-up address of someone without a login is never shown or searched', () => {
+    const ROSA = { id: 's9', full_name: 'Rosa Diaz', email: 'no-login+1f2e@people.varunbaskaran.com' };
+    const [item] = studentItems([ROSA]);
+    expect(item.meta).toBeNull();
+    expect(rank([item], 'login')).toEqual([]);
+    expect(rank([item], 'rosa')[0].item.key).toBe('student:s9');
+  });
+
   test('each student opens their Overview', () => {
     const items = studentItems([MAYA, LEO]);
     expect(items[0]).toMatchObject({
