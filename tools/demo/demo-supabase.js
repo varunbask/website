@@ -339,6 +339,9 @@
     WRITE[t] = adminOnly;
     INSERT[t] = adminOnly;
   }
+  const extraRpc = {};
+  const extraFetch = {};
+  const DEFAULTS = {};
   const KEYS = {
     submission_drafts: ['student_id', 'task_id'], session_billing: ['session_id'], billing_contacts: ['parent_id'],
     statements: ['parent_id', 'period'], grades: ['submission_id'], tutor_students: ['tutor_id', 'student_id'], parent_students: ['parent_id', 'student_id'],
@@ -371,7 +374,8 @@
     if (table === 'portal_invites') Object.assign(base, { created_by: meId, expires_at: iso(Date.now() + 30 * DAY), used_at: null, emailed_to: null, emailed_at: null });
     if (table === 'review_invites') Object.assign(base, { created_by: meId, expires_at: iso(Date.now() + 60 * DAY), used_at: null });
     if (table === 'submission_drafts') base.updated_at = stamp;
-    const row = { ...base, ...v };
+    const extra = DEFAULTS[table] ? (typeof DEFAULTS[table] === 'function' ? DEFAULTS[table](v, helpers) : DEFAULTS[table]) : {};
+    const row = { ...base, ...extra, ...v };
     // a new series makes its sessions, like the database trigger
     if (table === 'session_series') setTimeout(() => fillSeries(row), 0);
     return row;
@@ -410,6 +414,12 @@
     }
     return out;
   }
+
+  // For extend-*.js: the same building blocks the sample data and rules use
+  const helpers = {
+    get meId() { return meId; }, me, role, isStaff, teaches, childOf, canSee, canTeach, adminOnly, gradeVisible,
+    id, iso, pt, ago, dayKey, dueAt, monthStart, NOW, DAY, PERSONAS,
+  };
 
   // ---------------------------------------------------------------------------
   // The query builder
@@ -635,6 +645,7 @@
         return { data: following.length, error: null };
       }
       default:
+        if (extraRpc[name]) return extraRpc[name](args, helpers);
         return { data: null, error: { code: 'PGRST202', message: `function ${name} is not in the demo` } };
     }
   }
@@ -702,6 +713,7 @@
     if (url.origin !== location.origin || !url.pathname.startsWith('/api/')) return realFetch(input, init);
     await new Promise((r) => setTimeout(r, 120));
     const body = (() => { try { return JSON.parse(init.body ?? '{}'); } catch (e) { return {}; } })();
+    if (extraFetch[url.pathname]) return extraFetch[url.pathname]({ url, init, body, reply, helpers });
     if (url.pathname === '/api/people') return peopleApi(url, init, body);
     if (url.pathname === '/api/grade') {
       const s = db.submissions.find((x) => String(x.id) === String(body.submission_id));
@@ -773,5 +785,26 @@
   };
 
   window.supabase = { createClient: () => client };
-  window.portalDemo = { db, as: (who) => { setMe(PERSONAS[who] ?? who); location.reload(); }, onChange: (fn) => listeners.add(fn) };
+  // Feature branches extend the demo from tools/demo/extend-*.js (loaded right
+  // after this file): add tables with rules and sample rows, rpc and /api answers.
+  window.portalDemo = {
+    db,
+    helpers,
+    as: (who) => { setMe(PERSONAS[who] ?? who); location.reload(); },
+    onChange: (fn) => listeners.add(fn),
+    notify,
+    extend({ tables = {}, rpc: rpcs = {}, fetch: fetches = {} } = {}) {
+      for (const [name, t] of Object.entries(tables)) {
+        if (!db[name]) db[name] = [];
+        if (t.rows) db[name].push(...(typeof t.rows === 'function' ? t.rows(helpers) : t.rows));
+        if (t.read) READ[name] = t.read;
+        if (t.write) WRITE[name] = t.write;
+        if (t.insert) INSERT[name] = t.insert;
+        if (t.keys) KEYS[name] = t.keys;
+        if (t.defaults) DEFAULTS[name] = t.defaults;
+      }
+      Object.assign(extraRpc, rpcs);
+      Object.assign(extraFetch, fetches);
+    },
+  };
 })();
