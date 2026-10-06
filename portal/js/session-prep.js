@@ -18,7 +18,7 @@ const recapOpen = new Set();
 
 const WAIT_ICONS = { drafts: 'pencil-simple-line', failed: 'x-circle' };
 
-// Clamps the recap to three lines with a More toggle. The toggle is built only
+// Clamps the recap to three lines with a Full recap toggle. The toggle is built only
 // when the text may run long, then confirmed by measuring once the recap has a
 // size (it can be laid out off screen first, so the observer waits for one).
 function recapBlock(last) {
@@ -26,20 +26,20 @@ function recapBlock(last) {
   const recap = h('p', { class: open ? 'read is-pre ses-prep-recap is-open' : 'read is-pre ses-prep-recap', id: `ses-prep-recap-${last.id}` }, last.recap);
   if (!recapMayOverflow(last.recap)) return { recap, toggle: null };
 
+  // One static name; aria-expanded carries the state and the caret turns over
   const toggle = button({
-    label: open ? 'Less' : 'More',
+    label: 'Full recap',
     variant: 'ghost',
     size: 'sm',
+    iconEnd: 'caret-down',
     focusKey: 'ses-prep-more',
-    ariaLabel: open ? 'Show less of the last lesson recap' : 'Show more of the last lesson recap',
+    className: 'ses-prep-toggle',
     onClick: () => {
       const now = !recap.classList.contains('is-open');
       recap.classList.toggle('is-open', now);
       if (now) recapOpen.add(String(last.id));
       else recapOpen.delete(String(last.id));
       toggle.setAttribute('aria-expanded', String(now));
-      toggle.setAttribute('aria-label', now ? 'Show less of the last lesson recap' : 'Show more of the last lesson recap');
-      toggle.querySelector('.btn-label').textContent = now ? 'Less' : 'More';
     },
   });
   toggle.setAttribute('aria-expanded', String(open));

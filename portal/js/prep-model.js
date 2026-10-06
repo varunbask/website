@@ -21,7 +21,7 @@ import { byDue } from './format.js';
 export const MAX_PREP_ROWS = 6;
 // Work due up to a week after this lesson still counts as "since then"
 export const PREP_HORIZON_DAYS = 7;
-// A recap longer than this (or with this many lines) may need the More toggle
+// A recap longer than this (or with this many lines) may need the Full recap toggle
 export const RECAP_CLAMP_CHARS = 110;
 export const RECAP_CLAMP_LINES = 3;
 
@@ -89,7 +89,7 @@ export function agoText(startsAt, now = new Date()) {
 }
 
 // Whether a recap might run past the clamped lines (the drawer confirms by
-// measuring; this only decides whether the More toggle is worth building)
+// measuring; this only decides whether the Full recap toggle is worth building)
 export function recapMayOverflow(recap) {
   const body = text(recap);
   if (!body) return false;

@@ -222,6 +222,7 @@
 .ses-prep-open { margin-left: auto; }
 /* A ghost button's label lines up with the text above it */
 .ses-prep-actions > .btn:first-child:not(.ses-prep-open) { margin-left: -10px; }
+.ses-prep-toggle[aria-expanded="true"] > .icon { transform: rotate(180deg); }
 
 /* More rows than fit */
 .ses-prep-more { margin: 0; }
