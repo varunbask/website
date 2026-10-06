@@ -33,6 +33,8 @@ import { toneClass } from './sessions-model.js';
 import { renderSessionCreate, renderSessionDetail } from './session-drawer.js';
 import { renderSessionNotes } from './session-notes-drawer.js';
 import { notesDrawerSession } from './schedule-summary.js';
+import { renderProfileDrawer } from './student-profile-drawer.js';
+import { PROFILE_DRAWER } from './student-profile-model.js';
 import { sb } from './supabase.js';
 import { answerView } from './rich-doc-dom.js';
 import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './task-repeat-model.js';
@@ -79,6 +81,7 @@ export function renderItemDrawer(dctx) {
   // Today, open=notes-s<id> (the notes form on its own)
   if (dctx.taskId === 'new-session') return renderSessionCreate(dctx);
   if (notesDrawerSession(dctx.taskId)) return renderSessionNotes(dctx);
+  if (dctx.taskId === PROFILE_DRAWER) return renderProfileDrawer(dctx);
   if (/^s\d+$/.test(dctx.taskId)) return renderSessionDetail(dctx);
   if (dctx.taskId === 'new') return renderCreate(dctx);
   return renderItem(dctx);

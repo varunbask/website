@@ -1,0 +1,167 @@
+/* Student profile: the staff Overview's Profile and Staff notes cards, the About
+   card families see, and the profile editor in the drawer. Prefix: sp-.
+   Tokens and components come from app.css; no raw hex.
+
+   Markup (built by portal/js/student-profile-card.js and student-profile-drawer.js)
+     section.card.sp-card.sp-profile > div.card-head (h2.card-title + a.btn.sp-edit)
+       + dl.sp-facts > div.sp-fact(.is-long) > dt + dd(.sp-text) ; ul.sp-subjects > li.ovw-subj
+       + div.sp-parents > h3.sp-sub + ul.sp-parent-list > li.sp-parent
+           (span.sp-parent-name + span.sp-parent-links > a.link)
+       + div.card-foot.sp-foot > p.sp-updated
+     section.card.sp-card.sp-notes > div.card-head (h2.card-title + span.card-meta.sp-lock)
+       + form.sp-note-form > div.field + div.sp-note-actions
+       + div.sp-note-host > ul.sp-note-list > li.sp-note (p.sp-note-body + div.sp-note-foot
+           > span.sp-note-by + button.icon-btn.sp-note-del) | .ovw-card-empty ; button.sp-more
+     section.card.sp-card.sp-about > div.card-head + dl.sp-facts
+     div.sp-form-wrap > h2.drawer-title + p.sp-form-lede + form.sp-form
+       > div.sp-form-pair > div.field x2 ; div.field > div.sp-area > textarea + p.sp-count */
+
+/* Cards ------------------------------------------------------------------------- */
+
+.sp-card { gap: var(--s-4); }
+.sp-card > .card-head { align-items: center; margin-bottom: 0; }
+.sp-edit { margin-left: auto; }
+.sp-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.sp-lock > .icon { width: 14px; height: 14px; }
+
+/* Facts ---------------------------------------------------------------------------- */
+
+.sp-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--s-4) var(--s-5);
+  margin: 0;
+}
+@container card (min-width: 460px) {
+  .sp-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sp-fact.is-long { grid-column: 1 / -1; }
+}
+.sp-fact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sp-fact > dt { font: var(--t-caption); color: var(--text-3); }
+.sp-fact > dd {
+  margin: 0;
+  font: var(--t-ui);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.sp-fact > dd.sp-text { white-space: pre-wrap; }
+.sp-empty { color: var(--text-3); }
+.sp-subjects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Parents ----------------------------------------------------------------------------- */
+
+.sp-parents {
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.sp-sub {
+  margin-bottom: var(--s-2);
+  font: 600 13px/18px var(--font-ui);
+  color: var(--text-2);
+}
+.sp-parent-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sp-parent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px var(--s-4);
+  font: var(--t-ui);
+}
+.sp-parent-name { min-width: 112px; font-weight: 500; }
+.sp-parent-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--s-4);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sp-quiet { font: var(--t-meta); color: var(--text-3); }
+.sp-card > .sp-foot { margin-top: auto; }
+.sp-updated { font: var(--t-meta); color: var(--text-3); }
+
+/* Staff notes -------------------------------------------------------------------------- */
+
+.sp-note-form { display: flex; flex-direction: column; gap: var(--s-2); }
+.sp-note-input { min-height: 72px; resize: vertical; }
+.sp-note-actions { display: flex; justify-content: flex-end; }
+.sp-note-host { display: flex; flex-direction: column; }
+.sp-note-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sp-note {
+  padding: var(--s-3) 0;
+  border-top: 1px solid var(--line);
+}
+.sp-note-body {
+  margin: 0;
+  font: var(--t-ui);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sp-note-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: 32px;
+  margin-top: var(--s-1);
+}
+.sp-note-by { font: var(--t-meta); color: var(--text-3); }
+.sp-note-author { font-weight: 500; color: var(--text-2); }
+.sp-note-del:hover { color: var(--danger-text); }
+.sp-more { align-self: flex-start; margin-top: var(--s-2); }
+
+/* Profile editor (drawer) --------------------------------------------------------------- */
+
+.sp-form-wrap { display: flex; flex-direction: column; min-width: 0; }
+.sp-form-lede {
+  margin-top: var(--s-1);
+  font: var(--t-meta);
+  color: var(--text-3);
+}
+.sp-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  margin-top: var(--s-6);
+}
+.sp-form-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-4);
+}
+@media (max-width: 520px) {
+  .sp-form-pair { grid-template-columns: minmax(0, 1fr); }
+}
+.sp-area { display: flex; flex-direction: column; gap: var(--s-1); }
+.sp-area > .textarea { min-height: 96px; resize: vertical; }
+.sp-count { align-self: flex-end; margin: 0; font: var(--t-caption); color: var(--text-3); }
+.sp-form-errors:empty { display: none; }
