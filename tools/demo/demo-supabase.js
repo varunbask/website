@@ -241,6 +241,35 @@
   // a family payment for two months ago, so the Account page has history
   db.payments.push({ id: id(), client_key: 'demo-pay-1', parent_id: 'u-jin', payer_name: 'Jin Park', period: monthStart(-2), amount_cents: 24000, method: 'zelle', received_on: dayKey(-25), reference: 'ZL-2201', note: null, lines: [], owed_cents: 24000, recorded_by: 'u-admin', created_at: ago(25), voided_at: null, void_reason: null });
 
+  // A statement sent to Grace for last month, saved the way Account > Families
+  // saves it (statements.snapshot), so Billing has something to show
+  (function sentStatement() {
+    const month = monthStart(-1);
+    const next = monthStart(0);
+    const rate = { Algebra: 7500, 'SAT Reading': 9500 };
+    const lines = db.sessions
+      .filter((x) => x.student_id === 'u-maya' && x.starts_at.slice(0, 10) >= month && x.starts_at.slice(0, 10) < next && x.status !== 'cancelled')
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+      .map((x) => {
+        const minutes = Math.round((Date.parse(x.ends_at) - Date.parse(x.starts_at)) / 60000);
+        return {
+          day: PT_DAY.format(Date.parse(x.starts_at)), starts_at: x.starts_at, ends_at: x.ends_at, student: 'Maya Lin', subject: x.subject,
+          tutor: db.profiles.find((p) => p.id === x.tutor_id)?.full_name ?? '', minutes, rate_cents: rate[x.subject] ?? 7500,
+          amount_cents: Math.round((minutes / 60) * (rate[x.subject] ?? 7500)), note: null, cancelled: false,
+        };
+      });
+    const total = lines.reduce((t, l) => t + l.amount_cents, 0);
+    db.statements.push({
+      parent_id: 'u-grace', period: month, sent_on: next, sent_by: 'u-admin', due_cents: total,
+      snapshot: {
+        v: 1, number: `${month.slice(0, 7)}-UGRACE`, business: 'VP Education Group', pay_note: db.billing_settings[0].pay_note,
+        name: 'Grace Lin', month, bill_date: next, due_date: `${next.slice(0, 8)}15`, lines, adjustments: [], previous_cents: 0,
+        month_cents: total, payments: [], due_cents: total,
+      },
+    });
+    db.payments.push({ id: id(), client_key: 'demo-pay-2', parent_id: 'u-grace', payer_name: 'Grace Lin', period: month, amount_cents: Math.round(total / 2), method: 'zelle', received_on: next, reference: 'ZL-3310', note: 'First half', lines: [], owed_cents: total, recorded_by: 'u-admin', created_at: ago(1), voided_at: null, void_reason: null });
+  })();
+
   // ---------------------------------------------------------------------------
   // Access rules (a simplified mirror of the real policies)
 
@@ -551,6 +580,14 @@
     switch (name) {
       case 'staff_names':
         return { data: db.profiles.filter((p) => ['tutor', 'admin'].includes(p.role)).map(({ id: pid, full_name }) => ({ id: pid, full_name })), error: null };
+      case 'my_statements': {
+        const rows = db.statements.filter((x) => x.parent_id === meId && x.snapshot).map((x) => ({
+          period: x.period, sent_on: x.sent_on, due_cents: x.due_cents ?? x.snapshot.due_cents,
+          paid_cents: db.payments.filter((p) => p.parent_id === meId && p.period === x.period && !p.voided_at).reduce((t, p) => t + p.amount_cents, 0),
+          snapshot: x.snapshot,
+        }));
+        return { data: rows.sort((a, b) => b.period.localeCompare(a.period)), error: null };
+      }
       case 'my_google_connection':
         return { data: [], error: null };
       case 'student_tutors': {
