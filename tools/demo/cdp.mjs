@@ -38,7 +38,7 @@ for (const s of steps) {
   if (s.go) { await send('Page.navigate', { url: s.go }); await sleep(s.wait ?? 1500); }
   else if (s.wait) await sleep(s.wait);
   if (s.js) {
-    const r = await send('Runtime.evaluate', { expression: s.js, awaitPromise: true, returnByValue: true });
+    const r = await send('Runtime.evaluate', { expression: s.js, awaitPromise: true, returnByValue: true, replMode: true });
     out.push(r.result?.result?.value ?? r.result?.exceptionDetails?.exception?.description ?? null);
     if (s.after) await sleep(s.after);
   }
