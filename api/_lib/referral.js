@@ -1,10 +1,11 @@
 import { createHmac } from 'node:crypto';
 
-// The "Refer a family" form on the landing page posts here. Everything the
-// visitor sends is checked again on the server; the table's own checks are
-// the last line. Spam is filtered three ways: a hidden field people never
-// fill (website), a minimum time on the page (started), and a per-address
-// and overall rate limit.
+// The "Refer a family" form and the "Book a free consultation" form on the
+// landing page both post here (a consultation says kind: 'consultation').
+// Everything the visitor sends is checked again on the server; the table's own
+// checks are the last line. Spam is filtered three ways: a hidden field people
+// never fill (website), a minimum time on the page (started), and a
+// per-address and overall rate limit.
 
 export const LIMITS = Object.freeze({ name: 120, email: 254, phone: 30, grade: 40, subjects: 300, note: 1000 });
 export const PER_ADDRESS_PER_HOUR = 5;
@@ -15,6 +16,8 @@ const LANGS = ['en', 'zh', 'es', 'fr', 'ko'];
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const PHONE_RE = /^[0-9+(). -]{7,30}$/;
 const HOUR_MS = 3_600_000;
+export const LESSONS = Object.freeze(['online', 'in_person', 'either']);
+export const CONTACT_PREFS = Object.freeze(['email', 'phone', 'text', 'wechat', 'kakaotalk']);
 
 const clean = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
 const cleanNote = (v) => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n').trim() : '');
@@ -67,6 +70,56 @@ export function validateReferral(input = {}) {
   return { ok: Object.keys(errors).length === 0, errors, row };
 }
 
+/**
+ * A consultation request -> { ok, errors, row }, like validateReferral. The
+ * person asking is stored as both the referrer and the family, so the table's
+ * existing columns and checks hold; the row also carries kind, contact_pref
+ * and lessons. Their preferred language is stored in the language column.
+ */
+export function validateConsultation(input = {}) {
+  const errors = {};
+  const v = {
+    name: clean(input.name),
+    email: clean(input.email).toLowerCase(),
+    phone: clean(input.phone),
+    grade: clean(input.grade),
+    subjects: clean(input.subjects),
+    lessons: clean(input.lessons),
+    contact_pref: clean(input.contact_pref),
+    note: cleanNote(input.note),
+  };
+
+  if (!v.name) errors.name = 'required';
+  else if (v.name.length > LIMITS.name) errors.name = 'too_long';
+  if (!v.email) errors.email = 'required';
+  else if (v.email.length > LIMITS.email || !EMAIL_RE.test(v.email)) errors.email = 'email';
+  if (v.phone && !PHONE_RE.test(v.phone)) errors.phone = 'phone';
+  else if (!v.phone && ['phone', 'text'].includes(v.contact_pref)) errors.phone = 'phone_needed';
+  if (v.grade.length > LIMITS.grade) errors.grade = 'too_long';
+  if (!v.subjects) errors.subjects = 'required';
+  else if (v.subjects.length > LIMITS.subjects) errors.subjects = 'too_long';
+  if (v.lessons && !LESSONS.includes(v.lessons)) errors.lessons = 'required';
+  if (v.contact_pref && !CONTACT_PREFS.includes(v.contact_pref)) errors.contact_pref = 'required';
+  if (v.note.length > LIMITS.note) errors.note = 'too_long';
+
+  const row = {
+    kind: 'consultation',
+    referrer_name: v.name,
+    referrer_email: v.email,
+    referrer_role: 'parent',
+    family_name: v.name,
+    family_email: v.email,
+    family_phone: v.phone || null,
+    grade: v.grade || null,
+    subjects: v.subjects,
+    note: v.note || null,
+    language: LANGS.includes(input.language) ? input.language : 'en',
+    contact_pref: v.contact_pref || null,
+    lessons: v.lessons || null,
+  };
+  return { ok: Object.keys(errors).length === 0, errors, row };
+}
+
 // A keyed hash of the caller's address, so the table never holds a raw IP
 export function addressHash(request, key) {
   const forwarded = request.headers.get('x-forwarded-for') ?? '';
@@ -103,17 +156,22 @@ async function readInput(request) {
 /**
  * POST /api/referral. JSON in, JSON out ({ ok } or { error, errors }). A
  * plain form post (no JavaScript) is answered with a redirect back to the
- * page. A bot is told it worked, and nothing is saved.
+ * page. A bot is told it worked, and nothing is saved. `kind: 'consultation'`
+ * is a "Book a free consultation" request; anything else is a referral.
  */
 export async function handleReferral(request, { repo, env = process.env, now = () => Date.now(), notify = null, waitUntil = (p) => p }) {
   const { data, form, tooLarge } = await readInput(request);
-  const back = (state) => new Response(null, { status: 303, headers: { Location: `/?referral=${state}#refer` } });
+  const consultation = data?.kind === 'consultation';
+  const back = (state) => new Response(null, {
+    status: 303,
+    headers: { Location: consultation ? `/?consultation=${state}#book` : `/?referral=${state}#refer` },
+  });
   if (tooLarge) return form ? back('error') : json(413, { error: 'too_large' });
   if (!data) return json(400, { error: 'invalid' });
 
   if (looksAutomated(data, now())) return form ? back('sent') : json(200, { ok: true });
 
-  const { ok, errors, row } = validateReferral(data);
+  const { ok, errors, row } = consultation ? validateConsultation(data) : validateReferral(data);
   if (!ok) return form ? back('error') : json(422, { error: 'invalid', errors });
 
   const ipHash = addressHash(request, env.CRON_SECRET);
@@ -125,7 +183,7 @@ export async function handleReferral(request, { repo, env = process.env, now = (
   if (mine >= PER_ADDRESS_PER_HOUR || all >= ALL_PER_DAY) return form ? back('busy') : json(429, { error: 'busy' });
 
   const id = await repo.insert({ ...row, ip_hash: ipHash });
-  // The email goes out after the answer; a failed email never loses the referral
+  // The email goes out after the answer; a failed email never loses the request
   if (notify) {
     waitUntil(Promise.resolve().then(() => notify(row, id))
       .catch((error) => console.error('[referral] email:', error?.message ?? error?.name ?? 'Error')));

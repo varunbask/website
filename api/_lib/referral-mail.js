@@ -1,13 +1,16 @@
 import { reviewQuery } from './referral-review.js';
 
-// The email the owner gets for each new referral, sent through Resend.
-// Everything the visitor typed is escaped. Without RESEND_API_KEY nothing is
-// sent (the referral is still saved and shows in the portal).
+// The email the owner gets for each new referral or consultation request, sent
+// through Resend. Everything the visitor typed is escaped. Without
+// RESEND_API_KEY nothing is sent (the request is still saved and shows in the
+// portal).
 
 export const DEFAULT_TO = 'vbmgroupsllc@gmail.com';
 export const DEFAULT_FROM = 'VP Education Group <referrals@varunbaskaran.com>';
 const DEFAULT_SITE = 'https://www.varunbaskaran.com';
 const LANGUAGE_NAMES = { en: 'English', zh: 'Chinese', es: 'Spanish', fr: 'French', ko: 'Korean' };
+const LESSON_NAMES = { online: 'Online', in_person: 'In person (San Gabriel Valley area)', either: 'Online or in person' };
+const CONTACT_NAMES = { email: 'Email', phone: 'Phone call', text: 'Text message', wechat: 'WeChat', kakaotalk: 'KakaoTalk' };
 
 export const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const siteOf = (env) => String(env.SITE_URL || DEFAULT_SITE).replace(/\/+$/, '');
@@ -21,7 +24,50 @@ export function reviewLinks(id, { env = process.env, now = Date.now() } = {}) {
   };
 }
 
+// "New consultation request": the person asking wrote it themselves, so no
+// approve or decline links, just what they said and a way to answer.
+export function buildConsultationEmail(row, { env = process.env } = {}) {
+  const portal = `${siteOf(env)}/portal/people.html#/referrals`;
+  const lines = [
+    ['Name', row.family_name],
+    ['Email', row.family_email],
+    ['Phone', row.family_phone],
+    ["Student's grade", row.grade],
+    ['Subjects or exams', row.subjects],
+    ['Lessons', LESSON_NAMES[row.lessons]],
+    ['Best way to reach', CONTACT_NAMES[row.contact_pref]],
+    ['Preferred language', LANGUAGE_NAMES[row.language] ?? 'English'],
+    ['Anything else', row.note],
+  ].filter(([, v]) => v);
+
+  const subject = `New consultation request: ${row.family_name}`.slice(0, 150);
+  const text = [
+    'New consultation request from the website.',
+    '',
+    ...lines.map(([k, v]) => `${k}: ${v}`),
+    '',
+    'The website promises a reply within one business day.',
+    `All requests: ${portal}`,
+    '',
+    'Reply to this email to write to them.',
+  ].join('\n');
+
+  const cell = 'padding:6px 12px 6px 0;vertical-align:top;';
+  const rows = lines.map(([k, v]) => `<tr><td style="${cell}color:#6E585C;white-space:nowrap;">${escapeHtml(k)}</td><td style="${cell}color:#241619;white-space:pre-wrap;">${escapeHtml(v)}</td></tr>`).join('');
+  const html = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#FBF8F5;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#241619;">
+<div style="max-width:560px;margin:0 auto;background:#FFFFFF;border:1px solid #E6D9D2;border-radius:8px;padding:24px;">
+<p style="margin:0 0 4px;color:#B3282D;font-weight:700;">VP Education Group</p>
+<h1 style="margin:0 0 16px;font-size:20px;">New consultation request: ${escapeHtml(row.family_name)}</h1>
+<table role="presentation" style="border-collapse:collapse;margin:0 0 20px;">${rows}</table>
+<p style="margin:0 0 8px;color:#6E585C;font-size:13px;">The website promises a reply within one business day. Reply to this email to write to them.</p>
+<p style="margin:0;font-size:13px;"><a href="${escapeHtml(portal)}" style="color:#B3282D;">See all requests in the portal</a></p>
+</div></body></html>`;
+
+  return { subject, text, html, replyTo: row.family_email };
+}
+
 export function buildReferralEmail(row, id, { env = process.env, now = Date.now() } = {}) {
+  if (row.kind === 'consultation') return buildConsultationEmail(row, { env });
   const links = reviewLinks(id, { env, now });
   const who = row.referrer_role === 'student' ? 'a student' : 'a parent';
   const lines = [
