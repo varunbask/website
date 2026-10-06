@@ -627,9 +627,15 @@
       case 'end_session_series': {
         const s = db.sessions.find((x) => String(x.id) === String(args.p_session));
         if (!s || !(role() === 'admin' || s.tutor_id === meId)) return { data: null, error: { code: '42501', message: 'not allowed' } };
-        db.sessions = db.sessions.filter((x) => !(x.series_id === s.series_id && Date.parse(x.starts_at) >= Date.parse(s.starts_at)));
+        // Like production: only the rule ends (the day before this session, or
+        // the rule goes if it starts on or after that day). The lessons stay;
+        // the portal removes them itself, as "Delete this and following" does.
+        if (!s.series_id) return { data: null, error: null };
+        const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(new Date(s.starts_at));
+        const before = new Date(Date.parse(`${day}T12:00:00Z`) - DAY).toISOString().slice(0, 10);
         const sr = db.session_series.find((x) => x.id === s.series_id);
-        if (sr) sr.until = s.starts_at.slice(0, 10);
+        if (sr && sr.first_date >= day) db.session_series = db.session_series.filter((x) => x !== sr);
+        else if (sr && (!sr.until || sr.until >= day)) Object.assign(sr, { until: before, updated_at: new Date().toISOString() });
         notify();
         return { data: null, error: null };
       }
