@@ -276,6 +276,7 @@ const UI = {
   },
 
   /* book a free consultation */
+  "Free consultation": { zh: "免费咨询", es: "Consulta gratuita", fr: "Consultation gratuite", ko: "무료 상담" },
   "Talk through your child's goals, grade, and schedule.": { zh: "一起聊聊孩子的目标、年级和时间安排。", es: "Hablemos de las metas, el grado y el horario de su hijo o hija.", fr: "Échangeons sur les objectifs, le niveau et l'emploi du temps de votre enfant.", ko: "자녀의 목표, 학년, 일정에 대해 함께 이야기해 보세요." },
   "We match you with a tutor and a plan.": { zh: "我们为您匹配合适的老师和学习计划。", es: "Le asignamos un tutor y un plan a su medida.", fr: "Nous vous proposons un tuteur et un plan adaptés.", ko: "알맞은 선생님과 학습 계획을 연결해 드립니다." },
   "No obligation.": { zh: "无需承诺。", es: "Sin compromiso.", fr: "Sans engagement.", ko: "부담 없이 문의하세요." },

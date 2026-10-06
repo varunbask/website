@@ -179,7 +179,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 /* a touch wider than the page column: the wordmark, three links, language,
    theme, Log in and the full "Book a free consultation" button need ~1150px */
 .header-inner {
-  max-width: 1200px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 12px 24px;
   min-height: 68px;
@@ -854,11 +854,11 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 
 /* compact header: the desktop header reserves room for the widest of the
-   five languages and needs ~1150px, so it collapses at 1170px and below. Log
+   five languages and needs about 1100px, so it collapses at 1100px and below. Log
    in and the Book button stay in the bar; below 820px the wordmark text goes
    and the button takes its short label, below 560px the language name goes,
    and below 481px Log in moves into the menu (see the blocks further down). */
-@media (max-width: 1170px) {
+@media (max-width: 1100px) {
   .site-nav {
     display: none;
     position: absolute;
