@@ -238,6 +238,11 @@ export function getPendingCount() {
 // migration adds, so only this query asks for it
 const BILLING_SESSION_FIELDS = 'id, student_id, tutor_id, series_id, subject, starts_at, ends_at, status, attendance, cancelled_at, created_at';
 
+// What the ledger reads of a sent statement. month_cents and previous_cents are
+// lifted out of the snapshot (null when it was sent before snapshots existed), so
+// Families can tell whether it needs sending again without loading the snapshot.
+const STATEMENT_FIELDS = 'parent_id, period, sent_on, due_cents, month_cents:snapshot->month_cents, previous_cents:snapshot->previous_cents';
+
 async function loadBilling() {
   const settings = await sb.from('billing_settings').select('*').eq('id', 1).maybeSingle();
   if (settings.error) throw settings.error;
@@ -257,7 +262,8 @@ async function loadBilling() {
     all('payouts', '*'),
     all('billing_adjustments', '*'),
     all('billing_contacts', '*', 'parent_id'),
-    selectAll(() => sb.from('statements').select('*').order('parent_id').order('period')),
+    // Not '*': a saved snapshot can be large and the ledger only needs two of its totals
+    selectAll(() => sb.from('statements').select(STATEMENT_FIELDS).order('parent_id').order('period')),
     selectAll(() => sb.from('parent_students').select('parent_id, student_id, bills, created_at').order('student_id').order('parent_id')),
     selectAll(() => sb.from('tutor_students').select('tutor_id, student_id, subject').order('student_id').order('tutor_id')),
     all('session_series', 'id, student_id, tutor_id, start_time, end_time, until'),
@@ -285,6 +291,7 @@ async function loadBilling() {
       statements: statements.data ?? [],
       parentLinks: parentLinks.data ?? [],
       names: new Map(profiles.map((p) => [String(p.id), displayName(p)])),
+      fullNames: new Map(profiles.map((p) => [String(p.id), (p.full_name ?? '').trim()])),
     },
     sessions: sess.data ?? [],
     links: links.data ?? [],

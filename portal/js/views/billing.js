@@ -8,7 +8,7 @@ import { h } from '../dom.js';
 import { button, pill, emptyState, errorCallout, skeletonRows } from '../ui.js';
 import { todayKey } from '../dates.js';
 import { money, monthName, shortDate, dayText, hoursText } from '../billing-model.js';
-import { statementStatus } from '../billing-text.js';
+import { statementStatuses } from '../billing-text.js';
 
 const TIME = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: 'numeric', minute: '2-digit' });
 const timeRange = (a, b) => `${TIME.format(new Date(a)).toLowerCase()} to ${TIME.format(new Date(b)).toLowerCase()}`;
@@ -29,9 +29,11 @@ export function mount(ctx) {
     }
     const rows = data ?? [];
     const today = todayKey(ctx.now);
+    // Only the newest statement is live; each older one was settled by the next
+    const statuses = statementStatuses(rows, today);
     if (period) {
-      const row = rows.find((r) => String(r.period).slice(0, 10) === period);
-      root.replaceChildren(row ? statement(row, today) : emptyState({ icon: 'receipt', text: 'This statement isn’t available.', action: { label: 'All statements', href: '#/billing' } }));
+      const at = rows.findIndex((r) => String(r.period).slice(0, 10) === period);
+      root.replaceChildren(at >= 0 ? statement(rows[at], statuses[at], today) : emptyState({ icon: 'receipt', text: 'This statement isn’t available.', action: { label: 'All statements', href: '#/billing' } }));
       return;
     }
     if (!rows.length) {
@@ -42,9 +44,9 @@ export function mount(ctx) {
     }
     root.replaceChildren(
       h('p', { class: 'bill-intro' }, 'Your monthly statements, as they were sent. Each month is billed on the 1st of the next month. Open one to see every lesson or to print it.'),
-      h('ul', { class: 'bill-list', 'aria-label': 'Statements' }, rows.map((r) => {
+      h('ul', { class: 'bill-list', 'aria-label': 'Statements' }, rows.map((r, i) => {
         const snap = r.snapshot ?? {};
-        const status = statementStatus(r, today);
+        const status = statuses[i];
         const month = String(r.period).slice(0, 7);
         return h('li', {},
           h('a', { class: 'bill-row', href: `#/billing?month=${month}` },
@@ -58,9 +60,8 @@ export function mount(ctx) {
 }
 
 // The statement exactly as saved when it was sent
-function statement(row, today) {
+function statement(row, status, today) {
   const s = row.snapshot ?? {};
-  const status = statementStatus(row, today);
   const lines = s.lines ?? [];
   const due = s.due_cents ?? row.due_cents ?? 0;
   const meta = (label, value) => h('div', {}, h('dt', {}, label), h('dd', {}, value));
@@ -93,7 +94,14 @@ function statement(row, today) {
           h('tr', { class: 'is-total' }, h('th', { colspan: '5' }, due < 0 ? 'Credit' : 'Amount due'), h('td', { class: 'num' }, money(Math.abs(due)))))),
       s.pay_note ? h('p', { class: 'acct-statement-note' }, s.pay_note) : null,
       s.number ? h('p', { class: 'acct-statement-note' }, `Please include ${s.number} with your payment.`) : null,
-      status.key === 'partial' || status.key === 'paid'
-        ? h('p', { class: 'acct-statement-note' }, status.key === 'paid' ? 'Paid in full. Thank you.' : `${status.label}. ${money(status.leftCents)} left to pay.`)
-        : null));
+      closing(status)));
+}
+
+// A line under the statement for where it stands now
+function closing(status) {
+  const note = (text) => h('p', { class: 'acct-statement-note' }, text);
+  if (status.key === 'paid') return note('Paid in full. Thank you.');
+  if (status.key === 'partial') return note(`${status.label}. ${money(status.leftCents)} left to pay.`);
+  if (status.key === 'carried') return note(`This balance was carried forward to the ${monthName(status.carriedTo).split(' ')[0]} statement.`);
+  return null;
 }

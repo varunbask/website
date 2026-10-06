@@ -61,3 +61,22 @@ test('icon() rejects unknown names', () => {
   globalThis.document = fakeDocument();
   expect(() => icon('rocket')).toThrow(/Unknown icon/);
 });
+
+// icon() throws for a name it does not have, which takes the whole view down
+test('every icon named in a portal script exists', async () => {
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { fileURLToPath } = await import('node:url');
+  const root = fileURLToPath(new URL('../../portal/js', import.meta.url));
+  const files = (dir) => readdirSync(dir, { withFileTypes: true })
+    .flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : e.name.endsWith('.js') ? [join(dir, e.name)] : []));
+  const missing = [];
+  for (const file of files(root)) {
+    const text = readFileSync(file, 'utf8');
+    for (const m of text.matchAll(/\b(?:icon|iconEnd)\s*:\s*'([a-z][a-z-]*)'|\bicon\(\s*'([a-z][a-z-]*)'/g)) {
+      const name = m[1] ?? m[2];
+      if (!ICON_NAMES.includes(name)) missing.push(`${file.slice(root.length + 1)}: ${name}`);
+    }
+  }
+  expect(missing).toEqual([]);
+});

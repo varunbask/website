@@ -9,7 +9,7 @@ import {
 } from '../../portal/js/billing-model.js';
 import {
   policyText, statementText, payoutText, payrollCsv, csvText, parseRateLines, matchRates, familiesCsv,
-  statementSnapshot, statementStatus,
+  statementSnapshot, statementStatus, statementStatuses, sendAction, sendColumns,
 } from '../../portal/js/billing-text.js';
 import { zonedIso } from '../../portal/js/dates.js';
 
@@ -52,6 +52,7 @@ function billing(extra = {}) {
     statements: [],
     parentLinks: [{ parent_id: 'alan', student_id: 'kevin', bills: true }, { parent_id: 'ryan', student_id: 'amy', bills: true }],
     names: NAMES,
+    fullNames: NAMES,
     ...extra,
   };
 }
@@ -591,7 +592,7 @@ describe('words and files', () => {
     const snap = statementSnapshot(ctx, f, { previousCents: 1000, sentOn: '2026-12-01' });
     expect(snap).toMatchObject({
       v: 1, number: '2026-11-ALAN', name: 'Alan Wang', month: '2026-11-01', bill_date: '2026-12-01', due_date: '2026-12-15',
-      previous_cents: 1000, month_cents: 9000, due_cents: 10000, pay_note: 'Zelle: pay@vp.test',
+      previous_cents: 1000, month_cents: 9000, due_cents: 10000, pay_note: 'Zelle: pay@vp.test', paid_total_cents: 0,
     });
     expect(snap.lines).toHaveLength(2);
     expect(snap.lines[0]).toMatchObject({ day: '2026-11-03', student: 'Kevin Wang', subject: 'Math', tutor: 'Ethan Poon', minutes: 60, rate_cents: 4500, amount_cents: 4500, note: null });
@@ -600,14 +601,164 @@ describe('words and files', () => {
     expect(JSON.stringify(snap)).not.toMatch(/tutorRe|tutor_rate|3000/);
   });
 
-  test('where a sent statement stands for the parent', () => {
-    const snap = { due_cents: 10000, due_date: '2026-12-15', payments: [{ amount_cents: 2000 }] };
-    expect(statementStatus({ due_cents: 10000, paid_cents: 2000, snapshot: snap }, '2026-12-05')).toMatchObject({ key: 'due', label: 'Due Dec 15' });
-    expect(statementStatus({ due_cents: 10000, paid_cents: 2000, snapshot: snap }, '2026-12-16')).toMatchObject({ key: 'overdue', tone: 'danger' });
-    expect(statementStatus({ due_cents: 10000, paid_cents: 6000, snapshot: snap }, '2026-12-16')).toMatchObject({ key: 'partial', label: 'Paid $40.00 of $100.00' });
-    expect(statementStatus({ due_cents: 10000, paid_cents: 12000, snapshot: snap }, '2026-12-16')).toMatchObject({ key: 'paid', label: 'Paid' });
-    expect(statementStatus({ due_cents: 0, paid_cents: 0, snapshot: {} }, '2026-12-16')).toMatchObject({ key: 'paid', label: 'Nothing due' });
-    expect(statementStatus({ due_cents: -500, paid_cents: 0, snapshot: {} }, '2026-12-16')).toMatchObject({ key: 'credit', label: 'Credit $5.00' });
+  test('the snapshot remembers every payment to date: all months, loose ones, not voided, not another parent', () => {
+    const pay = (extra) => ({ parent_id: 'alan', period: '2026-11-01', amount_cents: 1000, received_on: '2026-12-03', created_at: 'a', lines: [], ...extra });
+    const ctx = ctxOf([session('2026-11-03', '16:00', '17:00', { attendance: 'present' })], {
+      payments: [
+        pay({ amount_cents: 2000 }),
+        pay({ period: '2026-10-01', amount_cents: 700 }),
+        pay({ period: null, amount_cents: 300 }),
+        pay({ period: '2026-12-01', amount_cents: 50 }),
+        pay({ amount_cents: 9999, voided_at: '2026-12-04T00:00:00Z', void_reason: 'typo' }),
+        pay({ parent_id: 'ryan', amount_cents: 6000 }),
+        pay({ amount_cents: -100 }),
+      ],
+    });
+    const f = familyMonth(ctx, 'alan', '2026-11-01');
+    expect(statementSnapshot(ctx, f, { sentOn: '2026-12-05' }).paid_total_cents).toBe(2000 + 700 + 300 + 50 - 100);
+    expect(statementSnapshot(ctx, familyMonth(ctx, 'ryan', '2026-11-01'), { sentOn: '2026-12-05' }).paid_total_cents).toBe(6000);
+  });
+
+  test('the snapshot never prints an email: a tutor or student without a full name is "your tutor" / "your student"', () => {
+    const NO_NAME = new Map([...NAMES, ['intern', 'intern@vp.test'], ['zoe', 'zoe@x.test']]);
+    const FULL = new Map([...NAMES, ['intern', ''], ['zoe', '   ']]);
+    const ctx = ctxOf([
+      session('2026-11-03', '16:00', '17:00', { attendance: 'present', tutor_id: 'intern' }),
+      session('2026-11-04', '16:00', '17:00', { attendance: 'present', student_id: 'zoe' }),
+    ], {
+      names: NO_NAME,
+      fullNames: FULL,
+      parentLinks: [{ parent_id: 'alan', student_id: 'kevin', bills: true }, { parent_id: 'alan', student_id: 'zoe', bills: true }],
+    });
+    const snap = statementSnapshot(ctx, familyMonth(ctx, 'alan', '2026-11-01'), { sentOn: '2026-12-05' });
+    expect(snap.lines[0]).toMatchObject({ student: 'Kevin Wang', tutor: 'your tutor' });
+    expect(snap.lines[1]).toMatchObject({ student: 'your student', tutor: 'Ethan Poon' });
+    expect(JSON.stringify(snap)).not.toMatch(/intern@|zoe@/);
+    // the admin's own page still shows the email fallback
+    expect(ctx.nameOf('intern')).toBe('intern@vp.test');
+  });
+
+  test('where the newest sent statement stands for the parent', () => {
+    const snap = { due_cents: 10000, due_date: '2026-12-15', paid_total_cents: 2000, previous_cents: 0 };
+    const row = (paid, extra = {}) => ({ period: '2026-11-01', due_cents: 10000, paid_total_cents: paid, snapshot: snap, ...extra });
+    // nothing paid since it was sent (the 2000 was already paid before)
+    expect(statementStatus(row(2000), '2026-12-05')).toMatchObject({ key: 'due', label: 'Due Dec 15', leftCents: 10000 });
+    expect(statementStatus(row(2000), '2026-12-15')).toMatchObject({ key: 'due' });
+    expect(statementStatus(row(2000), '2026-12-16')).toMatchObject({ key: 'overdue', tone: 'danger', leftCents: 10000 });
+    expect(statementStatus(row(6000), '2026-12-16')).toMatchObject({ key: 'partial', label: 'Paid $40.00 of $100.00', leftCents: 6000 });
+    expect(statementStatus(row(12000), '2026-12-16')).toMatchObject({ key: 'paid', label: 'Paid', tone: 'success', leftCents: 0 });
+    // paying more than was due is still paid
+    expect(statementStatus(row(15000), '2026-12-05')).toMatchObject({ key: 'paid' });
+  });
+
+  test('a voided payment reopens the statement; it is not clamped', () => {
+    const snap = { due_cents: 10000, due_date: '2026-12-15', paid_total_cents: 2000 };
+    // paid in full after sending ...
+    expect(statementStatus({ period: '2026-11-01', due_cents: 10000, paid_total_cents: 12000, snapshot: snap }, '2026-12-20').key).toBe('paid');
+    // ... then that payment is voided
+    expect(statementStatus({ period: '2026-11-01', due_cents: 10000, paid_total_cents: 2000, snapshot: snap }, '2026-12-20')).toMatchObject({ key: 'overdue', leftCents: 10000 });
+    // a payment made before sending, voided afterwards: the statement said nothing due, now it is due
+    const settled = { due_cents: 0, due_date: '2026-12-15', paid_total_cents: 10000 };
+    expect(statementStatus({ period: '2026-11-01', due_cents: 0, paid_total_cents: 10000, snapshot: settled }, '2026-12-01')).toMatchObject({ key: 'nothing', label: 'Nothing due' });
+    expect(statementStatus({ period: '2026-11-01', due_cents: 0, paid_total_cents: 0, snapshot: settled }, '2026-12-01')).toMatchObject({ key: 'due', leftCents: 10000 });
+  });
+
+  test('loose payments and payments recorded under a later month count toward the newest statement', () => {
+    // the parent's total all of time goes up whichever month or no month the payment was recorded under
+    const snap = { due_cents: 10000, due_date: '2026-12-15', paid_total_cents: 5000 };
+    expect(statementStatus({ period: '2026-11-01', due_cents: 10000, paid_total_cents: 15000, snapshot: snap }, '2026-12-20').key).toBe('paid');
+    expect(statementStatus({ period: '2026-11-01', due_cents: 10000, paid_total_cents: 9000, snapshot: snap }, '2026-12-01')).toMatchObject({ key: 'partial', label: 'Paid $40.00 of $100.00' });
+  });
+
+  test('credit and nothing due', () => {
+    expect(statementStatus({ period: '2026-11-01', due_cents: 0, paid_total_cents: 0, snapshot: {} }, '2026-12-16')).toMatchObject({ key: 'nothing', label: 'Nothing due' });
+    expect(statementStatus({ period: '2026-11-01', due_cents: -500, paid_total_cents: 0, snapshot: {} }, '2026-12-16')).toMatchObject({ key: 'credit', label: 'Credit $5.00', tone: 'info' });
+    // part of a credit voided later
+    expect(statementStatus({ period: '2026-11-01', due_cents: -500, paid_total_cents: -300, snapshot: { paid_total_cents: 0 } }, '2026-12-16')).toMatchObject({ key: 'credit', label: 'Credit $2.00' });
+  });
+
+  test('an older statement is settled by the next one, never overdue', () => {
+    // August (unpaid, $80) was carried into September as Brought forward; the parent paid $170 and it was recorded under September
+    const aug = { period: '2026-08-01', due_cents: 8000, paid_total_cents: 17000, snapshot: { due_cents: 8000, due_date: '2026-09-15', paid_total_cents: 0, previous_cents: 0 } };
+    const sep = { period: '2026-09-01', due_cents: 17000, paid_total_cents: 17000, snapshot: { due_cents: 17000, due_date: '2026-10-15', paid_total_cents: 0, previous_cents: 8000 } };
+    const [newest, older] = statementStatuses([sep, aug], '2026-12-31');
+    expect(newest).toMatchObject({ key: 'paid', label: 'Paid' });
+    expect(older).toMatchObject({ key: 'carried', label: 'Carried to September', tone: 'neutral', leftCents: 0 });
+    // still carried (not Overdue) when September itself goes unpaid; only the newest is live
+    const unpaid = statementStatuses([{ ...sep, paid_total_cents: 0 }, { ...aug, paid_total_cents: 0 }], '2026-12-31');
+    expect(unpaid.map((x) => x.key)).toEqual(['overdue', 'carried']);
+    // the order the rows come in does not matter
+    expect(statementStatuses([aug, sep], '2026-12-31').map((x) => x.key)).toEqual(['carried', 'paid']);
+  });
+
+  test('an older statement with nothing brought forward after it was paid; a credit or zero is settled', () => {
+    const oct = { period: '2026-10-01', due_cents: 5000, paid_total_cents: 5000, snapshot: { due_cents: 5000, due_date: '2026-11-15', paid_total_cents: 0 } };
+    const nov = { period: '2026-11-01', due_cents: 9000, paid_total_cents: 5000, snapshot: { due_cents: 9000, due_date: '2026-12-15', paid_total_cents: 5000, previous_cents: 0 } };
+    expect(statementStatuses([nov, oct], '2026-12-31')).toMatchObject([{ key: 'overdue' }, { key: 'paid', label: 'Paid', tone: 'success' }]);
+    const credit = { period: '2026-10-01', due_cents: -500, paid_total_cents: 5000, snapshot: { due_cents: -500 } };
+    const zero = { period: '2026-10-01', due_cents: 0, paid_total_cents: 5000, snapshot: { due_cents: 0 } };
+    expect(statementStatuses([nov, credit], '2026-12-31')[1]).toMatchObject({ key: 'settled', label: 'Settled' });
+    expect(statementStatuses([nov, zero], '2026-12-31')[1]).toMatchObject({ key: 'settled', label: 'Settled' });
+    // nothing is carried from a statement that owed nothing, even if a later one has a balance forward
+    const novBf = { ...nov, snapshot: { ...nov.snapshot, previous_cents: 700 } };
+    expect(statementStatuses([novBf, zero], '2026-12-31')[1].key).toBe('settled');
+    expect(statementStatuses([])).toEqual([]);
+  });
+
+  test('send again follows the month and the balance brought forward, not payments', () => {
+    const list = [session('2026-11-03', '16:00', '17:00', { attendance: 'present' })];
+    const ctx = ctxOf(list);
+    const f = familyMonth(ctx, 'alan', '2026-11-01');
+    const OPEN = { ok: true, items: [] };
+    const sent = { parent_id: 'alan', period: '2026-11-01', sent_on: '2026-12-01', due_cents: 4500, month_cents: 4500, previous_cents: 0 };
+    expect(sendAction(null, f, 0, OPEN, '2026-12-05')).toMatchObject({ kind: 'mark', blocked: false, sentOn: '2026-12-05' });
+    expect(sendAction(sent, f, 0, OPEN, '2026-12-05').kind).toBeNull();
+    // a payment recorded after sending is no change (the month's own charges are the same)
+    const paid = familyMonth(ctxOf(list, { payments: [{ parent_id: 'alan', period: '2026-11-01', amount_cents: 4500, received_on: '2026-12-03', lines: [] }] }), 'alan', '2026-11-01');
+    expect(sendAction(sent, paid, 0, OPEN, '2026-12-05').kind).toBeNull();
+    // the month's charges changed
+    expect(sendAction({ ...sent, month_cents: 9000 }, f, 0, OPEN, '2026-12-05').kind).toBe('again');
+    // the balance brought forward changed
+    expect(sendAction(sent, f, 8000, OPEN, '2026-12-05').kind).toBe('again');
+    expect(sendAction({ ...sent, previous_cents: 8000 }, f, 8000, OPEN, '2026-12-05').kind).toBeNull();
+    expect(sendAction({ ...sent, previous_cents: null }, f, 0, OPEN, '2026-12-05').kind).toBeNull();
+  });
+
+  test('Mark sent waits for the same open items as Record payment', () => {
+    const open = ctxOf([session('2026-11-10', '16:00', '17:00')]);
+    const gate = familyBlockers(open, 'alan', '2026-11-01');
+    expect(gate.ok).toBe(false);
+    const f = familyMonth(open, 'alan', '2026-11-01');
+    expect(sendAction(null, f, 0, gate, '2026-12-05')).toMatchObject({ kind: 'mark', blocked: true });
+    // sending again is held the same way
+    expect(sendAction({ sent_on: '2026-12-01', month_cents: 1, previous_cents: 0 }, f, 0, gate, '2026-12-05')).toMatchObject({ kind: 'again', blocked: true });
+    // nothing to send, nothing blocked
+    expect(sendAction({ sent_on: '2026-12-01', month_cents: f.owedCents, previous_cents: 0 }, f, 0, gate, '2026-12-05')).toMatchObject({ kind: null, blocked: false });
+    const ready = ctxOf([session('2026-11-10', '16:00', '17:00', { attendance: 'present' })]);
+    expect(sendAction(null, familyMonth(ready, 'alan', '2026-11-01'), 0, familyBlockers(ready, 'alan', '2026-11-01'), '2026-12-05').blocked).toBe(false);
+  });
+
+  test('a statement sent before snapshots keeps its real sent day; only a deliberate send again moves it', () => {
+    const ctx = ctxOf([session('2026-11-03', '16:00', '17:00', { attendance: 'present' })]);
+    const f = familyMonth(ctx, 'alan', '2026-11-01');
+    const OPEN = { ok: true, items: [] };
+    const today = '2027-01-20';
+    // sent Dec 1, never saved for the portal, long overdue by now
+    const legacy = { parent_id: 'alan', period: '2026-11-01', sent_on: '2026-12-01', due_cents: null, month_cents: null, previous_cents: null };
+    const save = sendAction(legacy, f, 0, OPEN, today);
+    expect(save).toMatchObject({ kind: 'save', blocked: false, sentOn: '2026-12-01' });
+    const snap = statementSnapshot(ctx, f, { previousCents: 0, sentOn: save.sentOn });
+    expect(snap.due_date).toBe('2026-12-15');
+    expect(sendColumns(save, snap, today)).toEqual({ snapshot: snap, due_cents: 4500 });
+    expect(sendColumns(save, snap, today)).not.toHaveProperty('sent_on');
+    // a deliberate send again counts from today
+    const again = sendAction({ ...legacy, month_cents: 100, previous_cents: 0 }, f, 0, OPEN, today);
+    expect(again).toMatchObject({ kind: 'again', sentOn: today });
+    const fresh = statementSnapshot(ctx, f, { previousCents: 0, sentOn: again.sentOn });
+    expect(fresh.due_date).toBe('2027-02-03');
+    expect(sendColumns(again, fresh, today)).toMatchObject({ sent_on: today, due_cents: 4500 });
+    // first send: the database default stamps the day
+    expect(sendColumns(sendAction(null, f, 0, OPEN, today), fresh, today)).not.toHaveProperty('sent_on');
   });
 
   test('CSV quotes and neutralizes formulas', () => {

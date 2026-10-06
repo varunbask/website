@@ -49,14 +49,14 @@ function studentViews({ overviewScoped }) {
   };
 }
 
-// student.html and parent.html. A parent with no linked child only has Overview
-// (the welcome), which is why Overview itself is not scoped here.
-export function familyRoutes() {
-  return {
-    ...studentViews({ overviewScoped: false }),
-    // the parent's own statements; not about one child (parent.html only)
-    billing: { mount: (ctx) => billing.mount(ctx), title: fixed('Billing'), scoped: false },
-  };
+// student.html and parent.html (page: 'student' | 'parent'). A parent with no
+// linked child only has Overview (the welcome), which is why Overview itself is
+// not scoped here. Billing is the parent's own statements, not about one child,
+// so only the parent page has it: #/billing on student.html is an unknown view.
+export function familyRoutes(page = 'student') {
+  const views = studentViews({ overviewScoped: false });
+  if (page !== 'parent') return views;
+  return { ...views, billing: { mount: (ctx) => billing.mount(ctx), title: fixed('Billing'), scoped: false } };
 }
 
 // staff.html: Workspace views, then the student-scoped ones (need ?student)
