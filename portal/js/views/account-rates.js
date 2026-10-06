@@ -1,19 +1,19 @@
 // Account > Rates (account.html, admin). What each family pays per hour (per
-// student and subject, optionally per tutor), what each tutor earns, opening
-// balances for the year, the billing settings and the no-show policy. Rates
+// student and subject, optionally per tutor), what each tutor earns, the
+// billing settings and the no-show policy. Rates
 // and policies apply from a date and are never edited: a new row takes over
 // from its date, and a wrong one is voided with a reason.
 
 import { sb } from '../supabase.js';
 import { h } from '../dom.js';
 import { button, field, select, emptyState, busy } from '../ui.js';
-import { todayKey, addDays, weekday } from '../dates.js';
+import { todayKey } from '../dates.js';
 import { displayName } from '../format.js';
 import {
-  money, parseMoney, monthOf, addMonths, tutorRateFor, policyFor, payPeriodStart, periodText, payDay, dayText, shortDate,
+  money, parseMoney, monthOf, monthName, addMonths, tutorRateFor, policyFor, periodText, dayText, shortDate, periodsOverlapping, billDate,
 } from '../billing-model.js';
 import { parseRateLines, matchRates, policyText } from '../billing-text.js';
-import { setHeader, loadPriced, table, card, act, note, clientKey, askReason } from './account-shared.js';
+import { setHeader, loadPriced, table, card, act, note, askReason } from './account-shared.js';
 
 const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -224,74 +224,32 @@ export function mount(ctx) {
       });
     }
 
-    function openingCard() {
-      const year = today.slice(0, 4);
-      const rows = tutors.map((t) => {
-        const existing = (data.billing.payouts ?? []).find((p) => p.kind === 'opening' && String(p.tutor_id) === String(t.id) && !p.voided_at);
-        if (existing) return { cells: { name: displayName(t), amount: money(existing.amount_cents), set: h('span', { class: 'card-meta' }, `Entered ${shortDate(existing.paid_on, today)}`) } };
-        const amount = h('input', { class: 'input acct-money-input', inputmode: 'decimal', placeholder: '0.00', 'aria-label': `Paid to ${displayName(t)} before the portal` });
-        const save = button({ label: 'Save', size: 'sm' });
-        save.addEventListener('click', () => busy(save, 'Saving…', async () => {
-          const cents = parseMoney(amount.value);
-          if (cents === null) { ctx.toast({ text: 'Enter the amount paid this year before the portal, like 1250.' }); return; }
-          await act(ctx, () => sb.from('payouts').insert({
-            client_key: clientKey(), kind: 'opening', tutor_id: t.id, period_start: b.settings.ledger_start, amount_cents: cents,
-            method: 'other', paid_on: b.settings.ledger_start, note: `Paid in ${year} before the portal`,
-          }).select('id'), { done: `${displayName(t)}: ${money(cents)} paid earlier this year.` });
-        }));
-        return { cells: { name: displayName(t), amount: '', set: h('div', { class: 'acct-inline-form is-tight' }, amount, save) } };
-      });
-      return h('details', { class: 'card acct-card' },
-        h('summary', { class: 'acct-range-summary' }, `Paid to tutors earlier in ${year}`),
-        h('p', { class: 'card-meta' }, 'Once per tutor: what the old scheduler paid this year, so year-to-date totals (and the 1099 threshold) count the whole year.'),
-        table({ label: 'Opening balances', columns: [{ key: 'name', label: 'Tutor' }, { key: 'amount', label: 'Paid', num: true }, { key: 'set', label: '' }], rows }));
-    }
-
     // -----------------------------------------------------------------------
     // Settings and policy
 
     function settingsCard() {
       const s = b.settings;
-      const frozen = (data.billing.payouts ?? []).some((p) => p.kind !== 'opening');
       const name = h('input', { class: 'input', value: s.business_name, maxlength: '80', 'aria-label': 'Business name' });
-      const anchor = h('input', { type: 'date', class: 'input', value: s.payroll_anchor, disabled: frozen, 'aria-label': 'First pay period starts' });
-      const lag = h('input', { type: 'number', class: 'input acct-num-input', min: '0', max: '7', value: String(s.pay_lag_days), 'aria-label': 'Days after the period ends' });
       const due = h('input', { type: 'number', class: 'input acct-num-input', min: '1', max: '28', value: String(s.due_day), 'aria-label': 'Day of the month bills are due' });
       const payNote = h('textarea', { class: 'input textarea', rows: '3', maxlength: '2000', 'aria-label': 'How to pay, printed on statements' }, s.pay_note ?? '');
-      const preview = h('p', { class: 'field-hint' });
-      const showPeriods = () => {
-        if (!KEY_RE.test(anchor.value) || weekday(anchor.value) !== 0) { preview.textContent = 'Pick a Sunday.'; return; }
-        const first = payPeriodStart(today, anchor.value);
-        const lagDays = Number(lag.value) || 0;
-        preview.textContent = `Pay periods: ${[0, 1, 2].map((i) => {
-          const p = addDays(first, 14 * i);
-          return `${periodText(p)} (paid ${dayText(payDay(p, lagDays))})`;
-        }).join('; ')}.`;
-      };
-      anchor.addEventListener('input', showPeriods);
-      lag.addEventListener('input', showPeriods);
-      showPeriods();
+      const month = monthOf(today);
+      const periods = periodsOverlapping(month, addMonths(month, 1)).slice(0, 3);
       const save = button({ label: 'Save settings', variant: 'primary', size: 'sm' });
       save.addEventListener('click', () => busy(save, 'Saving…', async () => {
-        if (!KEY_RE.test(anchor.value) || weekday(anchor.value) !== 0) { ctx.toast({ text: 'The first pay period has to start on a Sunday.' }); return; }
         const fields = {
           business_name: name.value.trim() || 'VP Education Group',
-          pay_lag_days: Math.min(7, Math.max(0, Number(lag.value) || 0)),
           due_day: Math.min(28, Math.max(1, Number(due.value) || 15)),
           pay_note: payNote.value.trim() || null,
         };
-        if (!frozen) fields.payroll_anchor = anchor.value;
         await act(ctx, () => sb.from('billing_settings').update(fields).eq('id', 1).select('id'), { done: 'Settings saved.' });
       }));
       return card({
         title: 'Settings',
         body: [
           h('div', { class: 'acct-settings' },
-            field({ label: 'Business name', control: name, hint: 'Printed on statements and pay slips.' }),
-            field({ label: 'First pay period starts', control: anchor, hint: frozen ? 'Fixed once a payout is recorded.' : 'A Sunday. Periods run two weeks, Sunday to Saturday.' }),
-            preview,
-            field({ label: 'Pay day, days after a period ends', control: lag }),
-            field({ label: 'Family bills due on day', control: due, hint: 'Of the month after the billed month.' }),
+            field({ label: 'Business name', control: name, hint: 'Printed on statements and pay summaries.' }),
+            h('p', { class: 'card-meta' }, `Tutor pay periods run the 1st to the 15th and the 16th to the end of the month: ${periods.map((p) => periodText(p)).join('; ')}.`),
+            field({ label: 'Family bills due on day', control: due, hint: `Bills are dated the 1st of the next month (${monthName(month)} is billed ${dayText(billDate(month))}).` }),
             field({ label: 'How to pay', control: payNote, optional: true, hint: 'Printed at the bottom of every statement, like your Zelle email.' }),
             h('p', { class: 'card-meta' }, `Billing starts ${shortDate(s.ledger_start, today)}; sessions before it are left out.`)),
           save,
@@ -344,7 +302,6 @@ export function mount(ctx) {
           studentList),
         h('div', { class: 'span-4 acct-stack' }, settingsCard(), policyCard())),
       tutorCard(),
-      openingCard(),
     );
   })();
 }

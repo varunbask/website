@@ -1,14 +1,14 @@
 import { describe, test, expect } from 'vitest';
 import {
   money, signedMoney, hoursText, parseMoney, amountFor, monthOf, monthParam, addMonths, monthEnd, monthName,
-  payPeriodStart, payPeriodEnd, payDay, periodsOverlapping, periodText, policyFor, familyRateFor, tutorRateFor,
+  payPeriodStart, payPeriodEnd, periodsOverlapping, periodText, billDate, policyFor, familyRateFor, tutorRateFor,
   stateOf, buildContext, groupSlots, familyMonth, familyRows, familyBalance, familyStatus, allOutstanding,
-  tutorPeriod, periodRows, periodStatus, carriedInto, rangeTotals, allocatePayout, needsAttention, flagsFor,
-  familyBlockers, tutorBlockers, familySnapshot, tutorSnapshot, billingFact, inPaidPeriod, statementNumber,
+  tutorPeriod, periodRows, periodStatus, rangeTotals, needsAttention, flagsFor,
+  familyBlockers, tutorBlockers, familySnapshot, billingFact, inPaidPeriod, statementNumber,
   dueDate, yearToDate, isAccepted, dayText,
 } from '../../portal/js/billing-model.js';
 import {
-  policyText, statementText, payoutText, csvText, parseRateLines, matchRates, familiesCsv,
+  policyText, statementText, payoutText, payrollCsv, csvText, parseRateLines, matchRates, familiesCsv,
 } from '../../portal/js/billing-text.js';
 import { zonedIso } from '../../portal/js/dates.js';
 
@@ -102,21 +102,27 @@ describe('months and pay periods', () => {
     expect(dayText('2026-11-03')).toBe('Tue, Nov 3');
   });
 
-  test('14-day periods from the anchor Sunday, before it too', () => {
-    expect(payPeriodStart('2026-11-01', '2026-11-01')).toBe('2026-11-01');
-    expect(payPeriodStart('2026-11-14', '2026-11-01')).toBe('2026-11-01');
-    expect(payPeriodStart('2026-11-15', '2026-11-01')).toBe('2026-11-15');
-    expect(payPeriodStart('2026-10-31', '2026-11-01')).toBe('2026-10-18');
-    expect(payPeriodEnd('2026-11-01')).toBe('2026-11-14');
-    expect(payDay('2026-11-01', 6)).toBe('2026-11-20');
-    expect(periodText('2026-11-29')).toBe('Nov 29 to Dec 12');
-    expect(periodsOverlapping('2026-11-01', '2026-11-30', '2026-11-01')).toEqual(['2026-11-01', '2026-11-15', '2026-11-29']);
+  test('tutor pay periods: the 1st to the 15th and the 16th to the last day', () => {
+    expect(payPeriodStart('2026-11-01')).toBe('2026-11-01');
+    expect(payPeriodStart('2026-11-15')).toBe('2026-11-01');
+    expect(payPeriodStart('2026-11-16')).toBe('2026-11-16');
+    expect(payPeriodStart('2026-11-30')).toBe('2026-11-16');
+    expect(payPeriodEnd('2026-11-01')).toBe('2026-11-15');
+    expect(payPeriodEnd('2026-11-16')).toBe('2026-11-30');
+    expect(payPeriodEnd('2027-02-16')).toBe('2027-02-28');
+    expect(payPeriodEnd('2028-02-16')).toBe('2028-02-29');
+    expect(periodText('2026-12-16')).toBe('Dec 16 to Dec 31');
+    expect(periodsOverlapping('2026-11-01', '2026-11-30')).toEqual(['2026-11-01', '2026-11-16']);
+    expect(periodsOverlapping('2026-11-20', '2026-12-05')).toEqual(['2026-11-16', '2026-12-01']);
   });
 
-  test('26 or 27 periods start in a year', () => {
-    const starts = periodsOverlapping('2027-01-01', '2027-12-31', '2026-11-01').filter((p) => p >= '2027-01-01');
-    expect(starts.length).toBeGreaterThanOrEqual(26);
-    expect(starts.length).toBeLessThanOrEqual(27);
+  test('24 periods in a year', () => {
+    expect(periodsOverlapping('2027-01-01', '2027-12-31')).toHaveLength(24);
+  });
+
+  test('a month is billed on the 1st of the next month', () => {
+    expect(billDate('2026-09-01')).toBe('2026-10-01');
+    expect(billDate('2026-12-15')).toBe('2027-01-01');
   });
 
   test('a late-night session stays on its Pacific day across months and DST', () => {
@@ -389,49 +395,44 @@ describe('tutors', () => {
     session('2026-11-10', '18:00', '19:00', { tutor_id: 'varun', attendance: 'present' }),
   ];
 
-  test('periods, owed and the owner at $0', () => {
+  test('periods, totals and the owner at $0', () => {
     const ctx = ctxOf(list());
     const rows = periodRows(ctx, '2026-11-01');
-    expect(rows.map((t) => [t.name, t.minutes, t.owedCents])).toEqual([['Ethan Poon', 150, 7500], ['Varun Baskaran', 60, 0]]);
-    expect(tutorPeriod(ctx, 'ethan', '2026-11-15').owedCents).toBe(3000);
+    expect(rows.map((t) => [t.name, t.minutes, t.totalCents])).toEqual([['Ethan Poon', 150, 7500], ['Varun Baskaran', 60, 0]]);
+    expect(tutorPeriod(ctx, 'ethan', '2026-11-16')).toMatchObject({ periodEnd: '2026-11-30', totalCents: 3000 });
   });
 
-  test('a later change to a paid period is carried into the next period only, once', () => {
-    const payout = { id: 1, kind: 'tutor', tutor_id: 'ethan', period_start: '2026-11-01', amount_cents: 6000, paid_on: '2026-11-20', created_at: 'a', owed_cents: 6000, lines: [] };
-    const ctx = ctxOf(list(), { payouts: [payout] });
-    const first = tutorPeriod(ctx, 'ethan', '2026-11-01');
-    expect(first).toMatchObject({ changedSincePayout: true, dueCents: 0, differenceCents: 1500, settledLater: false });
-    expect(periodStatus(ctx, first).label).toBe('Paid; +$15.00 carried to the next period');
-    expect(carriedInto(ctx, 'ethan', '2026-11-15')).toBe(1500);
-    expect(carriedInto(ctx, 'ethan', '2026-11-29')).toBe(0);
-    expect(tutorPeriod(ctx, 'ethan', '2026-11-15')).toMatchObject({ ownCents: 3000, owedCents: 4500, dueCents: 4500 });
-    // the next period paid with the difference: settled everywhere
-    const paid2 = { ...payout, id: 2, period_start: '2026-11-15', amount_cents: 4500, owed_cents: 3000 };
-    const after = ctxOf(list(), { payouts: [payout, paid2] });
-    expect(carriedInto(after, 'ethan', '2026-11-29')).toBe(0);
-    expect(periodStatus(after, tutorPeriod(after, 'ethan', '2026-11-01')).key).toBe('settled');
-    expect(tutorPeriod(after, 'ethan', '2026-11-15').changedSincePayout).toBe(false);
-    expect(needsAttention(after, '2026-11-01', '2026-11-30').byKind.get('changed_paid')).toBeUndefined();
+  test('information for the CPA: a status per period, never paid or unpaid', () => {
+    const ctx = ctxOf(list());
+    expect(periodStatus(ctx, tutorPeriod(ctx, 'ethan', '2026-11-01'))).toMatchObject({ key: 'complete', label: 'Complete' });
+    expect(periodStatus(ctx, tutorPeriod(ctx, 'ethan', '2026-11-16'))).toMatchObject({ key: 'open', label: 'In progress' });
+    expect(periodStatus(ctx, tutorPeriod(ctx, 'ethan', '2026-12-01'))).toMatchObject({ key: 'future', label: 'Upcoming' });
+    // an ended session without attendance: check it before sending the period on
+    const open = ctxOf([...list(), session('2026-11-12', '16:00', '17:00')]);
+    expect(periodStatus(open, tutorPeriod(open, 'ethan', '2026-11-01'))).toMatchObject({ key: 'check', label: 'Check first' });
+    // payouts recorded under the old Payroll tab change nothing
+    const payout = { id: 1, kind: 'tutor', tutor_id: 'ethan', period_start: '2026-11-01', amount_cents: 100, paid_on: '2026-11-20', lines: [] };
+    const old = ctxOf(list(), { payouts: [payout] });
+    expect(tutorPeriod(old, 'ethan', '2026-11-01').totalCents).toBe(7500);
+    expect(rangeTotals(old, '2026-11-01', '2026-11-30')).not.toHaveProperty('paidOut');
   });
 
-  test('year to date counts the opening balance', () => {
-    const ctx = ctxOf([], {
-      payouts: [
-        { kind: 'opening', tutor_id: 'ethan', period_start: '2026-11-01', amount_cents: 100000, paid_on: '2026-11-01' },
-        { kind: 'tutor', tutor_id: 'ethan', period_start: '2026-11-01', amount_cents: 6000, paid_on: '2026-11-20' },
-      ],
-    });
-    expect(yearToDate(ctx, 'ethan')).toBe(106000);
+  test('bonuses and deductions count in their period', () => {
+    const ctx = ctxOf(list(), { adjustments: [{ id: 9, party: 'tutor', party_id: 'ethan', period: '2026-11-16', amount_cents: 2000, label: 'bonus' }] });
+    expect(tutorPeriod(ctx, 'ethan', '2026-11-16')).toMatchObject({ realizedCents: 3000, adjustmentCents: 2000, totalCents: 5000 });
+    expect(periodRows(ctx, '2026-12-01')).toEqual([]);
   });
 
-  test('a payout is allocated to months by its lines', () => {
-    const p = { kind: 'tutor', period_start: '2026-11-29', amount_cents: 10000, lines: [{ day: '2026-11-30', amount_cents: 3000 }, { day: '2026-12-02', amount_cents: 3000 }] };
-    expect([...allocatePayout(p)]).toEqual([['2026-11-30', 3000], ['2026-12-02', 3000], ['2026-12-12', 4000]]);
+  test('year to date is what they earned this year, through today', () => {
+    // Nov 3, Nov 10 and Nov 17 happened by Nov 18: 3.5 hours at $30, plus a $20 bonus
+    const ctx = ctxOf(list(), { adjustments: [{ id: 9, party: 'tutor', party_id: 'ethan', period: '2026-11-16', amount_cents: 2000, label: 'bonus' }] });
+    expect(yearToDate(ctx, 'ethan')).toBe(12500);
+    expect(yearToDate(ctx, 'ethan', 2025)).toBe(0);
   });
 });
 
 describe('totals', () => {
-  test('expected, realized, collected, paid out and net', () => {
+  test('expected, realized, collected and net', () => {
     const list = [
       session('2026-11-03', '16:00', '17:00', { attendance: 'present' }),
       session('2026-11-24', '16:00', '17:00'),
@@ -540,8 +541,6 @@ describe('snapshots and the drawer line', () => {
     const ctx = ctxOf([s]);
     const f = familyMonth(ctx, 'alan', '2026-11-01');
     expect(familySnapshot(f)[0]).toMatchObject({ session_id: String(s.id), day: '2026-11-03', student_id: 'kevin', amount_cents: 4500, rate_cents: 4500 });
-    const t = tutorPeriod(ctx, 'ethan', '2026-11-01');
-    expect(tutorSnapshot(t)[0]).toMatchObject({ day: '2026-11-03', amount_cents: 3000, rate_cents: 3000 });
   });
 
   test('billing fact is for the admin only', () => {
@@ -562,8 +561,9 @@ describe('words and files', () => {
   test('policy paragraph follows the numbers', () => {
     expect(policyText(POLICY, SETTINGS)).toContain('billed to the family and paid to the tutor in full');
     expect(policyText({ ...POLICY, absent_family_pct: 50, absent_tutor_pct: 0 }, SETTINGS)).toContain('billed at 50 percent and paid to the tutor at 0 percent');
-    expect(policyText(POLICY, SETTINGS)).toContain('due on the 15th of the next month');
-    expect(policyText(POLICY, { ...SETTINGS, due_day: 1 })).toContain('1st');
+    expect(policyText(POLICY, SETTINGS)).toContain('with the bill dated the 1st of the next month and due on the 15th');
+    expect(policyText(POLICY, SETTINGS)).toContain('the 1st to the 15th and the 16th to the end of the month');
+    expect(policyText(POLICY, { ...SETTINGS, due_day: 1 })).toContain('due on the 1st');
   });
 
   test('statement and payout text', () => {
@@ -571,14 +571,16 @@ describe('words and files', () => {
     const ctx = ctxOf(list);
     const text = statementText(ctx, familyMonth(ctx, 'alan', '2026-11-01'), { previousCents: 1000 });
     expect(text).toContain('Statement 2026-11-ALAN for Alan Wang');
+    expect(text).toContain('November 2026, dated Tue, Dec 1, due');
     expect(text).toContain('Tue, Nov 3, Math, with Ethan Poon, 1.00 hr: $45.00');
     expect(text).toContain('(no-show)');
     expect(text).toContain('Amount due: $100.00');
     expect(text).toContain('Zelle: pay@vp.test');
     const slip = payoutText(ctx, tutorPeriod(ctx, 'ethan', '2026-11-01'));
-    expect(slip).toContain('Pay for Ethan Poon, Nov 1 to Nov 14');
-    expect(slip).toContain('Pay day Fri, Nov 20');
+    expect(slip).toContain('Pay for Ethan Poon, Nov 1 to Nov 15');
+    expect(slip).not.toContain('Pay day');
     expect(slip).toContain('Total: $60.00');
+    expect(payrollCsv(periodRows(ctx, '2026-11-01'))).toContain('Ethan Poon,2026-11-01,2026-11-15,2.00,30.00,60.00,0.00,60.00');
   });
 
   test('CSV quotes and neutralizes formulas', () => {

@@ -1,5 +1,5 @@
 // Account > printable statement (#/statement/<parent id>?month=YYYY-MM) and
-// pay slip (#/payslip/<tutor id>?period=YYYY-MM-DD). The same lines as the
+// tutor pay summary (#/payslip/<tutor id>?period=YYYY-MM-DD). The same lines as the
 // Families and Payroll tabs, laid out for paper: Print hides everything else
 // (account.css @media print). Only ids and the period are in the address,
 // never amounts.
@@ -9,8 +9,8 @@ import { button } from '../ui.js';
 import { todayKey } from '../dates.js';
 import { timeRange } from '../sessions-model.js';
 import {
-  money, hoursText, monthName, familyMonth, familyBalanceBefore, tutorPeriod, dueDate, dayText, shortDate,
-  statementNumber, periodText, payDay, monthParam, payPeriodStart,
+  money, hoursText, monthName, familyMonth, familyBalanceBefore, tutorPeriod, dueDate, billDate, dayText, shortDate,
+  statementNumber, periodText, monthParam, payPeriodStart,
 } from '../billing-model.js';
 import { labelText, methodText, stateText } from '../billing-text.js';
 import { loadPriced } from './account-shared.js';
@@ -18,7 +18,7 @@ import { loadPriced } from './account-shared.js';
 export function mount(ctx) {
   const isSlip = ctx.route.view === 'payslip';
   const id = ctx.route.id;
-  ctx.setHeader({ title: isSlip ? 'Pay slip' : 'Statement' });
+  ctx.setHeader({ title: isSlip ? 'Pay summary' : 'Statement' });
   const root = h('div', { class: 'acct-root acct-print-root' });
   ctx.host.append(root);
 
@@ -34,14 +34,14 @@ export function mount(ctx) {
       h('p', { class: 'field-hint' }, 'In the print dialog, turn off headers and footers so the page address is not printed.'));
 
     if (isSlip) {
-      const start = /^\d{4}-\d{2}-\d{2}$/.test(ctx.route.params?.period ?? '') ? payPeriodStart(ctx.route.params.period, s.payroll_anchor) : null;
-      if (!start) { root.replaceChildren(h('p', {}, 'This pay slip link is missing its period.')); return; }
+      const start = /^\d{4}-\d{2}-\d{2}$/.test(ctx.route.params?.period ?? '') ? payPeriodStart(ctx.route.params.period) : null;
+      if (!start) { root.replaceChildren(h('p', {}, 'This pay summary link is missing its period.')); return; }
       const t = tutorPeriod(b, id, start);
       root.replaceChildren(toolbar, h('article', { class: 'acct-statement' },
         h('header', { class: 'acct-statement-head' },
-          h('div', {}, h('p', { class: 'acct-statement-org' }, s.business_name), h('h1', {}, `Pay slip: ${t.name}`)),
+          h('div', {}, h('p', { class: 'acct-statement-org' }, s.business_name), h('h1', {}, `Pay summary: ${t.name}`)),
           h('dl', { class: 'acct-statement-meta' },
-            meta('Period', periodText(start)), meta('Pay day', dayText(payDay(start, s.pay_lag_days))), meta('Issued', dayText(today)))),
+            meta('Period', periodText(start)), meta('Printed', dayText(today)))),
         h('table', { class: 'acct-statement-lines' },
           h('thead', {}, h('tr', {}, ['Date', 'Student', 'Subject', 'Hours', 'Amount'].map((x, i) => h('th', { class: i > 2 ? 'num' : null }, x)))),
           h('tbody', {}, t.slots.map((slot) => {
@@ -52,12 +52,9 @@ export function mount(ctx) {
               h('td', {}, `${r.subject || 'Tutoring'}${slot.rows.length > 1 ? ' (group)' : r.state !== 'attended' ? ` (${stateText(r.state).toLowerCase()})` : ''}`),
               h('td', { class: 'num' }, hoursText(slot.minutes)),
               h('td', { class: 'num' }, money(slot.tutorRealized)));
-          }), t.adjustments.map((a) => h('tr', {}, h('td', { colspan: '4' }, `${labelText(a.label)}${a.note ? `: ${a.note}` : ''}`), h('td', { class: 'num' }, money(a.amount_cents)))),
-          t.carriedCents ? h('tr', {}, h('td', { colspan: '4' }, 'Adjustments from earlier periods'), h('td', { class: 'num' }, money(t.carriedCents))) : null),
+          }), t.adjustments.map((a) => h('tr', {}, h('td', { colspan: '4' }, `${labelText(a.label)}${a.note ? `: ${a.note}` : ''}`), h('td', { class: 'num' }, money(a.amount_cents))))),
           h('tfoot', {},
-            h('tr', {}, h('th', { colspan: '3' }, 'Total'), h('td', { class: 'num' }, hoursText(t.minutes)), h('td', { class: 'num' }, money(t.owedCents))),
-            t.payouts.map((p) => h('tr', {}, h('td', { colspan: '4' }, `Paid ${shortDate(p.paid_on, today)} by ${methodText(p.method)}${p.reference ? ` (${p.reference})` : ''}`), h('td', { class: 'num' }, money(-p.amount_cents)))),
-            h('tr', { class: 'is-total' }, h('th', { colspan: '4' }, 'Still owed'), h('td', { class: 'num' }, money(t.dueCents))))),
+            h('tr', { class: 'is-total' }, h('th', { colspan: '3' }, 'Total'), h('td', { class: 'num' }, hoursText(t.minutes)), h('td', { class: 'num' }, money(t.totalCents))))),
         t.rate ? h('p', { class: 'acct-statement-note' }, `Rate: ${money(t.rate.rate_cents)} an hour.`) : null));
       return;
     }
@@ -71,7 +68,7 @@ export function mount(ctx) {
       h('header', { class: 'acct-statement-head' },
         h('div', {}, h('p', { class: 'acct-statement-org' }, s.business_name), h('h1', {}, `Statement for ${f.name}`)),
         h('dl', { class: 'acct-statement-meta' },
-          meta('Statement', statementNumber(id, month)), meta('Month', monthName(month)), meta('Issued', dayText(f.sentOn ?? today)),
+          meta('Statement', statementNumber(id, month)), meta('Month', monthName(month)), meta('Bill date', dayText(billDate(month))),
           meta('Due', dayText(dueDate(b, month, f.sentOn))))),
       h('table', { class: 'acct-statement-lines' },
         h('thead', {}, h('tr', {}, ['Date', 'Student', 'Subject and tutor', 'Hours', 'Rate', 'Amount'].map((x, i) => h('th', { class: i > 2 ? 'num' : null }, x)))),

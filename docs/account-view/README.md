@@ -25,8 +25,9 @@ scheduler.
    mark their shared sessions as one group from Needs attention so the tutor
    is paid once.
 4. Tutor pay rates on the same tab, from November 1: Ethan Poon $30, Lauren V
-   $25, Marcus $20, Jessica $30, Heather $20, Sophia $30, Varun $0. Enter what each tutor was paid
-   earlier in 2026 under "Paid to tutors earlier in 2026".
-5. Settings: first pay period Sunday November 1, 2026, pay day 6 days after a
-   period ends (Fridays), bills due on the 15th, and your Zelle details under
-   "How to pay".
+   $25, Marcus $20, Jessica $30, Heather $20, Sophia $30, Varun $0.
+5. Settings: bills due on the 15th, and your Zelle details under "How to pay".
+   Family bills are dated the 1st of the next month (September is billed
+   October 1). Tutor pay is counted the 1st to the 15th and the 16th to the end
+   of the month; the Payroll tab is information for the CPA, who runs payroll
+   (CSV and pay summary per period, Check first when a period has open items).
