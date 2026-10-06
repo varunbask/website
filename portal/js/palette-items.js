@@ -44,6 +44,10 @@ const PAGE_WORDS = {
   'in-review': 'homework submitted waiting',
   graded: 'homework grades scores',
   archived: 'homework old past',
+  report: 'progress report print attendance',
+  billing: 'bills statements invoices payments',
+  help: 'support questions contact faq',
+  files: 'materials pdf documents links attachments handouts',
 };
 
 // Admin pages inside People and Account (the top ones come from the nav model)
