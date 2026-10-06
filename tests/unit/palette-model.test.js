@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import {
   normalize, prepareQuery, score, rank, browse, group, remember, parseRecent, resolveRecent,
-  isApple, shortcutHint, isEditable, shortcutAction, GROUP_LABELS,
+  isApple, shortcutHint, isEditable, shortcutAction, listKey, GROUP_LABELS,
 } from '../../portal/js/palette-model.js';
 
 const item = (title, extra = {}) => ({ key: `k:${title}`, type: 'page', title, ...extra });
@@ -376,6 +376,29 @@ describe('group', () => {
 });
 
 describe('keyboard', () => {
+  test('listKey: Up and Down always belong to the list', () => {
+    expect(listKey('ArrowDown', '')).toBe(true);
+    expect(listKey('ArrowUp', '')).toBe(true);
+    expect(listKey('ArrowDown', 'maya')).toBe(true);
+    expect(listKey('ArrowUp', 'maya')).toBe(true);
+  });
+
+  test('listKey: Home and End go to the list only while the box is empty, else they move the caret', () => {
+    expect(listKey('Home', '')).toBe(true);
+    expect(listKey('End', '')).toBe(true);
+    expect(listKey('Home')).toBe(true);
+    expect(listKey('Home', 'maya')).toBe(false);
+    expect(listKey('End', 'maya')).toBe(false);
+    expect(listKey('Home', ' ')).toBe(false);
+  });
+
+  test('listKey: other keys are never the list\u2019s', () => {
+    expect(listKey('Enter', '')).toBe(false);
+    expect(listKey('a', '')).toBe(false);
+    expect(listKey('ArrowLeft', '')).toBe(false);
+    expect(listKey('PageDown', '')).toBe(false);
+  });
+
   test('isApple', () => {
     expect(isApple('MacIntel')).toBe(true);
     expect(isApple('macOS')).toBe(true);

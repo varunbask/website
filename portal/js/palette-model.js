@@ -268,6 +268,15 @@ export function isEditable(el) {
   return Boolean(el.isContentEditable);
 }
 
+// Does the result list take this key from the search box? Up and Down always
+// do. Home and End move the caret in text, so the list only gets them while the
+// box is empty (then there is no caret to move).
+export function listKey(key, query = '') {
+  if (key === 'ArrowUp' || key === 'ArrowDown') return true;
+  if (key === 'Home' || key === 'End') return String(query ?? '') === '';
+  return false;
+}
+
 // 'open' for Cmd+K (Apple) or Ctrl+K (elsewhere), and for "/" when focus is not
 // in a text field; null for everything else
 export function shortcutAction(event, { apple = false } = {}) {

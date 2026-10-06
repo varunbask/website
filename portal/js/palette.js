@@ -25,7 +25,7 @@ import { avatar, iconButton } from './ui.js';
 import { menuIndex } from './overlays.js';
 import {
   rank, browse, group, remember, parseRecent, resolveRecent, prepareQuery,
-  isApple, shortcutHint, shortcutAction,
+  isApple, shortcutHint, shortcutAction, listKey,
 } from './palette-model.js';
 import { staticItems, staffDataItems, familyDataItems } from './palette-items.js';
 
@@ -370,7 +370,7 @@ export function mountPalette({ me, page, store, context, go, openDrawer, switchS
       choose(visible[active]);
       return;
     }
-    if (!plain || !visible.length) return;
+    if (!plain || !visible.length || !listKey(e.key, input.value)) return;
     const next = menuIndex(active, e.key, visible.length);
     if (next === null) return;
     e.preventDefault();
