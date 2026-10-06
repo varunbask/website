@@ -314,8 +314,8 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   }
 
   // Thumbnails are object URLs: made when a page first shows, revoked when it
-  // is removed or replaced, and all of them once the work is in or the drawer
-  // has closed
+  // is removed or replaced, and all of them once the work is in, or this section
+  // has left the page (the drawer closed or showed another item)
   function urlFor(file) {
     if (!photoUrls.has(file)) photoUrls.set(file, URL.createObjectURL(file));
     return photoUrls.get(file);
@@ -330,16 +330,30 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
   function releaseAll() {
     for (const url of photoUrls.values()) URL.revokeObjectURL(url);
     photoUrls.clear();
+    goneWatcher?.disconnect();
+    goneWatcher = null;
   }
-  // The drawer's signal also ends when a refresh swaps this section into a new
-  // render, so check after the swap whether it is really gone (removed, or the
-  // drawer closed)
-  dctx.signal?.addEventListener('abort', () => {
-    setTimeout(() => {
+  // The drawer keeps this section across refresh paints, each with a new signal
+  // that this section never sees, so a signal cannot say when it is gone. Watch
+  // the drawer (or the page, before the section is in one) instead, for as long
+  // as there are thumbnails to release. The check waits a moment: a refresh
+  // moves the section out of the old body and into the new one a little before
+  // the new one is on screen, and that is not leaving the page.
+  let goneWatcher = null;
+  function watchForRemoval() {
+    if (goneWatcher || !photoUrls.size) return;
+    let timer = null;
+    const check = () => {
+      timer = null;
       const dialog = section.closest('dialog');
-      if (!section.isConnected || (dialog && !dialog.open)) releaseAll();
-    }, 0);
-  }, { once: true });
+      if (section.isConnected && !(dialog && !dialog.open)) return;
+      releaseAll();
+    };
+    goneWatcher = new MutationObserver(() => { timer ??= setTimeout(check, 400); });
+    goneWatcher.observe(section.closest('dialog') ?? document.body, {
+      childList: true, subtree: true, attributes: true, attributeFilter: ['open'],
+    });
+  }
 
   // One row per page: thumbnail, "Page 2", the file's name and size, and
   // Move up, Move down, Remove, each named for its page
@@ -380,6 +394,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
       rows = [];
     }
     releaseUnused();
+    watchForRemoval();
     dropzone.hidden = Boolean(single) || (pages && files.length >= MAX_PAGES);
     dropzone.classList.toggle('is-compact', pages);
     dropTitle.textContent = pages ? 'Add another page' : 'Attach files, drop them here, or paste a screenshot';
