@@ -6,8 +6,9 @@
 //       skeleton. Each card shows its own error with a retry; one failing never
 //       blanks the page or the other card.
 //   familyAboutCard(ctx, student)            a small read-only About card for a
-//       student or parent: grade, school and goals. It stays hidden until the
-//       profile loads, and for good when there is nothing to show.
+//       student or parent: grade, school and goals, read through family_profile()
+//       (families cannot read the table, which holds the learning notes). It stays
+//       hidden until the profile loads, and for good when there is nothing to show.
 //
 // The Profile card's Edit button opens the drawer (open=profile,
 // student-profile-drawer.js). Notes are added and deleted in place.
@@ -21,7 +22,7 @@ import {
   LIMITS, PROFILE_DRAWER, NOTES_SHOWN, isBlankProfile, profileFacts, aboutFacts, subjectChips, updatedText, parentContacts,
   checkNote, sortNotes, notesWindow, authorName, canDeleteNote, sinceText,
 } from './student-profile-model.js';
-import { loadProfile, addNote, deleteNote } from './student-profile-data.js';
+import { loadFamilyProfile, addNote, deleteNote } from './student-profile-data.js';
 
 // A note typed but not saved, kept while the view refreshes (a store change or
 // coming back to the tab re-renders the page); studentId -> text
@@ -310,7 +311,7 @@ export function staffProfileCards(ctx, student, loaded) {
 
 export function familyAboutCard(ctx, student) {
   const card = h('section', { class: 'card sp-card sp-about span-12', hidden: true });
-  loadProfile(student.id).then((row) => {
+  loadFamilyProfile(student.id).then((row) => {
     if (!ctx.alive()) return;
     const facts = aboutFacts(row);
     if (!facts.length) return;

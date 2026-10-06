@@ -22,11 +22,24 @@ test('staff notes are never readable by families: every policy asks who teaches 
   }
 });
 
-test('profiles are read by anyone who may see the student and written only by those who teach them', () => {
+test('the profile table is staff only: every policy asks who teaches the student', () => {
   const list = policies('student_profiles');
-  expect(list.find((p) => p.command === 'select').body).toContain('can_view_student(student_id)');
-  for (const p of list.filter((x) => x.command !== 'select')) expect(p.body, p.name).toContain('can_teach(student_id)');
-  expect(list.some((p) => p.command === 'delete')).toBe(false);
+  expect(list.map((p) => p.command).sort()).toEqual(['insert', 'select', 'update']);
+  for (const p of list) {
+    expect(p.body, p.name).toContain('can_teach(student_id)');
+    expect(p.body, p.name).not.toContain('can_view_student');
+  }
+});
+
+test('families read the profile only through family_profile: grade, school and goals', () => {
+  const fn = sql.slice(sql.indexOf('create function public.family_profile'));
+  expect(fn).toContain('returns table (grade_level text, school text, goals text)');
+  expect(fn).toContain('security definer set search_path = \'\'');
+  expect(fn).toContain('private.can_view_student(p_student)');
+  const body = fn.slice(0, fn.indexOf('$$;'));
+  expect(body).not.toMatch(/learning_notes|updated_by|updated_at/);
+  expect(sql).toContain('revoke execute on function public.family_profile(uuid) from public, anon');
+  expect(sql).toContain('grant execute on function public.family_profile(uuid) to authenticated');
 });
 
 test('clients can write only the fields they own', () => {

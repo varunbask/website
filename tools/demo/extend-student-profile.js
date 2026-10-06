@@ -1,7 +1,8 @@
 /* Local demo: student profiles, staff notes and parent contacts. Loaded after
    demo-supabase.js (see tools/demo/build.mjs). Mirrors the rules in
    supabase/migrations/20261017120000_student_profiles.sql, simplified:
-     student_profiles  read by anyone who can see the student, written by staff who teach them
+     student_profiles  read and written by staff who teach the student only (families
+                       read grade, school and goals through family_profile)
      student_notes     staff only; the author (or the admin) deletes
      staff_parent_contacts(p_student)  parents with email (null for placeholder addresses)
                        and the phone the admin keeps for billing */
@@ -25,7 +26,7 @@
           updated_by: 'u-daniel',
           updated_at: h.ago(3, '16:20'),
         }],
-        read: (r) => helpers.canSee(r.student_id),
+        read: (r) => helpers.canTeach(r.student_id),
         insert: (r) => helpers.canTeach(r.student_id),
         // The database stamps who edited and when; here that happens as the edit is allowed
         write: (r) => {
@@ -54,6 +55,12 @@
       },
     },
     rpc: {
+      // The family's view: grade, school and goals for anyone who can see the student
+      family_profile: (args, h) => {
+        if (!h.canSee(args.p_student)) return { data: [], error: null };
+        const row = db.student_profiles.find((r) => r.student_id === args.p_student);
+        return { data: row ? [{ grade_level: row.grade_level, school: row.school, goals: row.goals }] : [], error: null };
+      },
       staff_parent_contacts: (args, h) => {
         if (!h.canTeach(args.p_student)) return { data: [], error: null };
         const rows = db.parent_students

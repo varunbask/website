@@ -16,6 +16,15 @@ export async function loadProfile(studentId) {
   return data ?? null;
 }
 
+// What a family may read of the profile: { grade_level, school, goals } or null.
+// Students and parents have no access to the table (it holds learning notes),
+// so they ask the database function, which returns only these three fields.
+export async function loadFamilyProfile(studentId) {
+  const { data, error } = await sb.rpc('family_profile', { p_student: studentId });
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
+
 // Saves the four fields (values from checkProfile) and returns the saved row.
 // Insert or update, never upsert: `exists` says which one to try first, and if
 // the row appeared or vanished since it was read, the other one runs.

@@ -113,7 +113,7 @@ function profileForm(dctx, student, row) {
     }),
     learning_notes: field({
       label: 'Learning notes',
-      hint: 'Accommodations, what works, what to avoid. Shown to tutors and the admin, not on the family pages.',
+      hint: 'Accommodations, what works, what to avoid. Only tutors and the admin can see these.',
       control: counted(notes, LIMITS.learning_notes),
     }),
   };

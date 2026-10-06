@@ -2,9 +2,14 @@
 -- what works in a lesson), private notes the tutors keep for each other, and a
 -- way for tutors to reach a student's parents.
 --
--- student_profiles   one row per student. Staff who teach the student (and the
---                    admin) write it; the student and their parents read it, so
---                    the goals are shared with the family.
+-- student_profiles   one row per student, staff only: the staff who teach the
+--                    student (and the admin) read and write the table. Families
+--                    never read it directly, because learning_notes (what works,
+--                    accommodations) is for tutors.
+-- family_profile(student)
+--                    what the family may see of that row: grade, school and
+--                    goals, for the student, their parents and staff. Never
+--                    learning_notes, updated_by or updated_at.
 -- student_notes      private to staff: tutors who teach the student and the
 --                    admin read and add them; families never see them. The
 --                    author or the admin deletes one. Notes are not edited.
@@ -62,11 +67,11 @@ grant insert (student_id, body) on public.student_notes to authenticated;
 alter table public.student_profiles enable row level security;
 alter table public.student_notes    enable row level security;
 
--- student_profiles: everyone who may see the student reads it (staff who teach
--- them, the admin, the student, their parents); only staff who teach them write
-create policy "see the profile of a student you can see" on public.student_profiles
+-- student_profiles: staff who teach the student (and the admin) read and write
+-- it. Families read grade, school and goals only through family_profile() below.
+create policy "staff read a student profile" on public.student_profiles
   for select to authenticated
-  using (private.can_view_student(student_id));
+  using (private.can_teach(student_id));
 create policy "staff add a student profile" on public.student_profiles
   for insert to authenticated
   with check (private.can_teach(student_id) and private.has_role(student_id, 'student'));
@@ -107,3 +112,18 @@ as $$
 $$;
 revoke execute on function public.staff_parent_contacts(uuid) from public, anon;
 grant execute on function public.staff_parent_contacts(uuid) to authenticated;
+
+-- The family's view of the profile: the student, their parents and staff get
+-- grade, school and goals (shared with the family on purpose), and nothing else.
+-- No row, or someone who may not see the student, gets no rows.
+create function public.family_profile(p_student uuid)
+returns table (grade_level text, school text, goals text)
+language sql stable security definer set search_path = ''
+as $$
+  select sp.grade_level, sp.school, sp.goals
+    from public.student_profiles sp
+   where sp.student_id = p_student
+     and private.can_view_student(p_student)
+$$;
+revoke execute on function public.family_profile(uuid) from public, anon;
+grant execute on function public.family_profile(uuid) to authenticated;
