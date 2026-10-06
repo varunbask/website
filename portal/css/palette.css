@@ -1,0 +1,304 @@
+/* ==========================================================================
+   Command palette (palette.js). Uses the tokens from app.css only.
+
+   Markup
+     header.topbar > button.palette-trigger
+       > svg.icon + span.palette-trigger-label + kbd.palette-kbd
+     dialog.palette > div.palette-inner
+       > h2.visually-hidden
+       + div.palette-search > svg.icon + input.palette-input[role=combobox] + button.icon-btn.palette-close
+       + div.palette-body
+           > div.palette-list[role=listbox]
+               > div.palette-group[role=group] > div.palette-group-label
+                   + div.palette-option[role=option][aria-selected]
+                       > (span.avatar | span.palette-glyph > svg.icon)
+                         + span.palette-text > span.palette-title + span.palette-meta
+           + p.palette-empty > span.palette-empty-title + span.palette-empty-hint
+           + p.palette-note
+       + p.visually-hidden[role=status]
+       + div.palette-foot > span > kbd.palette-kbd
+   ========================================================================== */
+
+
+/* 1. Top bar button ------------------------------------------------------- */
+
+.palette-trigger {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  transition: background-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out);
+}
+.palette-trigger:hover,
+.palette-trigger[aria-expanded="true"] { background-color: var(--hover); color: var(--text); }
+.palette-trigger-label,
+.palette-trigger > .palette-kbd { display: none; }
+/* The row of actions after it keeps its own spacing; the button takes the free space */
+.topbar > .palette-trigger ~ .topbar-actions { margin-left: 0; }
+
+@media (pointer: coarse), (max-width: 1023.98px) {
+  .palette-trigger { width: 44px; height: 44px; }
+}
+
+/* A mouse at 768px and up: a search field look with the shortcut chip */
+@media (min-width: 768px) and (pointer: fine) {
+  .palette-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    width: auto;
+    min-width: 200px;
+    height: 32px;
+    padding: 0 6px 0 10px;
+    border: 1px solid var(--line);
+    background-color: var(--surface);
+    color: var(--text-3);
+    font: var(--t-meta);
+  }
+  .palette-trigger:hover,
+  .palette-trigger[aria-expanded="true"] { border-color: var(--line-strong); background-color: var(--surface); color: var(--text-2); }
+  .palette-trigger-label { display: block; flex: 1; text-align: left; }
+  .palette-trigger > .palette-kbd { display: inline-block; }
+}
+
+
+/* 2. Keys ----------------------------------------------------------------- */
+
+.palette-kbd {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background-color: var(--surface-2);
+  color: var(--text-3);
+  font: 500 12px/16px var(--font-ui);
+  text-align: center;
+}
+
+
+/* 3. The dialog ------------------------------------------------------------ */
+
+.palette {
+  --enter-from: translateY(-8px) scale(.985);
+  position: fixed;
+  inset: max(16px, 12dvh) 0 auto 0;
+  margin: 0 auto;
+  width: min(640px, calc(100vw - 32px));
+  max-height: min(70dvh, 580px);
+  border: 1px solid var(--pop-border);
+  border-radius: var(--r-md);
+  background-color: var(--raised);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  opacity: 0;
+  transform: var(--enter-from);
+  transition-property: opacity, transform, overlay, display;
+  transition-duration: var(--dur-dialog);
+  transition-timing-function: var(--ease-sheet);
+  transition-behavior: allow-discrete;
+}
+.palette[open] { opacity: 1; transform: none; }
+@starting-style {
+  .palette[open] { opacity: 0; transform: var(--enter-from); }
+}
+
+.palette::backdrop {
+  background-color: transparent;
+  transition-property: background-color, overlay, display;
+  transition-duration: var(--dur-dialog);
+  transition-timing-function: var(--ease-sheet);
+  transition-behavior: allow-discrete;
+}
+.palette[open]::backdrop { background-color: var(--scrim); }
+@starting-style {
+  .palette[open]::backdrop { background-color: transparent; }
+}
+
+.palette-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: inherit;
+}
+
+
+/* 4. Search row ------------------------------------------------------------- */
+
+.palette-search {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 10px;
+  padding: 0 var(--s-3) 0 var(--s-4);
+  border-bottom: 1px solid var(--line);
+  transition: border-color var(--dur-1) var(--ease-out);
+}
+.palette-search:focus-within { border-bottom-color: var(--accent); }
+.palette-search > .icon { color: var(--text-3); }
+.palette-input {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  color: var(--text);
+  font: var(--t-read);
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.palette-close { display: none; }
+
+
+/* 5. Results ---------------------------------------------------------------- */
+
+.palette-body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--s-1) var(--s-1) var(--s-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.palette-group-label {
+  padding: var(--s-3) 10px var(--s-1);
+  font: var(--t-caption);
+  letter-spacing: .01em;
+  color: var(--text-3);
+}
+.palette-group:first-child > .palette-group-label { padding-top: var(--s-2); }
+
+.palette-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+.palette-option[aria-selected="true"] { background-color: var(--accent-soft); }
+.palette-option[aria-selected="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 8px auto 8px 0;
+  width: 2px;
+  border-radius: 2px;
+  background-color: var(--accent);
+}
+.palette-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  color: var(--text-3);
+}
+.palette-option[aria-selected="true"] .palette-glyph { color: var(--accent-text); }
+
+.palette-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.palette-title,
+.palette-meta {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.palette-title { font: 500 14px/20px var(--font-ui); }
+.palette-meta { font: var(--t-meta); color: var(--text-3); }
+.palette-option[aria-selected="true"] .palette-meta { color: var(--text-2); }
+
+.palette-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-8) var(--s-4);
+  text-align: center;
+}
+.palette-empty-title { font: 500 14px/20px var(--font-ui); overflow-wrap: anywhere; }
+.palette-empty-hint { font: var(--t-meta); color: var(--text-3); }
+.palette-note {
+  padding: var(--s-2) 10px;
+  font: var(--t-meta);
+  color: var(--text-3);
+}
+
+
+/* 6. Footer: the keys, for a keyboard --------------------------------------- */
+
+.palette-foot {
+  display: flex;
+  flex: none;
+  gap: var(--s-4);
+  padding: var(--s-2) var(--s-4);
+  border-top: 1px solid var(--line);
+  font: var(--t-caption);
+  color: var(--text-3);
+}
+.palette-foot > span { display: inline-flex; align-items: center; gap: 4px; }
+
+
+/* 7. Touch screens and phones ---------------------------------------------- */
+
+@media (pointer: coarse) {
+  .palette-close { display: inline-grid; }
+  .palette-foot { display: none; }
+  .palette-option { min-height: 48px; }
+}
+
+/* Phones: the whole screen, as tall as the visible area (palette.js sets
+   --palette-vh, so the on-screen keyboard never covers the list) */
+@media (max-width: 767.98px) {
+  .palette {
+    --enter-from: translateY(-8px);
+    inset: 0 0 auto 0;
+    width: 100%;
+    max-width: 100%;
+    height: var(--palette-vh, 100dvh);
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .palette-inner { max-height: none; }
+  .palette-search {
+    padding-top: env(safe-area-inset-top);
+    padding-left: max(var(--s-4), env(safe-area-inset-left));
+    padding-right: max(var(--s-2), env(safe-area-inset-right));
+  }
+  .palette-close { display: inline-grid; }
+  .palette-foot { display: none; }
+  .palette-option { min-height: 52px; }
+  .palette-body { padding-bottom: max(var(--s-2), env(safe-area-inset-bottom)); }
+}
+
+
+/* 8. Motion and forced colours ------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .palette { --enter-from: none; }
+}
+
+@media (forced-colors: active) {
+  .palette-option[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .palette-option[aria-selected="true"]::before { display: none; }
+  .palette-input:focus-visible { outline: 2px solid Highlight; outline-offset: -2px; }
+  .palette-kbd { border-color: CanvasText; }
+  .palette-trigger { border: 1px solid CanvasText; }
+}

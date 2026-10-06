@@ -45,6 +45,7 @@ import { h } from './dom.js';
 import * as store from './store.js';
 import { startRouter, sameView, buildHash, withParams } from './router.js';
 import { mountShell } from './shell.js';
+import { mountPalette } from './palette.js';
 import { initDrawer, showDrawer, hideDrawer, drawerOpen, syncDrawerRow } from './drawer.js';
 import { navModel, ADMIN_PAGES } from './nav-model.js';
 import { navCounts } from './buckets.js';
@@ -93,6 +94,17 @@ export function startApp(config) {
   let fresh = {};
   let perStudent = new Map();
   let lastRenderAt = Date.now();
+
+  // Cmd+K / Ctrl+K / "/" and the top bar search button (palette.js)
+  const palette = mountPalette({
+    me,
+    page,
+    store,
+    context: () => ({ scope: scopeCtx(), route, options: scope?.options ?? [] }),
+    go: (url) => router.go(url),
+    openDrawer: (id, extra) => router.openDrawer(id, extra),
+    switchScope: (id) => switchScope(id),
+  });
 
   try {
     history.scrollRestoration = 'manual';
@@ -239,6 +251,7 @@ export function startApp(config) {
   }
 
   function closeAll() {
+    palette.close();
     hideDrawer({ restoreFocus: false });
     const confirmEl = document.getElementById('confirm');
     if (confirmEl?.open) confirmEl.close();
