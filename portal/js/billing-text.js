@@ -81,6 +81,59 @@ function noteFor(l) {
   return '';
 }
 
+// What a sent statement said, saved with it (statements.snapshot) so the
+// paying parent can read it in the portal exactly as it was sent: family
+// amounts only, never tutor pay or admin notes. sentOn is the day it goes out.
+export function statementSnapshot(ctx, f, { previousCents = 0, sentOn } = {}) {
+  const s = ctx.settings;
+  const amount = (l) => (l.paidBy ? 0 : (l.state === 'expected' ? l.familyExpected : l.familyRealized));
+  const lines = f.lines.map((l) => ({
+    day: l.day,
+    starts_at: l.session.starts_at,
+    ends_at: l.session.ends_at,
+    student: ctx.nameOf(l.session.student_id),
+    subject: l.subject || 'Tutoring',
+    tutor: ctx.nameOf(l.session.tutor_id),
+    minutes: l.minutes,
+    rate_cents: l.familyRate?.rate_cents ?? null,
+    amount_cents: amount(l),
+    note: (l.paidBy ? `paid by ${l.paidBy}` : noteFor(l).trim().replace(/^\((.*)\)$/, '$1')) || null,
+    cancelled: l.state === 'cancelled',
+  }));
+  const payments = f.payments.map((p) => ({ received_on: p.received_on, method: methodText(p.method), reference: p.reference ?? null, amount_cents: p.amount_cents }));
+  return {
+    v: 1,
+    number: statementNumber(f.parentId, f.month),
+    business: s.business_name,
+    pay_note: s.pay_note ?? null,
+    name: f.name,
+    month: f.month,
+    bill_date: billDate(f.month),
+    due_date: dueDate(ctx, f.month, sentOn ?? null),
+    lines,
+    adjustments: f.adjustments.map((a) => ({ label: labelText(a.label), note: a.note ?? null, amount_cents: a.amount_cents })),
+    previous_cents: previousCents,
+    month_cents: f.owedCents,
+    payments,
+    due_cents: previousCents + f.owedCents - f.paidCents,
+  };
+}
+
+// Where a sent statement stands for the parent, from my_statements():
+// { due_cents, paid_cents (every payment for its month), snapshot }
+export function statementStatus(row, today) {
+  const snap = row.snapshot ?? {};
+  const due = row.due_cents ?? snap.due_cents ?? 0;
+  const before = (snap.payments ?? []).reduce((t, p) => t + p.amount_cents, 0);
+  const since = Math.max(0, Number(row.paid_cents ?? 0) - before);
+  const left = due - since;
+  if (due < 0) return { key: 'credit', label: `Credit ${money(-due)}`, tone: 'info', leftCents: left };
+  if (left <= 0) return { key: 'paid', label: due === 0 ? 'Nothing due' : 'Paid', tone: 'success', leftCents: 0 };
+  if (since > 0) return { key: 'partial', label: `Paid ${money(since)} of ${money(due)}`, tone: 'warning', leftCents: left };
+  if (snap.due_date && today > snap.due_date) return { key: 'overdue', label: 'Overdue', tone: 'danger', leftCents: left };
+  return { key: 'due', label: snap.due_date ? `Due ${shortDate(snap.due_date, today)}` : 'Due', tone: 'neutral', leftCents: left };
+}
+
 // A tutor's pay period, for payroll
 export function payoutText(ctx, t) {
   const s = ctx.settings;

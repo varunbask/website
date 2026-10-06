@@ -17,6 +17,7 @@ import * as accountRates from './views/account-rates.js';
 import * as accountPrint from './views/account-print.js';
 import * as referrals from './views/referrals.js';
 import * as reviews from './views/reviews.js';
+import * as billing from './views/billing.js';
 import { normalizeFilter } from './review-model.js';
 
 export const ASSIGNMENT_SUBS = Object.freeze(['todo', 'in-review', 'graded', 'archived']);
@@ -51,7 +52,11 @@ function studentViews({ overviewScoped }) {
 // student.html and parent.html. A parent with no linked child only has Overview
 // (the welcome), which is why Overview itself is not scoped here.
 export function familyRoutes() {
-  return studentViews({ overviewScoped: false });
+  return {
+    ...studentViews({ overviewScoped: false }),
+    // the parent's own statements; not about one child (parent.html only)
+    billing: { mount: (ctx) => billing.mount(ctx), title: fixed('Billing'), scoped: false },
+  };
 }
 
 // staff.html: Workspace views, then the student-scoped ones (need ?student)

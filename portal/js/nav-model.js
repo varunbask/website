@@ -128,11 +128,13 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
     const family = role === 'student' || role === 'parent';
     const noChild = role === 'parent' && !scope?.student;
     const all = studentItems({ route, counts: c, fresh, family, staff: false });
-    const items = noChild ? all.slice(0, 1) : all;
+    // Bills go to the parent, whichever child is shown (and with no child linked)
+    const bills = role === 'parent' ? item('billing', 'Billing', 'receipt', '#/billing', { current: route?.view === 'billing' }) : null;
+    const items = [...(noChild ? all.slice(0, 1) : all), ...(bills ? [bills] : [])];
     const k = byKey(items);
     let tabs = [k.overview];
-    let more = [];
-    if (!noChild && role === 'parent') { tabs = [k.overview, k.assignments, k.calendar, k.updates]; more = [k.tasks]; }
+    let more = bills ? [bills] : [];
+    if (!noChild && role === 'parent') { tabs = [k.overview, k.assignments, k.calendar, k.updates]; more = [k.tasks, bills]; }
     else if (!noChild) { tabs = [k.overview, k.assignments, k.tasks, k.calendar]; more = [k.updates]; }
     return {
       mode: null,

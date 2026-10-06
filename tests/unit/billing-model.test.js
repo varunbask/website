@@ -9,6 +9,7 @@ import {
 } from '../../portal/js/billing-model.js';
 import {
   policyText, statementText, payoutText, payrollCsv, csvText, parseRateLines, matchRates, familiesCsv,
+  statementSnapshot, statementStatus,
 } from '../../portal/js/billing-text.js';
 import { zonedIso } from '../../portal/js/dates.js';
 
@@ -581,6 +582,32 @@ describe('words and files', () => {
     expect(slip).not.toContain('Pay day');
     expect(slip).toContain('Total: $60.00');
     expect(payrollCsv(periodRows(ctx, '2026-11-01'))).toContain('Ethan Poon,2026-11-01,2026-11-15,2.00,30.00,60.00,0.00,60.00');
+  });
+
+  test('a sent statement is saved as a snapshot of family amounts only', () => {
+    const list = [session('2026-11-03', '16:00', '17:00', { attendance: 'present' }), session('2026-11-11', '16:00', '17:00', { attendance: 'absent' })];
+    const ctx = ctxOf(list);
+    const f = familyMonth(ctx, 'alan', '2026-11-01');
+    const snap = statementSnapshot(ctx, f, { previousCents: 1000, sentOn: '2026-12-01' });
+    expect(snap).toMatchObject({
+      v: 1, number: '2026-11-ALAN', name: 'Alan Wang', month: '2026-11-01', bill_date: '2026-12-01', due_date: '2026-12-15',
+      previous_cents: 1000, month_cents: 9000, due_cents: 10000, pay_note: 'Zelle: pay@vp.test',
+    });
+    expect(snap.lines).toHaveLength(2);
+    expect(snap.lines[0]).toMatchObject({ day: '2026-11-03', student: 'Kevin Wang', subject: 'Math', tutor: 'Ethan Poon', minutes: 60, rate_cents: 4500, amount_cents: 4500, note: null });
+    expect(snap.lines[1].note).toBe('no-show');
+    // nothing about tutor pay travels with it
+    expect(JSON.stringify(snap)).not.toMatch(/tutorRe|tutor_rate|3000/);
+  });
+
+  test('where a sent statement stands for the parent', () => {
+    const snap = { due_cents: 10000, due_date: '2026-12-15', payments: [{ amount_cents: 2000 }] };
+    expect(statementStatus({ due_cents: 10000, paid_cents: 2000, snapshot: snap }, '2026-12-05')).toMatchObject({ key: 'due', label: 'Due Dec 15' });
+    expect(statementStatus({ due_cents: 10000, paid_cents: 2000, snapshot: snap }, '2026-12-16')).toMatchObject({ key: 'overdue', tone: 'danger' });
+    expect(statementStatus({ due_cents: 10000, paid_cents: 6000, snapshot: snap }, '2026-12-16')).toMatchObject({ key: 'partial', label: 'Paid $40.00 of $100.00' });
+    expect(statementStatus({ due_cents: 10000, paid_cents: 12000, snapshot: snap }, '2026-12-16')).toMatchObject({ key: 'paid', label: 'Paid' });
+    expect(statementStatus({ due_cents: 0, paid_cents: 0, snapshot: {} }, '2026-12-16')).toMatchObject({ key: 'paid', label: 'Nothing due' });
+    expect(statementStatus({ due_cents: -500, paid_cents: 0, snapshot: {} }, '2026-12-16')).toMatchObject({ key: 'credit', label: 'Credit $5.00' });
   });
 
   test('CSV quotes and neutralizes formulas', () => {
