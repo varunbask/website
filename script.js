@@ -141,9 +141,10 @@ const closingNote = document.getElementById("svc-more");
 let heroVisible = true;
 let closingVisible = false;
 let referVisible = false;   // the referral form needs the whole screen
+let bookVisible = false;    // and so does the booking form
 
 function updateSticky() {
-  const show = !heroVisible && !closingVisible && !referVisible;
+  const show = !heroVisible && !closingVisible && !referVisible && !bookVisible;
   stickyCta.hidden = !show;
   stickyCta.classList.toggle("visible", show);
 }
@@ -166,6 +167,14 @@ if (referSection) {
   ).observe(referSection);
 }
 
+const bookSection = document.getElementById("book");
+if (bookSection) {
+  new IntersectionObserver(
+    ([e]) => { bookVisible = e.isIntersecting; updateSticky(); },
+    { threshold: 0 }
+  ).observe(bookSection);
+}
+
 /* ------------------------------------------------------------
    Intake form link (appears once INTAKE_FORM_URL is set)
    ------------------------------------------------------------ */
@@ -174,6 +183,10 @@ if (INTAKE_FORM_URL) {
   intakeLink.href = INTAKE_FORM_URL;
   intakeLink.hidden = false;
 }
+
+/* The same rules the server applies (api/_lib/referral.js) */
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const PHONE_RE = /^[0-9+(). -]{7,30}$/;
 
 /* ------------------------------------------------------------
    Refer a family: checks the form, sends it to /api/referral as
@@ -212,8 +225,6 @@ if (referForm) {
     consent: ["ref-consent-error", "ref-consent"],
   };
   const MESSAGE_FOR = { referrer_role: "role", family_contact: "contact", consent: "consent" };
-  const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-  const PHONE_RE = /^[0-9+(). -]{7,30}$/;
   const statusEl = document.getElementById("ref-status");
   const submitBtn = document.getElementById("ref-submit");
   let shownErrors = {};
@@ -371,10 +382,203 @@ if (referForm) {
     }
   });
 
-  document.addEventListener("langchange", () => { drawErrors(); drawStatus(); });
+  // (while the thank-you shows, the form is out of the page)
+  document.addEventListener("langchange", () => { if (referForm.isConnected) { drawErrors(); drawStatus(); } });
 
   // Coming back from a form post made without JavaScript
   const result = new URLSearchParams(location.search).get("referral");
+  if (result === "sent") showDone();
+  else if (result === "busy") setStatus("busy", true);
+  else if (result === "error") setStatus("failed", true);
+}
+
+/* ------------------------------------------------------------
+   Book a free consultation: the same approach as the referral form
+   above (check, send as JSON to /api/referral with kind
+   "consultation", every message in the visitor's language). Without
+   JavaScript the form posts normally and the server redirects back
+   with ?consultation=sent|error|busy.
+   ------------------------------------------------------------ */
+const bookForm = document.getElementById("book-form");
+if (bookForm) {
+  const t = (text) => (window.VB_I18N ? VB_I18N.translate(text, VB_I18N.currentLang()) : text);
+  const MESSAGES = {
+    required: "Please fill this in.",
+    email: "Enter a valid email address.",
+    phone: "Enter a valid phone number.",
+    phone_needed: "Add a phone number so we can call or text you.",
+    too_long: "This is too long.",
+    check: "Please check the highlighted fields.",
+    busy: "Too many requests right now. Please try again later.",
+    failed: "Something went wrong. Please try again, or email us at vbmgroupsllc@gmail.com.",
+    sending: "Sending...",
+  };
+  // field -> [the error slot, the control that gets aria-invalid]
+  const FIELDS = {
+    name: ["book-name-error", "book-name"],
+    email: ["book-email-error", "book-email"],
+    phone: ["book-phone-error", "book-phone"],
+    grade: ["book-grade-error", "book-grade"],
+    language: ["book-language-error", "book-language"],
+    subjects: ["book-subjects-error", "book-subjects"],
+    lessons: ["book-lessons-error", null],
+    contact_pref: ["book-contact-error", "book-contact"],
+    note: ["book-note-error", "book-note"],
+  };
+  const statusEl = document.getElementById("book-status");
+  const submitBtn = document.getElementById("book-submit");
+  const languageSelect = document.getElementById("book-language");
+  let shownErrors = {};
+  let shownStatus = null;     // { key, error }
+  let sending = false;
+
+  const startedInput = document.getElementById("book-started");
+  startedInput.value = String(Date.now());
+
+  // The preferred language starts as the language the page is in, and follows
+  // it until the visitor picks one themselves
+  let languagePicked = false;
+  const followPageLanguage = () => {
+    if (!languagePicked && window.VB_I18N) languageSelect.value = VB_I18N.currentLang();
+  };
+  followPageLanguage();
+  languageSelect.addEventListener("change", () => { languagePicked = true; });
+
+  function values() {
+    return Object.fromEntries(new FormData(bookForm));
+  }
+
+  function check(data) {
+    const v = (k) => String(data[k] ?? "").trim();
+    const errors = {};
+    if (!v("name")) errors.name = "required";
+    if (!v("email")) errors.email = "required";
+    else if (!EMAIL_RE.test(v("email"))) errors.email = "email";
+    if (v("phone") && !PHONE_RE.test(v("phone"))) errors.phone = "phone";
+    else if (!v("phone") && ["phone", "text"].includes(v("contact_pref"))) errors.phone = "phone_needed";
+    if (!v("subjects")) errors.subjects = "required";
+    return errors;
+  }
+
+  function drawErrors() {
+    for (const [field, [slotId, controlId]] of Object.entries(FIELDS)) {
+      const code = shownErrors[field];
+      const slot = document.getElementById(slotId);
+      slot.textContent = code ? t(MESSAGES[code] ?? MESSAGES.required) : "";
+      const control = controlId ? document.getElementById(controlId) : null;
+      if (control) {
+        if (code) {
+          control.setAttribute("aria-invalid", "true");
+          control.setAttribute("aria-errormessage", slotId);
+        } else {
+          control.removeAttribute("aria-invalid");
+          control.removeAttribute("aria-errormessage");
+        }
+      }
+    }
+  }
+
+  function drawStatus() {
+    statusEl.textContent = shownStatus ? t(MESSAGES[shownStatus.key]) : "";
+    statusEl.classList.toggle("is-error", Boolean(shownStatus?.error));
+  }
+
+  function setStatus(key, error = false) {
+    shownStatus = key ? { key, error } : null;
+    drawStatus();
+  }
+
+  function focusFirstError() {
+    for (const [field, [, controlId]] of Object.entries(FIELDS)) {
+      if (!shownErrors[field]) continue;
+      const target = controlId ? document.getElementById(controlId) : bookForm.querySelector('input[name="lessons"]');
+      target?.focus();
+      return;
+    }
+  }
+
+  function showDone() {
+    const done = document.createElement("div");
+    done.className = "refer-done";
+    done.setAttribute("tabindex", "-1");
+    const title = document.createElement("h3");
+    const text = document.createElement("p");
+    const paint = () => {
+      title.textContent = t("Thank you!");
+      text.textContent = t("We've received your request. We reply within one business day.");
+    };
+    paint();
+    document.addEventListener("langchange", paint);
+    done.append(title, text);
+    bookForm.replaceWith(done);
+    document.getElementById("book-alt").hidden = true;
+    done.focus();
+  }
+
+  bookForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (sending) return;
+    const data = values();
+    shownErrors = check(data);
+    drawErrors();
+    if (Object.keys(shownErrors).length) {
+      setStatus("check", true);
+      focusFirstError();
+      return;
+    }
+    sending = true;
+    submitBtn.disabled = true;
+    setStatus("sending");
+    try {
+      const response = await fetch("/api/referral", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setStatus(null);
+        showDone();
+      } else if (response.status === 422 && body.errors) {
+        shownErrors = body.errors;
+        drawErrors();
+        setStatus("check", true);
+        focusFirstError();
+      } else {
+        setStatus(response.status === 429 ? "busy" : "failed", true);
+      }
+    } catch {
+      setStatus("failed", true);
+    } finally {
+      sending = false;
+      submitBtn.disabled = false;
+    }
+  });
+
+  // A fixed field clears its own message (the phone's too, once the way to reach them changes)
+  bookForm.addEventListener("input", (event) => {
+    const name = event.target.name;
+    if (!name) return;
+    const changed = { ...shownErrors };
+    delete changed[name];
+    if (name === "contact_pref") delete changed.phone;
+    if (Object.keys(changed).length !== Object.keys(shownErrors).length) {
+      shownErrors = changed;
+      drawErrors();
+      if (!Object.keys(shownErrors).length && shownStatus?.key === "check") setStatus(null);
+    }
+  });
+
+  // (the form is gone once the thank-you shows)
+  document.addEventListener("langchange", () => {
+    if (!bookForm.isConnected) return;
+    followPageLanguage();
+    drawErrors();
+    drawStatus();
+  });
+
+  // Coming back from a form post made without JavaScript
+  const result = new URLSearchParams(location.search).get("consultation");
   if (result === "sent") showDone();
   else if (result === "busy") setStatus("busy", true);
   else if (result === "error") setStatus("failed", true);

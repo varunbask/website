@@ -76,7 +76,7 @@ export function reviewPage({ title, text, form = null, link = true, kind = 'refe
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex">
   <title>${escapeHtml(title)} | VP Education Group</title>
-  <link rel="stylesheet" href="/styles.css?v=10">
+  <link rel="stylesheet" href="/styles.css?v=11">
 </head>
 <body>
   <main class="review-page">

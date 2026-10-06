@@ -176,14 +176,16 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   border-bottom: 1px solid var(--rule);
 }
 
+/* a touch wider than the page column: the wordmark, three links, language,
+   theme, Log in and the full "Book a free consultation" button need ~1150px */
 .header-inner {
-  max-width: var(--max);
+  max-width: 1200px;
   margin: 0 auto;
   padding: 12px 24px;
   min-height: 68px;
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 24px;
 }
 
 .wordmark {
@@ -221,6 +223,22 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 .site-nav a:hover { color: var(--pen); }
 
 .header-cta { padding: 10px 18px; font-size: 0.92rem; }
+/* Log in is a quiet text link beside the one button. The button has a full
+   and a short label; the short one takes over where the full one cannot fit.
+   The menu carries its own Log in for the smallest phones. */
+.header-login {
+  padding: 8px 2px;
+  color: var(--ink-2);
+  font-weight: 500;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.2s var(--ease);
+}
+.header-login:hover { color: var(--pen); }
+.header-cta-short { display: none; }
+.site-nav .nav-login { display: none; }
 
 .lang-toggle,
 .theme-toggle {
@@ -625,6 +643,7 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 .refer-field input[type="text"],
 .refer-field input[type="email"],
 .refer-field input[type="tel"],
+.refer-field select,
 .refer-field textarea {
   width: 100%;
   padding: 11px 13px;
@@ -638,8 +657,10 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 .refer-field textarea { resize: vertical; min-height: 88px; }
 .refer-field input:focus,
+.refer-field select:focus,
 .refer-field textarea:focus { outline: none; border-color: var(--pen); }
 .refer-field input[aria-invalid="true"],
+.refer-field select[aria-invalid="true"],
 .refer-field textarea[aria-invalid="true"] { border-color: var(--pen); }
 .refer-field input::placeholder { color: var(--slate); }
 
@@ -700,6 +721,25 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .refer { padding: 72px 0 80px; }
   .refer-pair { grid-template-columns: 1fr; }
 }
+
+/* ---------- 5. book a free consultation ----------
+   Same two columns and form as "refer a family"; the left column is a ruled
+   list like the track record, then the reply promise. */
+
+.book-points { list-style: none; margin: 0 0 22px; border-top: 2px solid var(--ink); max-width: 38ch; }
+.book-points li { padding: 12px 0; font-size: 1.05rem; line-height: 1.5; color: var(--ink-2); }
+.book-points li + li { border-top: 1px solid var(--rule); }
+.book-reply { font-weight: 600; color: var(--ink); }
+/* the lessons choices stand in a column, each as wide as the form */
+.book .refer-choices { flex-direction: column; gap: 10px; }
+.book .refer-choice { width: 100%; }
+.book .refer-choice .i18n-w,
+.book .refer-privacy .i18n-w { text-align: left; }
+.book .refer-field select { min-height: 47px; }
+.book-main { display: flex; flex-direction: column; gap: 28px; min-width: 0; }
+.book-alt { font-size: 0.95rem; line-height: 1.5; padding-top: 20px; border-top: 1px solid var(--rule); }
+.book-alt a { display: inline-grid; color: var(--ink-2); }
+.book-alt a:hover { color: var(--pen); }
 
 /* ---------- referral review page (api/referral-review) ---------- */
 
@@ -814,9 +854,11 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 
 /* compact header: the desktop header reserves room for the widest of the
-   five languages and needs ~966px, so it collapses below 980px. The Log in
-   button stays visible in both layouts. */
-@media (max-width: 980px) {
+   five languages and needs ~1150px, so it collapses at 1170px and below. Log
+   in and the Book button stay in the bar; below 820px the wordmark text goes
+   and the button takes its short label, below 560px the language name goes,
+   and below 481px Log in moves into the menu (see the blocks further down). */
+@media (max-width: 1170px) {
   .site-nav {
     display: none;
     position: absolute;
@@ -837,11 +879,26 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .theme-toggle { padding: 10px; min-width: 44px; min-height: 44px; justify-content: center; }
 }
 
+/* the wordmark text goes and the button takes its short label */
+@media (max-width: 819px) {
+  .wordmark-text { display: none; }
+  .header-cta-full { display: none; }
+  .header-cta-short { display: inline-block; }
+}
+
+/* the language button shows just the flag */
+@media (max-width: 559px) {
+  .header-inner { gap: 8px; }
+  .lang-label { display: none; }
+  .lang-toggle { padding: 10px; min-width: 44px; justify-content: center; }
+}
+
 @media (max-width: 760px) {
   .hero { padding: 32px 0 72px; }
   .hero-inner { grid-template-columns: 1fr; gap: 28px; }
-  .hero-portrait { max-width: 320px; }
-  .hero-intro { padding-top: 0; }
+  /* name, intro and the button come first; a smaller portrait follows */
+  .hero-intro { order: -1; padding-top: 0; }
+  .hero-portrait { max-width: 220px; }
   .hero-actions { margin-top: 26px; }
 
   .reviews, .services { padding: 72px 0 80px; }
@@ -856,16 +913,16 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 
 @media (max-width: 480px) {
-  .wordmark-text { display: none; }
   .header-cta { padding: 8px 12px; font-size: 0.88rem; }
-  .lang-label { display: none; }
-  .lang-toggle { padding: 10px; min-width: 44px; justify-content: center; }
+  /* no room for both beside the button: Log in is the last row of the menu */
+  .header-login { display: none; }
+  .site-nav .nav-login { display: inline-block; }
   .record-row { grid-template-columns: 76px 1fr; }
   .record dt { font-size: 1.5rem; }
   .svc-ap-groups { grid-template-columns: 1fr; gap: 28px; }
 }
 
-/* smallest phones: the header carries the mark, language, theme, Log in, and
+/* smallest phones: the header carries the mark, language, theme, Book, and
    menu buttons, so tighten the spacing and drop the language chevron */
 @media (max-width: 360px) {
   .header-inner { padding-left: 16px; padding-right: 16px; gap: 8px; }
@@ -883,6 +940,11 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 html[lang^="zh"] h2, html[lang^="ko"] h2,
 html[lang^="zh"] h3, html[lang^="ko"] h3,
 html[lang^="zh"] h4, html[lang^="ko"] h4 { letter-spacing: 0; }
+
+/* A heading's Latin ghost copies keep the Latin tracking on a Chinese or Korean
+   page, so a long heading in a narrow column wraps the same in every language. */
+html[lang^="zh"] :is(h2, h3, h4) > .i18n-ghost:not(:lang(zh), :lang(ko)),
+html[lang^="ko"] :is(h2, h3, h4) > .i18n-ghost:not(:lang(zh), :lang(ko)) { letter-spacing: -0.02em; }
 
 /* Same 28.16px line box as the Caveat note (1.6rem * 1.1). */
 html[lang^="zh"] .hero-note,
