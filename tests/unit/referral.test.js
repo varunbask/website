@@ -1,7 +1,7 @@
 import { describe, test, expect, vi } from 'vitest';
 import {
-  validateReferral, validateConsultation, looksAutomated, addressHash, handleReferral,
-  PER_ADDRESS_PER_HOUR, ALL_PER_DAY, MIN_FILL_MS,
+  validateReferral, validateConsultation, looksAutomated, addressHash, handleReferral, createReferralRepo,
+  PER_ADDRESS_PER_HOUR, ALL_PER_DAY, MIN_FILL_MS, MIN_FILL_MS_CONSULTATION,
 } from '../../api/_lib/referral.js';
 import { buildReferralEmail, buildConsultationEmail, sendReferralEmail } from '../../api/_lib/referral-mail.js';
 import {
@@ -140,6 +140,26 @@ describe('spam checks', () => {
     expect(looksAutomated({ started: String(now - MIN_FILL_MS + 1) }, now)).toBe(true);
     expect(looksAutomated({ started: String(now - MIN_FILL_MS) }, now)).toBe(false);
     expect(looksAutomated({}, now)).toBe(false);
+  });
+
+  test('the page times itself from the first touch, and its own clock decides', () => {
+    const now = 1_000_000;
+    expect(looksAutomated({ elapsed: MIN_FILL_MS - 1 }, now)).toBe(true);
+    expect(looksAutomated({ elapsed: MIN_FILL_MS }, now)).toBe(false);
+    expect(looksAutomated({ elapsed: '2000' }, now)).toBe(true);
+    // a device clock that is wrong changes nothing: elapsed wins over started
+    expect(looksAutomated({ elapsed: 9000, started: String(now + 60_000) }, now)).toBe(false);
+    expect(looksAutomated({ elapsed: 100, started: String(now - 60_000) }, now)).toBe(true);
+    // no timing at all (no JavaScript) is let through
+    expect(looksAutomated({ elapsed: '' }, now)).toBe(false);
+  });
+
+  test('the booking form asks for less time than the referral form', () => {
+    const now = 1_000_000;
+    expect(MIN_FILL_MS_CONSULTATION).toBe(1500);
+    expect(looksAutomated({ elapsed: 2000 }, now, MIN_FILL_MS_CONSULTATION)).toBe(false);
+    expect(looksAutomated({ elapsed: 1499 }, now, MIN_FILL_MS_CONSULTATION)).toBe(true);
+    expect(looksAutomated({ elapsed: 2000 }, now)).toBe(true);
   });
 
   test('the address is stored only as a keyed hash', () => {
@@ -290,13 +310,29 @@ describe('handleReferral with a consultation request', () => {
     expect(r.insert).toHaveBeenCalledTimes(1);
   });
 
-  test('shares the rate limits with referrals', async () => {
+  test('has its own rate limits, counted per kind so referrals never use them up', async () => {
     const one = repo(PER_ADDRESS_PER_HOUR, 0);
     expect((await handleReferral(post(goodConsult()), { repo: one, env, now })).status).toBe(429);
     const all = repo(0, ALL_PER_DAY);
     expect((await handleReferral(post(goodConsult()), { repo: all, env, now })).status).toBe(429);
     expect(one.insert).not.toHaveBeenCalled();
     expect(all.insert).not.toHaveBeenCalled();
+
+    const r = repo();
+    await handleReferral(post(goodConsult()), { repo: r, env, now });
+    expect(r.countSince.mock.calls.map(([q]) => q.kind)).toEqual(['consultation', 'consultation']);
+    const referrals = repo();
+    await handleReferral(post({ referrer_name: 'x', referrer_email: 'x@example.com', referrer_role: 'parent', family_name: 'F', family_email: 'f@example.com', consent: true }), { repo: referrals, env, now });
+    expect(referrals.countSince.mock.calls.map(([q]) => q.kind)).toEqual(['referral', 'referral']);
+  });
+
+  test('an honest quick fill passes: the booking form only needs 1.5 seconds', async () => {
+    const r = repo();
+    expect((await handleReferral(post(goodConsult({ elapsed: 1600 })), { repo: r, env, now })).status).toBe(201);
+    const bot = repo();
+    const res = await handleReferral(post(goodConsult({ elapsed: 400 })), { repo: bot, env, now });
+    expect(res.status).toBe(200);   // told it worked, nothing saved
+    expect(bot.insert).not.toHaveBeenCalled();
   });
 
   test('a plain form post is redirected back to the booking form', async () => {
@@ -308,6 +344,52 @@ describe('handleReferral with a consultation request', () => {
     expect(bad.headers.get('location')).toBe('/?consultation=error#book');
     const busy = await handleReferral(post(goodConsult(), 'application/x-www-form-urlencoded'), { repo: repo(PER_ADDRESS_PER_HOUR), env, now });
     expect(busy.headers.get('location')).toBe('/?consultation=busy#book');
+  });
+});
+
+describe('createReferralRepo.countSince', () => {
+  // A stand-in for the Supabase query: records its filters, answers with count or error
+  const fakeDb = (answer) => {
+    const calls = [];
+    const db = {
+      from: () => ({
+        select: () => {
+          const filters = [];
+          const query = {
+            gte: () => query,
+            eq: (column, value) => { filters.push([column, value]); return query; },
+            then: (resolve) => { calls.push(filters); resolve(answer(filters)); },
+          };
+          return query;
+        },
+      }),
+    };
+    return { db, calls };
+  };
+
+  test('counts one kind, for one address when given', async () => {
+    const { db, calls } = fakeDb(() => ({ count: 3, error: null }));
+    expect(await createReferralRepo(db).countSince({ ipHash: 'h', since: new Date(0), kind: 'consultation' })).toBe(3);
+    expect(calls).toEqual([[['ip_hash', 'h'], ['kind', 'consultation']]]);
+  });
+
+  test('counts every row when no kind is given', async () => {
+    const { db, calls } = fakeDb(() => ({ count: 0, error: null }));
+    await createReferralRepo(db).countSince({ since: new Date(0) });
+    expect(calls).toEqual([[]]);
+  });
+
+  test('before the kind column exists the count is tried again without it, so referrals keep working', async () => {
+    const { db, calls } = fakeDb((filters) => (filters.some(([c]) => c === 'kind')
+      ? { count: null, error: { message: '' } }
+      : { count: 2, error: null }));
+    expect(await createReferralRepo(db).countSince({ since: new Date(0), kind: 'referral' })).toBe(2);
+    expect(calls).toHaveLength(2);
+  });
+
+  test('an error that stays is thrown', async () => {
+    const { db } = fakeDb(() => ({ count: null, error: { message: 'down' } }));
+    await expect(createReferralRepo(db).countSince({ since: new Date(0), kind: 'referral' })).rejects.toThrow('countSince: down');
   });
 });
 

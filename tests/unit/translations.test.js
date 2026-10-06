@@ -81,10 +81,59 @@ describe('the booking links', () => {
     for (const prompt of ["Student's grade:", 'Subjects:', 'Goal:', 'Best time to reach you:']) expect(body).toContain(prompt);
   });
 
-  test('the asset versions on the pages that link them agree', () => {
-    for (const page of ['index.html', 'review.html', 'privacy.html']) {
-      expect(read(page), page).toMatch(/styles\.css\?v=11"/);
-    }
-    expect(read('api/_lib/referral-review.js')).toContain('/styles.css?v=11');
+  test('every page that links styles.css links the same version of it', () => {
+    const version = (text) => text.match(/styles\.css\?v=(\d+)"/)?.[1];
+    const versions = ['index.html', 'review.html', 'privacy.html', 'api/_lib/referral-review.js'].map((file) => [file, version(read(file))]);
+    for (const [file, v] of versions) expect(v, file).toBeDefined();
+    expect(new Set(versions.map(([, v]) => v)).size, JSON.stringify(versions)).toBe(1);
+  });
+});
+
+describe('the headers', () => {
+  test('only the landing page header gives up its wordmark text and language name early', () => {
+    const css = read('styles.css');
+    expect(html).toContain('<header class="site-header site-header-home">');
+    // the wider breakpoints are scoped to the landing header; every page keeps the 480px rule
+    expect(css).toMatch(/@media \(max-width: 819px\) \{\s*\.site-header-home \.wordmark-text \{ display: none; \}/);
+    expect(css).toMatch(/@media \(max-width: 559px\) \{[^}]*\.site-header-home \.header-inner/);
+    expect(css).toMatch(/@media \(max-width: 480px\) \{\s*\.wordmark-text \{ display: none; \}/);
+    for (const page of ['review.html', 'privacy.html']) expect(read(page), page).not.toContain('site-header-home');
+  });
+
+  test('a select keeps its focus ring', () => {
+    const css = read('styles.css');
+    const rule = css.match(/\.refer-field select:focus \{([^}]*)\}/)[1];
+    expect(rule).toContain('border-color');
+    expect(rule).not.toContain('outline');
+    // and no rule hides the ring on a select
+    expect(css).not.toMatch(/select:focus[^{]*,[^{]*\{[^}]*outline: none/);
+  });
+});
+
+describe('the booking form', () => {
+  const script = read('script.js');
+  const booking = script.slice(script.indexOf('const bookForm'));
+
+  test('describes an error with aria-describedby on the field, not aria-errormessage', () => {
+    expect(booking).toContain('aria-describedby');
+    expect(booking).not.toContain('aria-errormessage');
+    expect(html).toContain('id="book-lessons-group"');
+  });
+
+  test('times itself from the first touch and never sends a form faster than the server accepts', () => {
+    expect(script).toMatch(/fillTimer\(bookForm, 1500\)/);
+    expect(script).toMatch(/fillTimer\(referForm, 3000\)/);
+    expect(html).not.toContain('name="started"');
+    expect(booking).toContain('data.elapsed = await timer.waitOut()');
+  });
+
+  test('"Refer another family" puts the form back in the page before it clears the form\'s messages', () => {
+    expect(script.indexOf('done.replaceWith(referForm)')).toBeGreaterThan(-1);
+    expect(script.indexOf('done.replaceWith(referForm)')).toBeLessThan(script.indexOf('referForm.reset()'));
+  });
+
+  test('shows the result of a post made without JavaScript', () => {
+    expect(booking).toContain('get("consultation")');
+    for (const state of ['sent', 'busy', 'error']) expect(booking).toContain(`result === "${state}"`);
   });
 });

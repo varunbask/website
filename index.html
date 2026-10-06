@@ -19,13 +19,13 @@
       document.documentElement.dataset.theme = theme;
     })();
   </script>
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
 
   <a class="skip-link" href="#main">Skip to content</a>
 
-  <header class="site-header">
+  <header class="site-header site-header-home">
     <div class="header-inner">
       <a class="wordmark" href="#top" aria-label="VP Education Group">
         <span class="wordmark-mark" aria-hidden="true">VP</span>
@@ -375,7 +375,7 @@
                 <input id="book-subjects" name="subjects" type="text" maxlength="300" autocomplete="off" required placeholder="For example, algebra and SAT prep">
                 <p class="refer-error" id="book-subjects-error"></p>
               </div>
-              <div class="refer-field" role="radiogroup" aria-labelledby="book-lessons-label">
+              <div class="refer-field" role="radiogroup" id="book-lessons-group" aria-labelledby="book-lessons-label">
                 <span class="refer-label i18n-h" id="book-lessons-label"><span>Lessons (optional)</span></span>
                 <div class="refer-choices">
                   <label class="refer-choice"><input type="radio" name="lessons" value="online"> <span class="i18n-w">Online</span></label>
@@ -406,7 +406,6 @@
             <div class="refer-trap" aria-hidden="true">
               <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
             </div>
-            <input type="hidden" name="started" id="book-started">
 
             <div class="refer-actions">
               <button class="btn btn-primary i18n-w" type="submit" id="book-submit">Request a consultation</button>
@@ -501,7 +500,6 @@
           <div class="refer-trap" aria-hidden="true">
             <label>Website <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
           </div>
-          <input type="hidden" name="started" id="ref-started">
           <input type="hidden" name="language" id="ref-language" value="en">
 
           <div class="refer-actions">
@@ -535,7 +533,7 @@
 
   <script src="translations.js?v=7"></script>
   <script src="i18n.js?v=7"></script>
-  <script src="script.js?v=8"></script>
+  <script src="script.js?v=9"></script>
   <script src="theme.js?v=5"></script>
 </body>
 </html>

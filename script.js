@@ -188,6 +188,28 @@ if (INTAKE_FORM_URL) {
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const PHONE_RE = /^[0-9+(). -]{7,30}$/;
 
+/* The server drops a form sent faster than a person could fill it (a bot check).
+   The page times itself from the first touch of the form, with a clock that
+   cannot be wrong (performance.now), and sends the milliseconds as `elapsed`.
+   A quick but real fill, such as autofill and then Enter, waits out the rest of
+   the minimum before sending, so it is never mistaken for a bot. minMs matches
+   the server's minimum for that form. */
+function fillTimer(form, minMs) {
+  let touched = null;
+  const touch = () => { if (touched === null) touched = performance.now(); };
+  form.addEventListener("focusin", touch);
+  form.addEventListener("input", touch);
+  return {
+    reset() { touched = null; },
+    async waitOut() {
+      touch();
+      const left = minMs + 100 - (performance.now() - touched);
+      if (left > 0) await new Promise((resolve) => setTimeout(resolve, left));
+      return Math.round(performance.now() - touched);
+    },
+  };
+}
+
 /* ------------------------------------------------------------
    Refer a family: checks the form, sends it to /api/referral as
    JSON, and shows every message in the visitor's language. Without
@@ -231,9 +253,7 @@ if (referForm) {
   let shownStatus = null;     // { key, error }
   let sending = false;
 
-  const startedInput = document.getElementById("ref-started");
-  const resetStarted = () => { startedInput.value = String(Date.now()); };
-  resetStarted();
+  const timer = fillTimer(referForm, 3000);
 
   function values() {
     const data = Object.fromEntries(new FormData(referForm));
@@ -315,12 +335,12 @@ if (referForm) {
     document.addEventListener("langchange", paint);
     again.addEventListener("click", () => {
       document.removeEventListener("langchange", paint);
+      done.replaceWith(referForm);   // back in the page first, so its messages can be cleared
       referForm.reset();
-      resetStarted();
+      timer.reset();
       shownErrors = {};
       drawErrors();
       setStatus(null);
-      done.replaceWith(referForm);
       document.getElementById("ref-name").focus();
     });
     done.append(title, text, again);
@@ -343,6 +363,7 @@ if (referForm) {
     submitBtn.disabled = true;
     setStatus("sending");
     try {
+      data.elapsed = await timer.waitOut();
       const response = await fetch("/api/referral", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -432,8 +453,7 @@ if (bookForm) {
   let shownStatus = null;     // { key, error }
   let sending = false;
 
-  const startedInput = document.getElementById("book-started");
-  startedInput.value = String(Date.now());
+  const timer = fillTimer(bookForm, 1500);
 
   // The preferred language starts as the language the page is in, and follows
   // it until the visitor picks one themselves
@@ -460,20 +480,20 @@ if (bookForm) {
     return errors;
   }
 
+  // A message is the control's description, read after its label when focus lands on it
+  // (the lessons radios have no single control: their group carries it)
   function drawErrors() {
     for (const [field, [slotId, controlId]] of Object.entries(FIELDS)) {
       const code = shownErrors[field];
       const slot = document.getElementById(slotId);
       slot.textContent = code ? t(MESSAGES[code] ?? MESSAGES.required) : "";
-      const control = controlId ? document.getElementById(controlId) : null;
-      if (control) {
-        if (code) {
-          control.setAttribute("aria-invalid", "true");
-          control.setAttribute("aria-errormessage", slotId);
-        } else {
-          control.removeAttribute("aria-invalid");
-          control.removeAttribute("aria-errormessage");
-        }
+      const control = document.getElementById(controlId ?? "book-lessons-group");
+      if (code) {
+        control.setAttribute("aria-invalid", "true");
+        control.setAttribute("aria-describedby", slotId);
+      } else {
+        control.removeAttribute("aria-invalid");
+        control.removeAttribute("aria-describedby");
       }
     }
   }
@@ -530,6 +550,7 @@ if (bookForm) {
     submitBtn.disabled = true;
     setStatus("sending");
     try {
+      data.elapsed = await timer.waitOut();
       const response = await fetch("/api/referral", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

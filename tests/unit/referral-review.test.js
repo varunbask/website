@@ -1,6 +1,6 @@
 import { describe, test, expect, vi } from 'vitest';
 import {
-  signReview, reviewQuery, verifyReview, handleReviewGet, handleReviewPost, LINK_DAYS,
+  signReview, reviewQuery, verifyReview, handleReviewGet, handleReviewPost, isReviewPost, LINK_DAYS,
 } from '../../api/_lib/referral-review.js';
 import { buildReferralEmail, sendReferralEmail, reviewLinks, DEFAULT_TO } from '../../api/_lib/referral-mail.js';
 
@@ -31,6 +31,24 @@ describe('signed review links', () => {
 
   test('the signature covers the id, the action and the expiry', () => {
     expect(signReview({ id: 1, action: 'approve', exp: 5 }, env)).not.toBe(signReview({ id: 1, action: 'decline', exp: 5 }, env));
+  });
+});
+
+describe('telling the confirm button from a native form post', () => {
+  test('the button carries the signed link fields', () => {
+    expect(isReviewPost(reviewQuery({ id: 7, action: 'approve', now: NOW }, env))).toBe(true);
+    expect(isReviewPost(reviewQuery({ kind: 'testimonial', id: 7, action: 'decline', now: NOW }, env))).toBe(true);
+    expect(isReviewPost('id=1')).toBe(true);
+  });
+
+  test('the referral and booking forms have none of them', () => {
+    expect(isReviewPost(new URLSearchParams({ referrer_name: 'Grace', family_name: 'The Parks', consent: 'on', website: '', language: 'en' }).toString())).toBe(false);
+    expect(isReviewPost(new URLSearchParams({ kind: 'consultation', name: 'Grace', email: 'g@example.com', subjects: 'Math', note: '' }).toString())).toBe(false);
+    expect(isReviewPost('')).toBe(false);
+  });
+
+  test('a body too big to be a signed link is never one', () => {
+    expect(isReviewPost(`id=1&note=${'x'.repeat(3000)}`)).toBe(false);
   });
 });
 

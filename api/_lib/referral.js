@@ -4,13 +4,15 @@ import { createHmac } from 'node:crypto';
 // landing page both post here (a consultation says kind: 'consultation').
 // Everything the visitor sends is checked again on the server; the table's own
 // checks are the last line. Spam is filtered three ways: a hidden field people
-// never fill (website), a minimum time on the page (started), and a
+// never fill (website), a minimum time spent on the form (elapsed), and a
 // per-address and overall rate limit.
 
 export const LIMITS = Object.freeze({ name: 120, email: 254, phone: 30, grade: 40, subjects: 300, note: 1000 });
 export const PER_ADDRESS_PER_HOUR = 5;
 export const ALL_PER_DAY = 200;
 export const MIN_FILL_MS = 3000;
+// The booking form is short and browsers fill it in a moment, so it asks less
+export const MIN_FILL_MS_CONSULTATION = 1500;
 export const MAX_BODY_BYTES = 16 * 1024;
 const LANGS = ['en', 'zh', 'es', 'fr', 'ko'];
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -127,11 +129,19 @@ export function addressHash(request, key) {
   return createHmac('sha256', key || 'vp-referrals').update(ip).digest('hex');
 }
 
-// Looks like a bot: the hidden field is filled, or the form was sent too fast
-export function looksAutomated(input, now) {
+// Looks like a bot: the hidden field is filled, or the form was sent too fast.
+// The page times itself from the visitor's first touch of the form and sends
+// the milliseconds as `elapsed` (its own clock, so a wrong device clock cannot
+// matter). Older pages sent `started`, a timestamp; no timing at all means no
+// JavaScript, which is let through.
+export function looksAutomated(input, now, minFillMs = MIN_FILL_MS) {
   if (clean(input.website)) return true;
+  if (input.elapsed !== undefined && input.elapsed !== '') {
+    const elapsed = Number(input.elapsed);
+    if (Number.isFinite(elapsed)) return elapsed < minFillMs;
+  }
   const started = Number(input.started);
-  return Number.isFinite(started) && started > 0 && now - started < MIN_FILL_MS;
+  return Number.isFinite(started) && started > 0 && now - started < minFillMs;
 }
 
 const json = (status, body) => Response.json(body, { status });
@@ -169,16 +179,18 @@ export async function handleReferral(request, { repo, env = process.env, now = (
   if (tooLarge) return form ? back('error') : json(413, { error: 'too_large' });
   if (!data) return json(400, { error: 'invalid' });
 
-  if (looksAutomated(data, now())) return form ? back('sent') : json(200, { ok: true });
+  if (looksAutomated(data, now(), consultation ? MIN_FILL_MS_CONSULTATION : MIN_FILL_MS)) return form ? back('sent') : json(200, { ok: true });
 
   const { ok, errors, row } = consultation ? validateConsultation(data) : validateReferral(data);
   if (!ok) return form ? back('error') : json(422, { error: 'invalid', errors });
 
   const ipHash = addressHash(request, env.CRON_SECRET);
   const t = now();
+  // Each kind has its own caps, so a burst of one never blocks the other
+  const kind = row.kind ?? 'referral';
   const [mine, all] = await Promise.all([
-    repo.countSince({ ipHash, since: new Date(t - HOUR_MS) }),
-    repo.countSince({ since: new Date(t - 24 * HOUR_MS) }),
+    repo.countSince({ ipHash, since: new Date(t - HOUR_MS), kind }),
+    repo.countSince({ since: new Date(t - 24 * HOUR_MS), kind }),
   ]);
   if (mine >= PER_ADDRESS_PER_HOUR || all >= ALL_PER_DAY) return form ? back('busy') : json(429, { error: 'busy' });
 
@@ -193,12 +205,21 @@ export async function handleReferral(request, { repo, env = process.env, now = (
 
 export function createReferralRepo(db) {
   return {
-    async countSince({ ipHash = null, since }) {
-      let query = db.from('referrals').select('id', { count: 'exact', head: true }).gte('created_at', since.toISOString());
-      if (ipHash) query = query.eq('ip_hash', ipHash);
-      const { count, error } = await query;
+    // `kind` ('referral' | 'consultation') counts only that kind. Until the
+    // consultation migration is applied there is no kind column (a head count
+    // does not say which error it was), so a failed count with a kind is tried
+    // once more without it: every row is a referral by then.
+    async countSince({ ipHash = null, since, kind = null }) {
+      const count = (withKind) => {
+        let query = db.from('referrals').select('id', { count: 'exact', head: true }).gte('created_at', since.toISOString());
+        if (ipHash) query = query.eq('ip_hash', ipHash);
+        if (withKind && kind) query = query.eq('kind', kind);
+        return query;
+      };
+      let { count: n, error } = await count(true);
+      if (error && kind) ({ count: n, error } = await count(false));
       if (error) throw new Error(`countSince: ${error.message}`);
-      return count ?? 0;
+      return n ?? 0;
     },
     // -> the new referral's id
     async insert(row) {

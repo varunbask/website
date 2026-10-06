@@ -657,8 +657,9 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 .refer-field textarea { resize: vertical; min-height: 88px; }
 .refer-field input:focus,
-.refer-field select:focus,
 .refer-field textarea:focus { outline: none; border-color: var(--pen); }
+/* a select keeps the browser's focus ring beside the red border */
+.refer-field select:focus { border-color: var(--pen); }
 .refer-field input[aria-invalid="true"],
 .refer-field select[aria-invalid="true"],
 .refer-field textarea[aria-invalid="true"] { border-color: var(--pen); }
@@ -879,18 +880,20 @@ h4 { font-size: 0.95rem; font-weight: 700; }
   .theme-toggle { padding: 10px; min-width: 44px; min-height: 44px; justify-content: center; }
 }
 
-/* the wordmark text goes and the button takes its short label */
+/* The landing page's header (.site-header-home) carries more than the other
+   pages' headers, so it gives up its extras earlier: the wordmark text goes
+   and the button takes its short label ... */
 @media (max-width: 819px) {
-  .wordmark-text { display: none; }
+  .site-header-home .wordmark-text { display: none; }
   .header-cta-full { display: none; }
   .header-cta-short { display: inline-block; }
 }
 
-/* the language button shows just the flag */
+/* ... and the language button shows just the flag */
 @media (max-width: 559px) {
-  .header-inner { gap: 8px; }
-  .lang-label { display: none; }
-  .lang-toggle { padding: 10px; min-width: 44px; justify-content: center; }
+  .site-header-home .header-inner { gap: 8px; }
+  .site-header-home .lang-label { display: none; }
+  .site-header-home .lang-toggle { padding: 10px; min-width: 44px; justify-content: center; }
 }
 
 @media (max-width: 760px) {
@@ -913,7 +916,10 @@ h4 { font-size: 0.95rem; font-weight: 700; }
 }
 
 @media (max-width: 480px) {
+  .wordmark-text { display: none; }
   .header-cta { padding: 8px 12px; font-size: 0.88rem; }
+  .lang-label { display: none; }
+  .lang-toggle { padding: 10px; min-width: 44px; justify-content: center; }
   /* no room for both beside the button: Log in is the last row of the menu */
   .header-login { display: none; }
   .site-nav .nav-login { display: inline-block; }
