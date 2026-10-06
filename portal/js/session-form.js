@@ -14,8 +14,10 @@
 //       onCancel   Cancel in edit mode (create closes the drawer)
 //       onSaved    after a successful edit (create opens the new session)
 //
-//   sessionNotesForm(dctx, { session, onCancel, onSaved }) -> HTMLElement
+//   sessionNotesForm(dctx, { session, studentName, onCancel, onSaved }) -> HTMLElement
 //     Attendance and recap after a session. Saves only those two columns.
+//     What is typed is kept per session in memory (notes-draft.js) until it is
+//     saved, so closing the drawer does not lose it.
 //
 // Each puts its title in an h2.drawer-title and its buttons in the drawer
 // footer (dctx.setFooter). The caller inserts the element into dctx.body and
@@ -33,6 +35,7 @@ import { viewerIsInBusinessZone, dayKey } from './dates.js';
 import { getGoogleStatus, personalEvents, syncSoon } from './google.js';
 import { personalClashes, mergePersonalClashes, dayRange } from './google-model.js';
 import { ATTENDANCE, addMinutesToTime, followingInSeries, sessionTitle } from './sessions-model.js';
+import { rememberDraft, recallDraft, forgetDraft } from './notes-draft.js';
 import {
   QUICK_DURATIONS, DEFAULT_START, DEFAULT_MINUTES, MIN_REPEAT_COUNT, MAX_REPEAT_COUNT, MAX_RECAP_LENGTH, GONE,
   createDefaults, editDefaults, minutesBetween, tutorChoices, subjectsFor, defaultSubject,
@@ -663,26 +666,32 @@ export function sessionForm(dctx, {
 // ---------------------------------------------------------------------------
 // Session notes: attendance and recap
 
-export function sessionNotesForm(dctx, { session, onCancel, onSaved } = {}) {
+export function sessionNotesForm(dctx, { session, studentName = null, onCancel, onSaved } = {}) {
   const formId = uid('session-notes-form');
   const title = 'Session notes';
   const heading = h('h2', { class: 'drawer-title', tabindex: '-1' }, title);
   const when = whenText(session);
-  const sub = h('p', { class: 'ses-form-sub' }, `${sessionTitle(session)}, ${when.date}, ${when.time}`);
+  const sub = h('p', { class: 'ses-form-sub' }, [studentName, sessionTitle(session), when.date, when.time].filter(Boolean).join(', '));
 
-  let attendance = session.attendance ?? null;
+  // Typed but unsaved text from an earlier visit comes back. An attendance
+  // counts as the person's own only once they pressed one here (touched);
+  // otherwise the session's current value stands, whoever set it.
+  const draft = recallDraft(session);
+  let attendance = draft ? draft.attendance : (session.attendance ?? null);
+  let touched = Boolean(draft?.touched);
+  const keepDraft = () => { rememberDraft(session, { attendance, recap: recapInput.value, touched }); };
   const group = segmented({
     label: 'Attendance',
     block: true,
     options: Object.entries(ATTENDANCE).map(([value, label]) => ({ value, label })),
     value: attendance,
-    onChange: (value) => { attendance = value; },
+    onChange: (value) => { attendance = value; touched = true; keepDraft(); },
   });
   const attendanceField = groupField('Attendance', group);
 
   const recapInput = h('textarea', {
     class: 'input textarea', name: 'recap', rows: '8', maxlength: String(MAX_RECAP_LENGTH),
-  }, session.recap ?? '');
+  }, draft ? draft.recap : (session.recap ?? ''));
   const recapField = field({
     label: 'Recap',
     optional: true,
@@ -690,11 +699,33 @@ export function sessionNotesForm(dctx, { session, onCancel, onSaved } = {}) {
     control: recapInput,
   });
   recapInput.addEventListener('input', () => {
+    keepDraft();
     if (recapInput.value.trim().length <= MAX_RECAP_LENGTH) setFieldError(recapField, '');
   });
 
+  const draftNote = draft
+    ? h('p', { class: 'note ses-draft-note', role: 'status' },
+      icon('info'),
+      h('span', {}, 'Restored what you typed before.'),
+      button({
+        label: 'Discard',
+        variant: 'ghost',
+        size: 'sm',
+        onClick: () => {
+          forgetDraft(session.id);
+          attendance = session.attendance ?? null;
+          touched = false;
+          setSegmented(group, attendance ?? '');
+          recapInput.value = session.recap ?? '';
+          setFieldError(recapField, '');
+          draftNote.remove();
+          recapInput.focus();
+        },
+      }))
+    : null;
+
   const errorSlot = h('div', { class: 'ses-form-errors' });
-  const form = h('form', { class: 'ses-form', id: formId, novalidate: true }, attendanceField, recapField, errorSlot);
+  const form = h('form', { class: 'ses-form', id: formId, novalidate: true }, draftNote, attendanceField, recapField, errorSlot);
   const root = h('div', { class: 'ses-form-wrap', dataset: { title } }, heading, sub, form);
 
   const submit = button({ label: 'Save notes', variant: 'primary', type: 'submit', focusKey: 'save-session-notes' });
@@ -718,8 +749,10 @@ export function sessionNotesForm(dctx, { session, onCancel, onSaved } = {}) {
     saving = true;
     try {
       await busy(submit, 'Saving…', async () => {
+        // Attendance goes along only when it was chosen here: an untouched one
+        // may have been set elsewhere since the form opened
         const result = await sb.from('sessions')
-          .update({ attendance, recap: recap || null })
+          .update(touched ? { attendance, recap: recap || null } : { recap: recap || null })
           .eq('id', session.id)
           .select('id');
         if (result.error || !result.data?.length) {
@@ -729,6 +762,7 @@ export function sessionNotesForm(dctx, { session, onCancel, onSaved } = {}) {
           errorSlot.scrollIntoView?.({ block: 'nearest' });
           return;
         }
+        forgetDraft(session.id);
         dctx.store.invalidate(session.student_id);
         dctx.toast({ text: 'Session notes saved' });
         if (dctx.alive()) onSaved?.();

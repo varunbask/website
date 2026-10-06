@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import {
   formatDate, dueDateToIso, isoToDateInput, firstName, displayName, one, isOverdue, byDue, canHaveSessions,
+  isPlaceholderEmail, visibleEmail, PLACEHOLDER_EMAIL_DOMAIN,
 } from '../../portal/js/format.js';
 
 describe('format helpers', () => {
@@ -20,6 +21,30 @@ describe('format helpers', () => {
     expect(firstName('')).toBe('there');
     expect(displayName({ full_name: ' ', email: 'a@b.co' })).toBe('a@b.co');
     expect(displayName({ full_name: 'Ana Ruiz', email: 'a@b.co' })).toBe('Ana Ruiz');
+  });
+
+  test('placeholder emails of people without a login are recognised', () => {
+    const made = 'no-login+0b9f5c3e-2d41-4c7e-9a55-6f0f2d1a7c11@people.varunbaskaran.com';
+    expect(PLACEHOLDER_EMAIL_DOMAIN).toBe('people.varunbaskaran.com');
+    expect(isPlaceholderEmail(made)).toBe(true);
+    expect(isPlaceholderEmail(`  ${made.toUpperCase()} `)).toBe(true);
+    expect(isPlaceholderEmail('maya.lin@example.com')).toBe(false);
+    expect(isPlaceholderEmail('x@notpeople.varunbaskaran.com')).toBe(false);
+    expect(isPlaceholderEmail('people.varunbaskaran.com')).toBe(false);
+    expect(isPlaceholderEmail(null)).toBe(false);
+    expect(isPlaceholderEmail(undefined)).toBe(false);
+  });
+
+  test('visibleEmail hides placeholders and blanks', () => {
+    expect(visibleEmail(' a@b.co ')).toBe('a@b.co');
+    expect(visibleEmail('no-login+abc@people.varunbaskaran.com')).toBe('');
+    expect(visibleEmail('')).toBe('');
+    expect(visibleEmail(null)).toBe('');
+  });
+
+  test('a name falls back to a real email but never to a placeholder', () => {
+    expect(displayName({ full_name: null, email: 'no-login+abc@people.varunbaskaran.com' })).toBe('Unknown');
+    expect(displayName({ full_name: 'Rosa Diaz', email: 'no-login+abc@people.varunbaskaran.com' })).toBe('Rosa Diaz');
   });
 
   test('one() accepts an object, an array, or nothing', () => {

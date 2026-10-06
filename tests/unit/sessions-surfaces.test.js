@@ -1,8 +1,12 @@
 import { describe, test, expect, vi } from 'vitest';
 import {
   changeNote, changeNotes, canJoin, placeText, whenText, sessionRowLabel, tutorEntries, tutorText, tutorsTitle,
-  linkSubject, normalizeSubject, needsNotesCount, needsNotesDetail, todayPlan, todayPill, nextLine, todayRowLabel,
-  nextSessionOf, nextSessionParts, clockLabel, SUBJECT_MAX,
+  linkSubject, normalizeSubject, needsNotesCount, todayPlan, todayPill, nextLine, todayRowLabel,
+  nextSessionOf, nextSessionParts, clockLabel, SUBJECT_MAX, NOTES_WINDOW_DAYS, CATCH_UP_ROWS,
+  sessionGaps, gapsText, catchUpSessions, catchUpWindow, showAllLabel, sessionCount, attendanceSaved, attendanceErrorText, quickLabel,
+  notesDrawerId, notesDrawerSession, notesBlockedText,
+  normalizeScope, scopeTutorId, savedTodayScope, setTodayScope, hasOwnSessions, startScope, SCOPE_LABELS, QUICK_ATTENDANCE,
+  attendanceGuard, attendanceTakenText,
 } from '../../portal/js/schedule-summary.js';
 import { zonedIso } from '../../portal/js/dates.js';
 
@@ -301,18 +305,57 @@ describe('Today', () => {
 
 describe('Needs notes', () => {
   const ended = (key, extra = {}) => session(key, '16:00', '17:00', extra);
+  const day = (n) => {
+    // n days before TODAY as a day key (all in October 2026 or late September)
+    const d = new Date(Date.UTC(2026, 9, 14 - n));
+    return d.toISOString().slice(0, 10);
+  };
 
-  test('counts finished, uncancelled sessions from the last 7 days with no attendance', () => {
+  test('looks back 30 days', () => {
+    expect(NOTES_WINDOW_DAYS).toBe(30);
     const list = [
-      ended('2026-10-13'),                                  // yesterday: counts
-      ended('2026-10-08'),                                  // 6 days ago: counts
-      ended('2026-10-06'),                                  // 8 days ago: too old
-      ended('2026-10-12', { attendance: 'present' }),       // notes written
-      ended('2026-10-12', { status: 'cancelled' }),         // cancelled
-      session(TODAY, '16:00', '17:00'),                     // still to come
-      session(TODAY, '11:30', '12:30'),                     // happening now
+      ended(day(1)),                    // yesterday
+      ended(day(8)),                    // a week ago: counts now
+      ended(day(29)),                   // counts
+      ended(day(31)),                   // too old
     ];
-    expect(needsNotesCount(list, NOW)).toBe(2);
+    expect(needsNotesCount(list, NOW)).toBe(3);
+  });
+
+  test('counts a session with attendance but no recap, and one with a recap but no attendance', () => {
+    const list = [
+      ended('2026-10-13', { attendance: 'present' }),                         // notes missing
+      ended('2026-10-12', { attendance: 'present', recap: 'Fractions' }),     // done
+      ended('2026-10-12', { recap: 'Fractions' }),                            // attendance missing
+      ended('2026-10-11', { attendance: 'late', recap: '   ' }),              // blank recap
+    ];
+    expect(catchUpSessions(list, NOW).map((s) => s.id)).toEqual([list[0].id, list[2].id, list[3].id]);
+  });
+
+  test('an absent session needs no recap; present, late and unmarked ones do', () => {
+    const absent = ended('2026-10-13', { attendance: 'absent' });
+    const absentNoted = ended('2026-10-12', { attendance: 'absent', recap: 'Called in sick' });
+    const late = ended('2026-10-11', { attendance: 'late' });
+    const present = ended('2026-10-10', { attendance: 'present', recap: null });
+    const unmarked = ended('2026-10-09');
+    const list = [absent, absentNoted, late, present, unmarked];
+    expect(catchUpSessions(list, NOW).map((s) => s.id)).toEqual([late.id, present.id, unmarked.id]);
+    expect(sessionGaps(absent, NOW)).toEqual({ attendance: false, notes: false });
+    expect(sessionGaps(late, NOW)).toEqual({ attendance: false, notes: true });
+    expect(needsNotesCount(list, NOW)).toBe(3);
+    // marking an unmarked session absent is all it needs
+    expect(sessionGaps({ ...unmarked, attendance: 'absent' }, NOW)).toEqual({ attendance: false, notes: false });
+    expect(gapsText(sessionGaps(unmarked, NOW))).toBe('Needs attendance and notes');
+  });
+
+  test('leaves out cancelled sessions and ones that have not ended', () => {
+    const list = [
+      ended('2026-10-12', { status: 'cancelled' }),
+      session(TODAY, '16:00', '17:00'),   // still to come
+      session(TODAY, '11:30', '12:30'),   // happening now
+      ended('2026-10-13'),
+    ];
+    expect(needsNotesCount(list, NOW)).toBe(1);
   });
 
   test('a tutor counts only their own', () => {
@@ -321,9 +364,194 @@ describe('Needs notes', () => {
     expect(needsNotesCount(list, NOW)).toBe(2);
   });
 
-  test('the wording', () => {
-    expect(needsNotesDetail(1)).toBe('1 session in the last 7 days');
-    expect(needsNotesDetail(3)).toBe('3 sessions in the last 7 days');
+  test('a student the tutor no longer teaches is left out', () => {
+    const list = [ended('2026-10-13', { student_id: 's1' }), ended('2026-10-12', { student_id: 's2' })];
+    const links = [{ tutor_id: 't1', student_id: 's1' }];
+    expect(catchUpSessions(list, NOW, { tutorId: 't1', links }).map((s) => s.student_id)).toEqual(['s1']);
+  });
+
+  test('newest first', () => {
+    const a = ended('2026-10-09', { id: 801 });
+    const b = ended('2026-10-13', { id: 802 });
+    const c = ended('2026-10-13', { id: 803 });   // same time as b: higher id first
+    const d = session('2026-10-13', '10:00', '11:00', { id: 804 });
+    expect(catchUpSessions([a, b, c, d], NOW).map((s) => s.id)).toEqual([803, 802, 804, 801]);
+  });
+
+  test('what an ended session still lacks', () => {
+    const done = ended('2026-10-13');
+    expect(sessionGaps(done, NOW)).toEqual({ attendance: true, notes: true });
+    expect(sessionGaps({ ...done, attendance: 'present' }, NOW)).toEqual({ attendance: false, notes: true });
+    expect(sessionGaps({ ...done, recap: 'Fractions' }, NOW)).toEqual({ attendance: true, notes: false });
+    expect(sessionGaps({ ...done, attendance: 'absent', recap: 'Missed' }, NOW)).toEqual({ attendance: false, notes: false });
+    expect(sessionGaps({ ...done, attendance: 'absent' }, NOW)).toEqual({ attendance: false, notes: false });
+    expect(sessionGaps({ ...done, status: 'cancelled' }, NOW)).toEqual({ attendance: false, notes: false });
+    expect(sessionGaps(session(TODAY, '16:00', '17:00'), NOW)).toEqual({ attendance: false, notes: false });
+    expect(sessionGaps(null, NOW)).toEqual({ attendance: false, notes: false });
+  });
+
+  test('what is missing, in words', () => {
+    expect(gapsText({ attendance: true, notes: true })).toBe('Needs attendance and notes');
+    expect(gapsText({ attendance: true, notes: false })).toBe('Needs attendance');
+    expect(gapsText({ attendance: false, notes: true })).toBe('Needs notes');
+    expect(gapsText({ attendance: false, notes: false })).toBe('');
+  });
+
+  test('the list shows 8 until expanded', () => {
+    expect(CATCH_UP_ROWS).toBe(8);
+    const twelve = Array.from({ length: 12 }, (_, i) => i);
+    expect(catchUpWindow(twelve)).toEqual({ shown: twelve.slice(0, 8), hidden: 4 });
+    expect(catchUpWindow(twelve, { expanded: true })).toEqual({ shown: twelve, hidden: 0 });
+    expect(catchUpWindow(twelve.slice(0, 8))).toEqual({ shown: twelve.slice(0, 8), hidden: 0 });
+    expect(catchUpWindow(null)).toEqual({ shown: [], hidden: 0 });
+    expect(showAllLabel(12)).toBe('Show all 12');
+    expect(sessionCount(1)).toBe('1 session');
+    expect(sessionCount(3)).toBe('3 sessions');
+  });
+
+  test('the toast and the button names', () => {
+    expect(QUICK_ATTENDANCE).toEqual(['present', 'late', 'absent']);
+    expect(attendanceSaved('Leo Park', 'present')).toBe('Marked Leo Park present');
+    expect(attendanceSaved('Leo Park', 'absent')).toBe('Marked Leo Park absent');
+    expect(attendanceSaved('', 'late')).toBe('Marked the student late');
+    expect(attendanceSaved('Leo Park', null)).toBe('Attendance cleared for Leo Park');
+    const s = session('2026-10-12', '17:30', '18:30', { subject: 'Math' });
+    expect(quickLabel('present', s, { student: 'Leo Park', today: TODAY })).toBe('Present, Leo Park, Math, Mon, Oct 12');
+    expect(quickLabel('notes', s, { student: 'Leo Park', today: TODAY })).toBe('Write notes, Leo Park, Math, Mon, Oct 12');
+    expect(quickLabel('late', { ...s, subject: null }, { today: TODAY })).toBe('Late, Tutoring session, Mon, Oct 12');
+  });
+
+  test('why an attendance save failed', () => {
+    expect(attendanceErrorText({ code: 'VP002', message: 'This month is already paid' })).toBe('This month is already paid.');
+    expect(attendanceErrorText({ code: 'VP002', message: 'Already paid.' })).toBe('Already paid.');
+    expect(attendanceErrorText({ code: '42501' })).toBe('You can only change attendance on sessions you tutor.');
+    expect(attendanceErrorText({ message: 'Failed to fetch' })).toBe('Attendance didn’t save. Check your connection and try again.');
+    expect(attendanceErrorText(null)).toBe('Attendance didn’t save. Check your connection and try again.');
+  });
+
+  test('a one-tap save is a compare and set', () => {
+    expect(attendanceGuard(null)).toEqual({ op: 'is', value: null });
+    expect(attendanceGuard(undefined)).toEqual({ op: 'is', value: null });
+    expect(attendanceGuard('')).toEqual({ op: 'is', value: null });
+    expect(attendanceGuard('present')).toEqual({ op: 'eq', value: 'present' });
+    expect(attendanceTakenText(null)).toBe('Already marked. Refreshing.');
+    expect(attendanceTakenText('late')).toBe('Attendance was changed since. Refreshing.');
+  });
+
+  test('the notes drawer id round-trips and rejects other drawer ids', () => {
+    expect(notesDrawerId(12)).toBe('notes-s12');
+    expect(notesDrawerSession('notes-s12')).toBe('12');
+    expect(notesDrawerSession(notesDrawerId(907))).toBe('907');
+    for (const other of ['s12', 'new', 'new-session', '12', 'notes-s', 'notes-sx', 'notes-s12x', 'xnotes-s12', null, undefined]) {
+      expect(notesDrawerSession(other)).toBeNull();
+    }
+  });
+
+  test('when the notes form cannot be used', () => {
+    const tutor = { id: 't1', role: 'tutor' };
+    const admin = { id: 'a1', role: 'admin' };
+    const done = ended('2026-10-13');
+    const links = [{ tutor_id: 't1', student_id: 's1' }];
+    expect(notesBlockedText(done, tutor, { links, now: NOW })).toBeNull();
+    expect(notesBlockedText(done, admin, { now: NOW })).toBeNull();
+    // happening now is fine: the form is open from the start
+    expect(notesBlockedText(session(TODAY, '11:30', '12:30'), tutor, { now: NOW })).toBeNull();
+    expect(notesBlockedText(session('2026-10-20', '16:00', '17:00'), tutor, { now: NOW })).toMatch(/hasn’t started/);
+    expect(notesBlockedText({ ...done, status: 'cancelled' }, tutor, { now: NOW })).toMatch(/cancelled/);
+    expect(notesBlockedText({ ...done, tutor_id: 't2' }, tutor, { now: NOW })).toMatch(/Only the session’s tutor/);
+    expect(notesBlockedText(done, tutor, { links: [], now: NOW })).toMatch(/Only the session’s tutor/);
+    expect(notesBlockedText(null, tutor, { now: NOW })).toMatch(/isn’t available/);
+  });
+
+  test('Today plan: today lists its own, catch up lists the earlier ones', () => {
+    const doneToday = session(TODAY, '09:00', '10:00', { id: 701 });
+    const earlier = ended('2026-10-13', { id: 702 });
+    const other = ended('2026-10-12', { id: 703, tutor_id: 't2' });
+    const plan = todayPlan([doneToday, earlier, other], NOW, { tutorId: 't1' });
+    expect(plan.today.map((s) => s.id)).toEqual([701]);
+    expect(plan.catchUp.map((s) => s.id)).toEqual([702]);
+    expect(plan.needsNotes).toBe(2);
+    const everyone = todayPlan([doneToday, earlier, other], NOW);
+    expect(everyone.catchUp.map((s) => s.id)).toEqual([702, 703]);
+    expect(everyone.needsNotes).toBe(3);
+  });
+
+  test('Today plan: sessions with a student the tutor no longer teaches do not count', () => {
+    const gone = ended('2026-10-13', { id: 704, student_id: 's9' });
+    const kept = ended('2026-10-12', { id: 705 });
+    const plan = todayPlan([gone, kept], NOW, { tutorId: 't1', links: [{ tutor_id: 't1', student_id: 's1' }] });
+    expect(plan.catchUp.map((s) => s.id)).toEqual([705]);
+  });
+});
+
+describe('Today: Mine and Everyone', () => {
+  const memory = () => {
+    const data = new Map();
+    return { getItem: (k) => (data.has(k) ? data.get(k) : null), setItem: (k, v) => { data.set(k, String(v)); }, data };
+  };
+
+  test('only "all" means Everyone', () => {
+    expect(normalizeScope('all')).toBe('all');
+    expect(normalizeScope('mine')).toBe('mine');
+    expect(normalizeScope(null)).toBe('mine');
+    expect(normalizeScope('everyone')).toBe('mine');
+    expect(SCOPE_LABELS).toEqual({ mine: 'Mine', all: 'Everyone' });
+  });
+
+  test('a tutor always sees their own; an admin chooses', () => {
+    expect(scopeTutorId('tutor', 'all', 't1')).toBe('t1');
+    expect(scopeTutorId('tutor', 'mine', 't1')).toBe('t1');
+    expect(scopeTutorId('admin', 'mine', 'a1')).toBe('a1');
+    expect(scopeTutorId('admin', undefined, 'a1')).toBe('a1');
+    expect(scopeTutorId('admin', 'all', 'a1')).toBeNull();
+  });
+
+  test('the choice is remembered per person; nothing saved reads as null', () => {
+    const storage = memory();
+    expect(savedTodayScope('a1', storage)).toBeNull();
+    expect(setTodayScope('a1', 'all', storage)).toBe(true);
+    expect(savedTodayScope('a1', storage)).toBe('all');
+    expect(savedTodayScope('a2', storage)).toBeNull();
+    setTodayScope('a1', 'mine', storage);
+    expect(savedTodayScope('a1', storage)).toBe('mine');
+    storage.setItem('vb-today-scope-a3', 'garbage');
+    expect(savedTodayScope('a3', storage)).toBeNull();
+  });
+
+  test('storage that is missing or throws never breaks it', () => {
+    const broken = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); } };
+    expect(savedTodayScope('a1', broken)).toBeNull();
+    expect(setTodayScope('a1', 'all', broken)).toBe(false);
+    expect(savedTodayScope('a1', null)).toBeNull();
+    expect(setTodayScope('a1', 'all', null)).toBe(false);
+  });
+
+  describe('where an admin starts', () => {
+    const own = (key, extra = {}) => session(key, '16:00', '17:00', { tutor_id: 'a1', ...extra });
+
+    test('sessions of their own in the last 30 days, today or still to come', () => {
+      expect(hasOwnSessions([own('2026-10-13')], 'a1', NOW)).toBe(true);
+      expect(hasOwnSessions([own('2026-09-20')], 'a1', NOW)).toBe(true);    // 24 days ago
+      expect(hasOwnSessions([own(TODAY)], 'a1', NOW)).toBe(true);
+      expect(hasOwnSessions([own('2026-10-21')], 'a1', NOW)).toBe(true);    // next week
+      expect(hasOwnSessions([own('2026-09-01')], 'a1', NOW)).toBe(false);   // six weeks ago
+      expect(hasOwnSessions([session('2026-10-13')], 'a1', NOW)).toBe(false); // someone else's
+      expect(hasOwnSessions([], 'a1', NOW)).toBe(false);
+      expect(hasOwnSessions(null, 'a1', NOW)).toBe(false);
+    });
+
+    test('Mine when they tutor, Everyone when they teach nothing', () => {
+      expect(startScope({ sessions: [own('2026-10-13')], meId: 'a1', now: NOW })).toBe('mine');
+      expect(startScope({ sessions: [session('2026-10-13')], meId: 'a1', now: NOW })).toBe('all');
+      expect(startScope({ sessions: [], meId: 'a1', now: NOW })).toBe('all');
+    });
+
+    test('a remembered choice always wins', () => {
+      expect(startScope({ saved: 'mine', sessions: [], meId: 'a1', now: NOW })).toBe('mine');
+      expect(startScope({ saved: 'all', sessions: [own('2026-10-13')], meId: 'a1', now: NOW })).toBe('all');
+      expect(startScope({ saved: null, sessions: [own('2026-10-13')], meId: 'a1', now: NOW })).toBe('mine');
+      expect(startScope({ saved: 'bogus', sessions: [], meId: 'a1', now: NOW })).toBe('all');
+    });
   });
 });
 
@@ -382,6 +610,18 @@ describe('studentSummaries', () => {
   test('a workspace without sessions or links still summarizes', () => {
     const [only] = studentSummaries({ students: [{ id: 's1', full_name: 'Maya Lin' }] }, NOW);
     expect(only).toMatchObject({ name: 'Maya Lin', nextSession: null, tutors: [], review: 0 });
+  });
+
+  test('a no-login person keeps their name but never shows the made-up address', () => {
+    const made = 'no-login+0b9f5c3e-2d41-4c7e-9a55-6f0f2d1a7c11@people.varunbaskaran.com';
+    const rows = studentSummaries({
+      students: [
+        { id: 's8', full_name: 'Rosa Diaz', email: made },
+        { id: 's9', full_name: null, email: made },
+        { id: 's7', full_name: 'Ana Ruiz', email: 'ana@example.com' },
+      ],
+    }, NOW);
+    expect(rows.map((r) => [r.name, r.email])).toEqual([['Rosa Diaz', ''], ['Unknown', ''], ['Ana Ruiz', 'ana@example.com']]);
   });
 
   test('without names the chips say Tutor', () => {
