@@ -13,7 +13,7 @@ import {
   money, signedMoney, hoursText, parseMoney, monthName, familyRows, familyBlockers, familyBalanceBefore, familySnapshot,
   dueDate, billDate, dayText, shortDate, statementNumber, ATTENTION,
 } from '../billing-model.js';
-import { statementText, familiesCsv, labelText, methodText, stateText, METHODS, LABELS } from '../billing-text.js';
+import { statementText, statementSnapshot, sendAction, sendColumns, familiesCsv, labelText, methodText, stateText, METHODS, LABELS } from '../billing-text.js';
 import {
   setHeader, monthFrom, monthPicker, loadPriced, table, cents, csvButton, act, saveSessionBilling, clientKey, note, tabHref, askReason,
 } from './account-shared.js';
@@ -125,9 +125,42 @@ export function mount(ctx) {
           h('div', { class: 'acct-side-actions' },
             button({ label: 'Statement', size: 'sm', icon: 'printer', href: `#/statement/${f.parentId}?month=${month.slice(0, 7)}` }),
             button({ label: 'Copy as text', size: 'sm', icon: 'copy', variant: 'ghost', onClick: () => copy(statementText(b, f, { previousCents: previous }), 'Statement copied. Paste it into a message or a Zelle request.') }),
-            f.sentOn
-              ? h('span', { class: 'card-meta' }, `Sent ${shortDate(f.sentOn, today)} (${statementNumber(f.parentId, month)})`)
-              : button({ label: 'Mark sent', size: 'sm', variant: 'ghost', icon: 'envelope-simple', onClick: () => act(ctx, () => sb.from('statements').insert({ parent_id: f.parentId, period: month }).select('parent_id'), { done: `Statement marked sent. Due ${dayText(dueDate(b, month, today))}.` }) }))));
+            sentControls(f, previous, gate))));
+    }
+
+    // Marking a statement sent saves what it said, so the paying parent can
+    // read it under Billing in the portal. A month whose charges or brought
+    // forward changed after it was sent can be sent again (the parent then sees
+    // the new version); a payment recorded later is no change. Like Record
+    // payment, it waits for the month's open items to be resolved.
+    function sentControls(f, previous, gate) {
+      const sent = b.statements.find((x) => String(x.parent_id) === f.parentId && x.period === month);
+      const action = sendAction(sent, f, previous, gate, today);
+      const write = ({ label, icon: iconName, done }) => {
+        const btn = button({ label, size: 'sm', variant: 'ghost', icon: iconName, disabled: action.blocked, onClick: () => {
+          const snap = statementSnapshot(b, f, { previousCents: previous, sentOn: action.sentOn });
+          const columns = sendColumns(action, snap, today);
+          return act(ctx, () => (action.kind === 'mark'
+            ? sb.from('statements').insert({ parent_id: f.parentId, period: month, ...columns })
+            : sb.from('statements').update(columns).eq('parent_id', f.parentId).eq('period', month)).select('parent_id'),
+          { done: done(snap) });
+        } });
+        if (action.blocked) btn.title = blockedTitle(gate);
+        return btn;
+      };
+      if (action.kind === 'mark') {
+        return write({ label: 'Mark sent', icon: 'envelope-simple', done: () => `Statement marked sent. ${f.name} can read it under Billing in the portal. Due ${dayText(dueDate(b, month, today))}.` });
+      }
+      const label = h('span', { class: 'card-meta' }, `Sent ${shortDate(sent.sent_on, today)} (${statementNumber(f.parentId, month)})`);
+      if (!action.kind) return label;
+      return h('span', { class: 'acct-sent-again' }, label,
+        write({
+          label: action.kind === 'save' ? 'Save for the portal' : 'Changed since sent: send again',
+          icon: 'repeat',
+          done: (snap) => (action.kind === 'save'
+            ? `Statement saved. ${f.name} can read it under Billing in the portal, due ${dayText(snap.due_date)}.`
+            : `Statement updated. ${f.name} now sees ${money(snap.due_cents)} due.`),
+        }));
     }
 
     function lineRow(l) {
@@ -195,12 +228,14 @@ export function mount(ctx) {
       }
     }
 
+    const blockedTitle = (gate) => `Resolve ${gate.items.length} ${gate.items.length === 1 ? 'item' : 'items'} before recording a payment or sending the statement`;
+
     function blocked(gate) {
       const kinds = [...new Set(gate.items.map((it) => ATTENTION[it.kind].title))];
       return h('div', { class: 'callout tone-warning acct-gate' },
         icon('lock-simple', { size: 20 }),
         h('div', { class: 'callout-body' },
-          h('p', { class: 'callout-title' }, `Resolve ${gate.items.length} ${gate.items.length === 1 ? 'item' : 'items'} before recording a payment`),
+          h('p', { class: 'callout-title' }, blockedTitle(gate)),
           h('p', { class: 'callout-text' }, kinds.join('; '), '. ', h('a', { href: tabHref('dashboard', month) }, 'Open Needs attention'), '.')));
     }
 

@@ -81,6 +81,134 @@ function noteFor(l) {
   return '';
 }
 
+// What a sent statement said, saved with it (statements.snapshot) so the
+// paying parent can read it in the portal exactly as it was sent: family
+// amounts only, never tutor pay or admin notes. sentOn is the day it went out
+// (it sets the due date), and paid_total_cents is every payment from this
+// parent as of now, so the portal can tell what was paid after sending. A tutor
+// or student with no full name reads "your tutor" / "your student" here, never
+// the email nameOf falls back to.
+export function statementSnapshot(ctx, f, { previousCents = 0, sentOn } = {}) {
+  const s = ctx.settings;
+  const who = (id, fallback) => ctx.fullNameOf?.(id) ?? fallback;
+  const amount = (l) => (l.paidBy ? 0 : (l.state === 'expected' ? l.familyExpected : l.familyRealized));
+  const lines = f.lines.map((l) => ({
+    day: l.day,
+    starts_at: l.session.starts_at,
+    ends_at: l.session.ends_at,
+    student: who(l.session.student_id, 'your student'),
+    subject: l.subject || 'Tutoring',
+    tutor: who(l.session.tutor_id, 'your tutor'),
+    minutes: l.minutes,
+    rate_cents: l.familyRate?.rate_cents ?? null,
+    amount_cents: amount(l),
+    note: (l.paidBy ? `paid by ${l.paidBy}` : noteFor(l).trim().replace(/^\((.*)\)$/, '$1')) || null,
+    cancelled: l.state === 'cancelled',
+  }));
+  const payments = f.payments.map((p) => ({ received_on: p.received_on, method: methodText(p.method), reference: p.reference ?? null, amount_cents: p.amount_cents }));
+  // ctx.payments leaves out voided payments; every month and loose payments count
+  const paidTotal = ctx.payments.filter((p) => same(p.parent_id, f.parentId)).reduce((t, p) => t + p.amount_cents, 0);
+  return {
+    v: 1,
+    number: statementNumber(f.parentId, f.month),
+    business: s.business_name,
+    pay_note: s.pay_note ?? null,
+    name: f.name,
+    month: f.month,
+    bill_date: billDate(f.month),
+    due_date: dueDate(ctx, f.month, sentOn ?? null),
+    lines,
+    adjustments: f.adjustments.map((a) => ({ label: labelText(a.label), note: a.note ?? null, amount_cents: a.amount_cents })),
+    previous_cents: previousCents,
+    month_cents: f.owedCents,
+    payments,
+    due_cents: previousCents + f.owedCents - f.paidCents,
+    paid_total_cents: paidTotal,
+  };
+}
+
+// What Families offers for a family's month, and how it is written:
+//   kind     'mark'  not sent yet
+//            'save'  sent before the portal kept snapshots (no snapshot yet)
+//            'again' sent, and the month's charges or the balance brought forward
+//                    changed since (a payment recorded later is no change: the
+//                    parent's status follows payments by itself)
+//            null    nothing to do
+//   blocked  the month still has open items (unpriced or unconfirmed sessions),
+//            the same gate as Record payment; the buttons stay off until they are
+//            resolved so a parent never sees $0.00 lines or "Paid in full" early
+//   sentOn   the day that goes into the snapshot: a statement sent before
+//            snapshots keeps the day it really went out (its due date must not
+//            slide forward), a deliberate send again counts from today
+// sent is the row from the page's ledger: { sent_on, month_cents, previous_cents }
+// (the last two lifted from the snapshot, null without one).
+export function sendAction(sent, f, previousCents, gate, today) {
+  const saved = sent && sent.month_cents !== null && sent.month_cents !== undefined;
+  let kind = null;
+  if (!sent) kind = 'mark';
+  else if (!saved) kind = 'save';
+  else if (sent.month_cents !== f.owedCents || (sent.previous_cents ?? 0) !== previousCents) kind = 'again';
+  return { kind, blocked: kind !== null && !gate.ok, sentOn: kind === 'save' ? sent.sent_on : today };
+}
+
+// The statements columns to write for a snapshot. Only a deliberate send again
+// moves sent_on; saving a legacy statement leaves it alone.
+export function sendColumns(action, snap, today) {
+  const columns = { snapshot: snap, due_cents: snap.due_cents };
+  if (action.kind === 'again') columns.sent_on = today;
+  return columns;
+}
+
+// Where a sent statement stands for the parent. A row is from my_statements():
+// { period, due_cents, paid_total_cents (all the parent's payments to date), snapshot }.
+//
+// Only the newest sent statement is live: what has been paid since it was sent
+// is the parent's payments now less the total saved in its snapshot (negative
+// after a void, so a voided payment reopens it), which also covers a balance
+// carried into a later month and paid there, and loose payments.
+//
+// An older statement is settled by the one after it (`newer`): when that one
+// brought a balance forward, this one was carried to it; otherwise it was paid.
+// It is never overdue.
+export function statementStatus(row, today, newer = null) {
+  const snap = row.snapshot ?? {};
+  const due = row.due_cents ?? snap.due_cents ?? 0;
+  if (newer) return settledStatus(due, newer);
+  const paidNow = Number(row.paid_total_cents ?? 0);
+  const atSend = Number.isFinite(snap.paid_total_cents) ? snap.paid_total_cents : paidNow;
+  const since = paidNow - atSend;
+  const left = due - since;
+  if (left <= 0) {
+    if (due < 0) return { key: 'credit', label: `Credit ${money(-left)}`, tone: 'info', leftCents: 0 };
+    if (due === 0 && since === 0) return { key: 'nothing', label: 'Nothing due', tone: 'success', leftCents: 0 };
+    return { key: 'paid', label: 'Paid', tone: 'success', leftCents: 0 };
+  }
+  if (since > 0) return { key: 'partial', label: `Paid ${money(since)} of ${money(due)}`, tone: 'warning', leftCents: left };
+  if (snap.due_date && today > snap.due_date) return { key: 'overdue', label: 'Overdue', tone: 'danger', leftCents: left };
+  return { key: 'due', label: snap.due_date ? `Due ${shortDate(snap.due_date, today)}` : 'Due', tone: 'neutral', leftCents: left };
+}
+
+function settledStatus(due, newer) {
+  const month = String(newer.period).slice(0, 10);
+  // Nothing is carried from a statement that owed nothing
+  if (due > 0 && (newer.snapshot?.previous_cents ?? 0) > 0) {
+    return { key: 'carried', label: `Carried to ${monthName(month).split(' ')[0]}`, tone: 'neutral', leftCents: 0, carriedTo: month };
+  }
+  if (due <= 0) return { key: 'settled', label: 'Settled', tone: 'neutral', leftCents: 0 };
+  return { key: 'paid', label: 'Paid', tone: 'success', leftCents: 0 };
+}
+
+// Every row's status, in the order given (my_statements() lists newest first)
+export function statementStatuses(rows, today) {
+  const day = (r) => String(r.period).slice(0, 10);
+  const order = rows.map((_, i) => i).sort((a, b) => day(rows[b]).localeCompare(day(rows[a])));
+  const out = new Array(rows.length);
+  order.forEach((index, rank) => {
+    out[index] = statementStatus(rows[index], today, rank === 0 ? null : rows[order[rank - 1]]);
+  });
+  return out;
+}
+
 // A tutor's pay period, for payroll
 export function payoutText(ctx, t) {
   const s = ctx.settings;

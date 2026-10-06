@@ -91,20 +91,25 @@ describe('student', () => {
 });
 
 describe('parent', () => {
-  test('same items; tab bar Overview, Assignments, Calendar, Updates, More (Tasks, Report)', () => {
+  test('same items plus Report and Billing; tab bar Overview, Assignments, Calendar, Updates, More (Tasks, Report, Billing, Help)', () => {
     const m = navModel({ role: 'parent', page: 'parent', scope: MAYA, route: route('updates'), counts: COUNTS, fresh: { updates: true } });
-    expect(keys(m.groups[0].items)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'updates', 'report']);
+    expect(keys(m.groups[0].items)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'updates', 'report', 'billing']);
     expect(keys(m.tabbar)).toEqual(['overview', 'assignments', 'calendar', 'updates', 'more']);
-    expect(keys(m.more)).toEqual(['tasks', 'report', 'help']);
+    expect(keys(m.more)).toEqual(['tasks', 'report', 'billing', 'help']);
     expect(find(m, 'updates').isNew).toBe(true);
     expect(m.tabbar.find((i) => i.key === 'updates')).toMatchObject({ current: true, isNew: false });
   });
 
-  test('no linked child: Overview and Help only', () => {
+  test('no linked child: Overview, Billing and Help', () => {
     const m = navModel({ role: 'parent', page: 'parent', scope: null, route: route('overview'), counts: {} });
-    expect(keys(flat(m))).toEqual(['overview', 'help']);
+    expect(keys(flat(m))).toEqual(['overview', 'billing', 'help']);
     expect(keys(m.tabbar)).toEqual(['overview', 'more']);
-    expect(keys(m.more)).toEqual(['help']);
+    expect(keys(m.more)).toEqual(['billing', 'help']);
+  });
+
+  test('Billing is current on its page; students never get it', () => {
+    expect(find(navModel({ role: 'parent', page: 'parent', scope: MAYA, route: route('billing'), counts: {} }), 'billing').current).toBe(true);
+    expect(keys(flat(navModel({ role: 'student', page: 'student', scope: MAYA, route: route('overview'), counts: {} })))).not.toContain('billing');
   });
 });
 

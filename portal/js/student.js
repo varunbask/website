@@ -10,7 +10,7 @@ startApp({
   me,
   page: 'student',
   audience: 'family',
-  table: familyRoutes(),
+  table: familyRoutes('student'),
   defaultRoute: () => '#/overview',
   loadScope: async () => ({ student: me, options: [], kind: null }),
   drawer: renderItemDrawer,

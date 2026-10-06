@@ -19,6 +19,7 @@ import * as report from './views/report.js';
 import * as referrals from './views/referrals.js';
 import * as reviews from './views/reviews.js';
 import * as help from './views/help.js';
+import * as billing from './views/billing.js';
 import { normalizeFilter } from './review-model.js';
 
 export const ASSIGNMENT_SUBS = Object.freeze(['todo', 'in-review', 'graded', 'archived']);
@@ -55,10 +56,14 @@ function studentViews({ overviewScoped }) {
   };
 }
 
-// student.html and parent.html. A parent with no linked child only has Overview
-// (the welcome), which is why Overview itself is not scoped here.
-export function familyRoutes() {
-  return { ...studentViews({ overviewScoped: false }), help: helpEntry() };
+// student.html and parent.html (page: 'student' | 'parent'). A parent with no
+// linked child only has Overview (the welcome), which is why Overview itself is
+// not scoped here. Billing is the parent's own statements, not about one child,
+// so only the parent page has it: #/billing on student.html is an unknown view.
+export function familyRoutes(page = 'student') {
+  const views = { ...studentViews({ overviewScoped: false }), help: helpEntry() };
+  if (page !== 'parent') return views;
+  return { ...views, billing: { mount: (ctx) => billing.mount(ctx), title: fixed('Billing'), scoped: false } };
 }
 
 // staff.html: Workspace views, then the student-scoped ones (need ?student)
