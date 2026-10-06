@@ -1,7 +1,8 @@
-// Account > Payroll (account.html, admin). Tutors are paid every two weeks,
-// Sunday to Saturday from the anchor in Settings. One card per pay period
-// that overlaps the month, with one row per tutor: the sessions behind the amount, bonuses and deductions, differences carried
-// from earlier periods, and Mark paid (blocked while the period has open items).
+// Account > Payroll (account.html, admin). Information for the CPA, who runs
+// payroll: tutor pay is counted twice a month, the 1st to the 15th and the 16th
+// to the last day. One card per pay period that overlaps the month, with one
+// row per tutor: the sessions behind the total, bonuses and deductions, the
+// pay summary and the CSV. Check first marks a period with open items.
 
 import { sb } from '../supabase.js';
 import { h } from '../dom.js';
@@ -10,20 +11,20 @@ import { button, pill, select, emptyState, busy, drawerHref } from '../ui.js';
 import { todayKey } from '../dates.js';
 import { timeRange } from '../sessions-model.js';
 import {
-  money, signedMoney, hoursText, parseMoney, monthEnd, periodsOverlapping, payPeriodEnd, payDay, periodText,
-  periodRows, periodStatus, tutorBlockers, tutorSnapshot, yearToDate, dayText, shortDate, ATTENTION,
+  money, hoursText, parseMoney, monthEnd, periodsOverlapping, payPeriodEnd, periodText,
+  periodRows, periodStatus, tutorBlockers, yearToDate, dayText, shortDate, ATTENTION,
 } from '../billing-model.js';
-import { payoutText, payrollCsv, labelText, methodText, stateText, METHODS, LABELS } from '../billing-text.js';
+import { payoutText, payrollCsv, labelText, stateText, LABELS } from '../billing-text.js';
 import {
   setHeader, monthFrom, monthPicker, loadPriced, table, cents, csvButton, act, clientKey, note, tabHref, askReason,
 } from './account-shared.js';
 
-const TUTOR_METHODS = ['zelle', 'venmo', 'check', 'cash', 'payroll', 'other'];
 const TUTOR_LABELS = ['bonus', 'reimbursement', 'deduction', 'other'];
+const LEDE = 'Tutor pay for your CPA, counted the 1st to the 15th and the 16th to the end of the month.';
 
 export function mount(ctx) {
   const month = monthFrom(ctx.route, ctx.now);
-  setHeader(ctx, 'payroll', { month, lede: 'Tutors are paid every two weeks, Sunday to Saturday.' });
+  setHeader(ctx, 'payroll', { month, lede: LEDE });
   const root = h('div', { class: 'acct-root' });
   ctx.host.append(root);
   const open = new Set();
@@ -33,16 +34,14 @@ export function mount(ctx) {
     if (!loaded || !ctx.alive()) return;
     const { b } = loaded;
     const today = todayKey(ctx.now);
-    const periods = periodsOverlapping(month, monthEnd(month), b.settings.payroll_anchor)
-      .filter((p) => payPeriodEnd(p) >= b.settings.ledger_start);
+    const periods = periodsOverlapping(month, monthEnd(month)).filter((p) => payPeriodEnd(p) >= b.settings.ledger_start);
     const year = today.slice(0, 4);
-    const ytdNames = new Set(b.rows.map((r) => String(r.session.tutor_id)));
-    for (const p of b.payouts) if (p.tutor_id) ytdNames.add(String(p.tutor_id));
-    const ytd = [...ytdNames].map((id) => ({ id, name: b.nameOf(id), cents: yearToDate(b, id) })).filter((x) => x.cents)
+    const ytd = [...new Set(b.rows.map((r) => String(r.session.tutor_id)))]
+      .map((id) => ({ id, name: b.nameOf(id), cents: yearToDate(b, id) })).filter((x) => x.cents)
       .sort((a, c) => a.name.localeCompare(c.name));
     setHeader(ctx, 'payroll', {
       month,
-      lede: ytd.length ? `Paid in ${year}: ${ytd.map((x) => `${x.name} ${money(x.cents)}`).join(', ')}.` : 'Tutors are paid every two weeks, Sunday to Saturday.',
+      lede: ytd.length ? `${LEDE} Earned in ${year} so far: ${ytd.map((x) => `${x.name} ${money(x.cents)}`).join(', ')}.` : LEDE,
     });
 
     const cards = h('div', { class: 'acct-periods' });
@@ -55,59 +54,59 @@ export function mount(ctx) {
       const rows = periodRows(b, start);
       const future = start > today;
       const current = start <= today && end >= today;
+      const ended = end < today;
+      // Until a period ends, its hours and pay are what is planned for all of it
+      const planned = !ended;
       const gateAll = rows.map((t) => tutorBlockers(b, t.tutorId, start)).flatMap((g) => g.items);
       const total = (k) => rows.reduce((s, t) => s + t[k], 0);
       return h('section', { class: 'card acct-card acct-period', 'aria-label': `Pay period ${periodText(start)}` },
         h('div', { class: 'card-head' },
           h('h2', { class: 'card-title' }, `${dayText(start)} to ${dayText(end, start)}`),
-          h('span', { class: 'card-meta' }, `Pays ${dayText(payDay(start, b.settings.pay_lag_days))}${future ? ', upcoming' : current ? ', in progress' : ''}`),
+          h('span', { class: 'card-meta' }, future ? 'Upcoming' : current ? 'In progress' : gateAll.length ? 'Check first' : 'Complete'),
           h('div', { class: 'card-actions' }, csvButton(ctx, `payroll-${start}.csv`, () => payrollCsv(rows)))),
-        !future && gateAll.length ? blockedNote(gateAll) : null,
+        ended && gateAll.length ? checkNote(gateAll) : null,
         rows.length ? table({
           label: `Tutors, ${periodText(start)}`,
           columns: [
             { key: 'name', label: 'Tutor' }, { key: 'hours', label: 'Hours', num: true }, { key: 'rate', label: 'Rate', num: true },
-            { key: 'owed', label: future ? 'Expected' : 'Owed', num: true }, { key: 'paid', label: 'Paid', num: true },
-            { key: 'status', label: 'Status' }, { key: 'more', label: '' },
+            { key: 'total', label: planned ? 'Expected' : 'Total', num: true }, { key: 'status', label: 'Status' }, { key: 'more', label: '' },
           ],
           rows: rows.map((t) => {
             const key = `${start}|${t.tutorId}`;
-            const status = periodStatus(b, t);
             return {
               focusKey: `pay-${key}`,
               cells: {
                 name: t.name,
                 hours: hoursText(t.minutes),
                 rate: t.rate ? `${money(t.rate.rate_cents)}` : h('span', { class: 'acct-missing' }, 'None'),
-                owed: cents(future ? t.expectedCents : t.owedCents),
-                paid: cents(t.paidCents),
-                status: pill(status),
+                total: cents(planned ? t.expectedCents : t.totalCents),
+                status: pill(periodStatus(b, t)),
                 more: button({
                   label: open.has(key) ? 'Hide' : 'Details', size: 'sm', variant: 'ghost',
                   ariaLabel: `${open.has(key) ? 'Hide' : 'Show'} details for ${t.name}`,
                   onClick: () => { if (open.has(key)) open.delete(key); else open.add(key); paint(); },
                 }),
               },
-              after: open.has(key) ? details(t, future) : null,
+              after: open.has(key) ? details(t, planned) : null,
             };
           }),
           foot: {
             name: 'Total', hours: hoursText(total('minutes')), rate: '',
-            owed: cents(future ? total('expectedCents') : total('owedCents')), paid: cents(total('paidCents')), status: '', more: '',
+            total: cents(planned ? total('expectedCents') : total('totalCents')), status: '', more: '',
           },
         }) : h('p', { class: 'card-meta' }, 'No sessions in this period.'));
     }
 
-    function blockedNote(items) {
+    function checkNote(items) {
       const kinds = [...new Set(items.map((it) => ATTENTION[it.kind].title))];
       return h('div', { class: 'callout tone-warning acct-gate' },
-        icon('lock-simple', { size: 20 }),
+        icon('warning-circle', { size: 20 }),
         h('div', { class: 'callout-body' },
-          h('p', { class: 'callout-title' }, `${items.length} ${items.length === 1 ? 'item needs' : 'items need'} a decision before these tutors can be marked paid`),
+          h('p', { class: 'callout-title' }, `${items.length} ${items.length === 1 ? 'item to check' : 'items to check'} before you send this period to your CPA`),
           h('p', { class: 'callout-text' }, kinds.join('; '), '. ', h('a', { href: tabHref('dashboard', month) }, 'Open Needs attention'), '.')));
     }
 
-    function details(t, future) {
+    function details(t, planned) {
       const gate = tutorBlockers(b, t.tutorId, t.periodStart);
       const lines = t.slots.map((s) => {
         const r = s.rows[0];
@@ -117,67 +116,26 @@ export function mount(ctx) {
             h('span', { class: 'acct-line-when' }, `${dayText(r.day)}, ${timeRange(r.session)}`),
             h('span', {}, `${who}, ${r.subject || 'Tutoring'}, ${hoursText(s.minutes)} hr`)),
           pill({ label: s.rows.length > 1 ? `Group of ${s.rows.length}` : stateText(r.state), tone: s.rows.length > 1 ? 'info' : r.state === 'attended' ? 'success' : r.state === 'unconfirmed' ? 'danger' : 'neutral' }),
-          h('span', { class: 'acct-line-amount num' }, money(future ? s.tutorExpected : s.tutorRealized)));
+          h('span', { class: 'acct-line-amount num' }, money(planned ? s.tutorExpected : s.tutorRealized)));
       });
-      const changed = t.changedSincePayout
-        ? note(`Paid ${money(t.snapshot.amount_cents)} when the period came to ${money(t.snapshot.owed_cents)}; it now comes to ${money(t.ownCents)} (${signedMoney(t.ownCents - t.snapshot.owed_cents)}). ${t.settledLater ? 'A later payout settled the difference.' : 'The difference is carried into the next period.'}`, 'warning-circle')
-        : null;
-      const due = t.dueCents;
       return h('div', { class: 'acct-details' },
         h('div', { class: 'acct-details-main' },
           h('ul', { class: 'acct-lines' }, lines),
-          t.carriedCents ? h('p', { class: 'acct-carried' }, 'Adjustments from earlier periods: ', h('span', { class: 'num' }, money(t.carriedCents))) : null,
-          adjustments(t),
-          payouts(t)),
+          adjustments(t)),
         h('aside', { class: 'acct-details-side' },
           h('dl', { class: 'acct-summary' },
-            sumRow('Sessions', money(future ? t.expectedCents - t.adjustmentCents : t.realizedCents)),
+            sumRow('Sessions', money(planned ? t.expectedCents - t.adjustmentCents : t.realizedCents)),
             t.adjustmentCents ? sumRow('Adjustments', money(t.adjustmentCents)) : null,
-            t.carriedCents ? sumRow('Carried', money(t.carriedCents)) : null,
-            sumRow('Paid', money(-t.paidCents)),
-            sumRow('Due', money(future ? 0 : due), 'is-total')),
-          changed,
-          future ? note('This period has not started; pay is shown as expected.')
-            : !gate.ok ? blockedNote(gate.items)
-              : !t.payouts.length && (due !== 0 || t.payableMinutes > 0) ? markPaidForm({
-                label: `Mark ${t.name} paid`,
-                amountCents: due,
-                allowZero: t.payableMinutes > 0,
-                onSave: (fields) => sb.from('payouts').insert({
-                  ...fields, kind: 'tutor', tutor_id: t.tutorId, period_start: t.periodStart,
-                  minutes: t.payableMinutes, owed_cents: t.ownCents, lines: tutorSnapshot(t),
-                }).select('id'),
-                done: (c) => `${money(c)} to ${t.name} recorded.`,
-              }) : null,
+            sumRow(planned ? 'Expected' : 'Total', money(planned ? t.expectedCents : t.totalCents), 'is-total')),
+          planned ? note('This period has not ended; pay is shown as planned for all of it.')
+            : !gate.ok ? checkNote(gate.items) : null,
           h('div', { class: 'acct-side-actions' },
-            button({ label: 'Pay slip', size: 'sm', icon: 'printer', href: `#/payslip/${t.tutorId}?period=${t.periodStart}` }),
+            button({ label: 'Pay summary', size: 'sm', icon: 'printer', href: `#/payslip/${t.tutorId}?period=${t.periodStart}` }),
             button({ label: 'Copy as text', size: 'sm', icon: 'copy', variant: 'ghost', onClick: () => copy(payoutText(b, t)) }))));
     }
 
     function sumRow(label, value, cls) {
       return h('div', { class: cls ? `acct-summary-row ${cls}` : 'acct-summary-row' }, h('dt', {}, label), h('dd', { class: 'num' }, value));
-    }
-
-    function markPaidForm({ label, amountCents, allowZero = false, onSave, done }) {
-      const key = clientKey();
-      const amount = h('input', { class: 'input acct-money-input', inputmode: 'decimal', value: (amountCents / 100).toFixed(2), 'aria-label': 'Amount paid' });
-      const on = h('input', { type: 'date', class: 'input', value: today, 'aria-label': 'Paid on' });
-      const methodWrap = select({ label: 'Method', options: TUTOR_METHODS.map((m) => ({ value: m, label: METHODS[m] })), value: 'zelle' });
-      const ref = h('input', { class: 'input', maxlength: '120', placeholder: 'Reference', 'aria-label': 'Reference' });
-      const save = button({ label, variant: 'primary', size: 'sm', icon: 'check' });
-      save.addEventListener('click', () => busy(save, 'Saving…', async () => {
-        const c = parseMoney(amount.value, { allowNegative: true, allowZero });
-        if (c === null) { ctx.toast({ text: 'Enter the amount paid, like 690.' }); amount.focus(); return; }
-        await act(ctx, () => onSave({
-          client_key: key, amount_cents: c, method: methodWrap.querySelector('select').value, paid_on: on.value || today, reference: ref.value.trim() || null,
-        }), { done: done(c) });
-      }));
-      return h('div', { class: 'acct-pay-form' },
-        h('label', { class: 'acct-inline-field' }, h('span', {}, 'Amount'), amount),
-        h('label', { class: 'acct-inline-field' }, h('span', {}, 'Paid on'), on),
-        h('label', { class: 'acct-inline-field' }, h('span', {}, 'Method'), methodWrap),
-        h('label', { class: 'acct-inline-field' }, h('span', {}, 'Reference'), ref),
-        save);
     }
 
     function adjustments(t) {
@@ -204,16 +162,6 @@ export function mount(ctx) {
         h('div', { class: 'acct-inline-form is-tight' }, label, amount, why, add));
     }
 
-    function payouts(t) {
-      if (!t.payouts.length) return null;
-      return h('div', { class: 'acct-block' },
-        h('h4', {}, 'Paid'),
-        h('ul', { class: 'acct-lines' }, t.payouts.map((p) => h('li', { class: 'acct-line' },
-          h('span', { class: 'acct-line-what' }, `${shortDate(p.paid_on, today)}, ${methodText(p.method)}${p.reference ? ` (${p.reference})` : ''}`),
-          h('span', { class: 'acct-line-amount num' }, money(p.amount_cents)),
-          button({ label: 'Void', size: 'sm', variant: 'ghost', onClick: () => voidRow('payouts', p.id, 'Payout voided.') })))));
-    }
-
     async function voidRow(tableName, id, done) {
       const reason = await askReason('Void this?', 'It stays on record and stops counting. This can’t be undone. Say why, for the record.');
       if (!reason || !ctx.alive()) return;
@@ -223,9 +171,9 @@ export function mount(ctx) {
     async function copy(text) {
       try {
         await navigator.clipboard.writeText(text);
-        ctx.toast({ text: 'Pay slip copied.' });
+        ctx.toast({ text: 'Pay summary copied.' });
       } catch {
-        ctx.toast({ text: 'Your browser blocked copying. Open the pay slip and copy from there.' });
+        ctx.toast({ text: 'Your browser blocked copying. Open the pay summary and copy from there.' });
       }
     }
 
@@ -233,4 +181,3 @@ export function mount(ctx) {
     root.replaceChildren(monthPicker(ctx, month), cards);
   })();
 }
-

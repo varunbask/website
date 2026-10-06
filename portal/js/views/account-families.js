@@ -11,7 +11,7 @@ import { todayKey } from '../dates.js';
 import { timeRange } from '../sessions-model.js';
 import {
   money, signedMoney, hoursText, parseMoney, monthName, familyRows, familyBlockers, familyBalanceBefore, familySnapshot,
-  dueDate, dayText, shortDate, statementNumber, ATTENTION,
+  dueDate, billDate, dayText, shortDate, statementNumber, ATTENTION,
 } from '../billing-model.js';
 import { statementText, familiesCsv, labelText, methodText, stateText, METHODS, LABELS } from '../billing-text.js';
 import {
@@ -43,8 +43,8 @@ export function mount(ctx) {
     setHeader(ctx, 'families', {
       month,
       lede: all.length
-        ? `${monthName(month)}: ${paidCount} of ${all.length} ${all.length === 1 ? 'family' : 'families'} paid, ${money(owedThisMonth)} outstanding.`
-        : `Monthly bills, from the sessions on the calendar.`,
+        ? `${monthName(month)}, billed ${dayText(billDate(month))}: ${paidCount} of ${all.length} ${all.length === 1 ? 'family' : 'families'} paid, ${money(owedThisMonth)} outstanding.`
+        : `Monthly bills, from the sessions on the calendar, dated the 1st of the next month.`,
     });
 
     const list = h('div', { class: 'acct-families' });
@@ -188,6 +188,7 @@ export function mount(ctx) {
         f.expectedCents !== f.owedCents ? row('Still to come this month', money(f.expectedCents - f.owedCents)) : null,
         row('Paid', money(-f.paidCents)),
         row('Due now', money(due), 'is-total'),
+        row('Bill date', dayText(billDate(month))),
         row('Due by', dayText(dueDate(b, month, f.sentOn))));
       function row(label, value, cls) {
         return h('div', { class: cls ? `acct-summary-row ${cls}` : 'acct-summary-row' }, h('dt', {}, label), h('dd', { class: 'num' }, value));

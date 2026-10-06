@@ -1,10 +1,10 @@
 // Words and files for the Account page: the policy paragraph, statements and
-// payout slips as plain text (Copy as text), CSV downloads, and the Paste
+// tutor pay summaries as plain text (Copy as text), CSV downloads, and the Paste
 // rates importer that reads the old scheduler's "Kid (Parent): Math $45" lines.
 // No DOM, no network.
 
 import {
-  money, hoursText, monthName, shortDate, dayText, periodText, payDay, dueDate, statementNumber, STATES,
+  money, hoursText, monthName, shortDate, dayText, periodText, payPeriodEnd, dueDate, billDate, statementNumber, STATES,
 } from './billing-model.js';
 
 const same = (a, b) => String(a) === String(b);
@@ -19,14 +19,13 @@ export function policyText(policy, settings) {
     ? 'No-shows (attendance marked Absent) are billed to the family and paid to the tutor in full.'
     : `No-shows (attendance marked Absent) are billed at ${policy.absent_family_pct} percent and paid to the tutor at ${policy.absent_tutor_pct} percent.`;
   const unconfirmed = policy.count_unconfirmed
-    ? 'A session that ended without attendance counts as attended on this page until someone records it, but no payment or payout can be recorded for its month or pay period until it is confirmed or accepted.'
-    : 'A session that ended without attendance counts for nothing until someone records it, and no payment or payout can be recorded for its month or pay period until it is confirmed or accepted.';
-  const lag = settings.pay_lag_days === 0 ? 'on the last day of the period' : `${settings.pay_lag_days} ${settings.pay_lag_days === 1 ? 'day' : 'days'} after it ends`;
+    ? 'A session that ended without attendance counts as attended on this page until someone records it, but no payment can be recorded for its month, and its tutor’s pay period shows Check first, until it is confirmed or accepted.'
+    : 'A session that ended without attendance counts for nothing until someone records it; no payment can be recorded for its month, and its tutor’s pay period shows Check first, until it is confirmed or accepted.';
   return [
     'Cancelled sessions are not billed and not paid, unless you set a percentage on that one session (for example a late cancellation charged at 50 percent).',
     noShow,
     unconfirmed,
-    `Families are billed by calendar month, due on the ${ordinal(settings.due_day)} of the next month. Tutors are paid every two weeks, Sunday to Saturday, ${lag}.`,
+    `Families are billed by calendar month, with the bill dated the 1st of the next month and due on the ${ordinal(settings.due_day)}. Tutor pay is counted twice a month, the 1st to the 15th and the 16th to the end of the month, for payroll.`,
   ].join(' ');
 }
 
@@ -45,7 +44,7 @@ export function statementText(ctx, f, { previousCents = 0 } = {}) {
   const lines = [];
   lines.push(`${s.business_name}`);
   lines.push(`Statement ${statementNumber(f.parentId, f.month)} for ${f.name}`);
-  lines.push(`${monthName(f.month)}, due ${dayText(dueDate(ctx, f.month, f.sentOn))}`);
+  lines.push(`${monthName(f.month)}, dated ${dayText(billDate(f.month))}, due ${dayText(dueDate(ctx, f.month, f.sentOn))}`);
   lines.push('');
   const byStudent = new Map();
   for (const l of f.lines) {
@@ -82,13 +81,12 @@ function noteFor(l) {
   return '';
 }
 
-// A tutor's pay period
+// A tutor's pay period, for payroll
 export function payoutText(ctx, t) {
   const s = ctx.settings;
   const lines = [];
   lines.push(`${s.business_name}`);
   lines.push(`Pay for ${t.name}, ${periodText(t.periodStart)}`);
-  lines.push(`Pay day ${dayText(payDay(t.periodStart, s.pay_lag_days))}`);
   lines.push('');
   for (const slot of t.slots) {
     const r = slot.rows[0];
@@ -97,11 +95,9 @@ export function payoutText(ctx, t) {
     lines.push(`${dayText(r.day)}, ${who}, ${r.subject || 'Tutoring'}, ${hoursText(slot.minutes)} hr${tag}: ${money(slot.tutorRealized || slot.tutorExpected)}`);
   }
   for (const a of t.adjustments) lines.push(`${labelText(a.label)}${a.note ? ` (${a.note})` : ''}: ${money(a.amount_cents)}`);
-  if (t.carriedCents) lines.push(`Adjustments from earlier periods: ${money(t.carriedCents)}`);
   lines.push('');
   lines.push(`Hours: ${hoursText(t.minutes)}${t.rate ? ` at ${money(t.rate.rate_cents)}/hr` : ''}`);
-  lines.push(`Total: ${money(t.owedCents)}`);
-  for (const p of t.payouts) lines.push(`Paid ${shortDate(p.paid_on)} by ${methodText(p.method)}: ${money(p.amount_cents)}`);
+  lines.push(`Total: ${money(t.totalCents)}`);
   return lines.join('\n');
 }
 
@@ -147,10 +143,12 @@ export function familiesCsv(rows) {
   );
 }
 
+// One pay period, one row per tutor, for the CPA
 export function payrollCsv(rows) {
   return csvText(
-    ['Tutor', 'Period', 'Hours', 'Rate', 'Owed', 'Paid'],
-    rows.map((t) => [t.name, periodText(t.periodStart), hoursText(t.minutes), t.rate ? dollars(t.rate.rate_cents) : '', dollars(t.owedCents), dollars(t.paidCents)]),
+    ['Tutor', 'Period start', 'Period end', 'Hours', 'Rate', 'Sessions', 'Adjustments', 'Total'],
+    rows.map((t) => [t.name, t.periodStart, payPeriodEnd(t.periodStart), hoursText(t.minutes), t.rate ? dollars(t.rate.rate_cents) : '',
+      dollars(t.realizedCents), dollars(t.adjustmentCents), dollars(t.totalCents)]),
   );
 }
 
@@ -165,9 +163,9 @@ export function sessionsCsv(ctx, rows) {
 
 export function yearCsv(rows) {
   return csvText(
-    ['Month', 'Revenue expected', 'Revenue realized', 'Collected', 'Tutor pay', 'Paid out', 'Net'],
+    ['Month', 'Revenue expected', 'Revenue realized', 'Collected', 'Tutor pay', 'Net'],
     rows.map((r) => [monthName(r.month), dollars(r.revenueExpected), dollars(r.revenueRealized), dollars(r.collected),
-      dollars(r.tutorRealized), dollars(r.paidOut), dollars(r.netRealized)]),
+      dollars(r.tutorRealized), dollars(r.netRealized)]),
   );
 }
 

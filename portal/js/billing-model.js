@@ -17,7 +17,7 @@
 //               statements, parentLinks, names
 //     adminIds  ids of admins, so their own edits are not flagged
 
-import { dayKey, addDays, daysBetween, parseKey, weekday } from './dates.js';
+import { dayKey, addDays, parseKey, weekday } from './dates.js';
 import { durationMinutes } from './sessions-model.js';
 
 export const MINUTES_PER_HOUR = 60;
@@ -115,25 +115,26 @@ export function dayText(day, refDay = null) {
   return `${DAYS[weekday(day)]}, ${shortDate(day, refDay)}`;
 }
 
-// The first day of the 14-day pay period holding `day`, counted from the anchor
-// Sunday (days before the anchor fall in earlier periods)
-export function payPeriodStart(day, anchor) {
-  return addDays(anchor, 14 * Math.floor(daysBetween(anchor, day) / 14));
+// Tutor pay periods are twice a month: the 1st to the 15th, and the 16th to the
+// last day. The first day of the period holding `day`:
+export function payPeriodStart(day) {
+  return `${day.slice(0, 8)}${Number(day.slice(8, 10)) <= 15 ? '01' : '16'}`;
 }
 
 export function payPeriodEnd(start) {
-  return addDays(start, 13);
-}
-
-export function payDay(start, lagDays) {
-  return addDays(payPeriodEnd(start), lagDays);
+  return start.endsWith('-01') ? `${start.slice(0, 8)}15` : monthEnd(start);
 }
 
 // Every pay period overlapping [from, to], earliest first
-export function periodsOverlapping(from, to, anchor) {
+export function periodsOverlapping(from, to) {
   const out = [];
-  for (let p = payPeriodStart(from, anchor); p <= to; p = addDays(p, 14)) out.push(p);
+  for (let p = payPeriodStart(from); p <= to; p = addDays(payPeriodEnd(p), 1)) out.push(p);
   return out;
+}
+
+// A month's bill is dated the 1st of the next month (October 1 bills September)
+export function billDate(month) {
+  return addMonths(monthOf(month), 1);
 }
 
 // 'Nov 1 to Nov 14'
@@ -249,7 +250,7 @@ export function sessionMoney(session, ctx) {
     session,
     day,
     month: monthOf(day),
-    periodStart: payPeriodStart(day, ctx.settings.payroll_anchor),
+    periodStart: payPeriodStart(day),
     minutes,
     state,
     pct,
@@ -516,101 +517,58 @@ export function studentsWithoutPayer(ctx, from, to) {
 }
 
 // ---------------------------------------------------------------------------
-// Tutors (biweekly)
+// Tutors (twice a month). Information only: the CPA runs payroll, so the page
+// shows what each tutor earned in each period and records no payouts.
 
 export function tutorAdjustments(ctx, tutorId, periodStart) {
   return ctx.adjustments.filter((a) => a.party === 'tutor' && same(a.party_id, tutorId) && a.period === periodStart);
-}
-
-export function tutorPayouts(ctx, tutorId, periodStart) {
-  return ctx.payouts.filter((p) => p.kind === 'tutor' && same(p.tutor_id, tutorId) && p.period_start === periodStart);
-}
-
-function periodOwed(ctx, tutorId, periodStart) {
-  const rows = ctx.rows.filter((r) => r.periodStart === periodStart && same(r.session.tutor_id, tutorId));
-  return sum(groupSlots(rows), (s) => s.tutorRealized) + sum(tutorAdjustments(ctx, tutorId, periodStart), (a) => a.amount_cents);
-}
-
-function paidStarts(ctx, tutorId) {
-  return [...new Set(ctx.payouts.filter((p) => p.kind === 'tutor' && same(p.tutor_id, tutorId)).map((p) => p.period_start))].sort();
-}
-
-// Whatever paid periods came to beyond (or short of) what was paid for them,
-// carried into the one period after the latest paid period, and nowhere else.
-// Paying that period (carry included) settles it, so nothing is carried twice.
-export function carriedInto(ctx, tutorId, periodStart) {
-  const starts = paidStarts(ctx, tutorId);
-  if (!starts.length || periodStart !== addDays(starts.at(-1), 14)) return 0;
-  return sum(starts, (start) => periodOwed(ctx, tutorId, start) - sum(tutorPayouts(ctx, tutorId, start), (p) => p.amount_cents));
 }
 
 export function tutorPeriod(ctx, tutorId, periodStart) {
   const rows = ctx.rows.filter((r) => r.periodStart === periodStart && same(r.session.tutor_id, tutorId));
   const slots = groupSlots(rows);
   const adjustments = tutorAdjustments(ctx, tutorId, periodStart);
-  const payouts = tutorPayouts(ctx, tutorId, periodStart);
   const adjustmentCents = sum(adjustments, (a) => a.amount_cents);
-  const paid = payouts.length > 0;
-  const carriedCents = paid ? 0 : carriedInto(ctx, tutorId, periodStart);
   const realizedCents = sum(slots, (s) => s.tutorRealized);
   const expectedCents = sum(slots, (s) => s.tutorExpected);
-  const ownCents = realizedCents + adjustmentCents;
-  const owedCents = ownCents + carriedCents;
-  const paidCents = sum(payouts, (p) => p.amount_cents);
-  const rate = tutorRateFor(tutorId, payPeriodEnd(periodStart), ctx.tutorRates);
-  const snapshot = payouts.reduce((best, p) => (!best || p.created_at > best.created_at ? p : best), null);
-  const later = paidStarts(ctx, tutorId).some((st) => st > periodStart);
   return {
     tutorId: String(tutorId),
     name: ctx.nameOf(tutorId),
     periodStart,
+    periodEnd: payPeriodEnd(periodStart),
     rows,
     slots,
     adjustments,
-    payouts,
-    rate,
+    rate: tutorRateFor(tutorId, payPeriodEnd(periodStart), ctx.tutorRates),
     minutes: sum(slots, (s) => s.minutes),
     payableMinutes: sum(slots, (s) => s.payableMinutes),
     expectedCents: expectedCents + adjustmentCents,
     realizedCents,
     adjustmentCents,
-    carriedCents,
-    ownCents,
-    owedCents,
-    paidCents,
-    // A paid period owes nothing more here: any difference moves to the next period
-    dueCents: paid ? 0 : owedCents - paidCents,
-    differenceCents: paid ? ownCents - paidCents : 0,
-    settledLater: later,
-    snapshot,
-    changedSincePayout: Boolean(snapshot) && snapshot.owed_cents !== ownCents,
+    // What the tutor earned for the period: sessions that happened plus adjustments
+    totalCents: realizedCents + adjustmentCents,
   };
 }
 
-// Everyone with sessions, adjustments or payouts in the period
+// Everyone with sessions or adjustments in the period
 export function periodRows(ctx, periodStart) {
   const ids = new Set();
   for (const r of ctx.rows) if (r.periodStart === periodStart) ids.add(String(r.session.tutor_id));
   for (const a of ctx.adjustments) if (a.party === 'tutor' && a.period === periodStart) ids.add(String(a.party_id));
-  for (const p of ctx.payouts) if (p.kind === 'tutor' && p.period_start === periodStart) ids.add(String(p.tutor_id));
-  // a tutor with a difference carried into this period shows even without sessions in it
-  for (const p of ctx.payouts) if (p.kind === 'tutor' && carriedInto(ctx, p.tutor_id, periodStart)) ids.add(String(p.tutor_id));
   return [...ids].map((id) => tutorPeriod(ctx, id, periodStart)).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Upcoming, In progress, Check first (open items in it), or Complete (ready for the CPA)
 export function periodStatus(ctx, t) {
   const today = dayKey(ctx.now);
   if (t.periodStart > today) return { key: 'future', label: 'Upcoming', tone: 'neutral' };
-  if (t.payouts.length && t.differenceCents === 0) return { key: 'paid', label: `Paid ${shortDate(t.payouts.at(-1).paid_on, today)}`, tone: 'success' };
-  if (t.payouts.length && t.settledLater) return { key: 'settled', label: 'Paid; difference settled later', tone: 'success' };
-  if (t.payouts.length) return { key: 'carried', label: `Paid; ${signedMoney(t.differenceCents)} carried to the next period`, tone: 'warning' };
-  if (t.owedCents === 0 && t.payableMinutes === 0) return { key: 'nothing', label: 'Nothing owed', tone: 'neutral' };
-  if (payPeriodEnd(t.periodStart) >= today) return { key: 'open', label: 'In progress', tone: 'neutral' };
-  return { key: 'unpaid', label: 'Unpaid', tone: 'neutral' };
+  if (t.periodEnd >= today) return { key: 'open', label: 'In progress', tone: 'neutral' };
+  if (!tutorBlockers(ctx, t.tutorId, t.periodStart).ok) return { key: 'check', label: 'Check first', tone: 'warning' };
+  return { key: 'complete', label: 'Complete', tone: 'success' };
 }
 
 // Every tutor with sessions in [from, to]: hours, expected and realized pay,
-// what was paid for those days (payouts allocated by their lines), and YTD
+// and what they have earned so far this year
 export function tutorRangeRows(ctx, from, to) {
   const byTutor = new Map();
   for (const r of ctx.rows) {
@@ -621,47 +579,28 @@ export function tutorRangeRows(ctx, from, to) {
   }
   return [...byTutor].map(([tutorId, rows]) => {
     const slots = groupSlots(rows);
-    let paid = 0;
-    for (const p of ctx.payouts.filter((x) => x.kind === 'tutor' && same(x.tutor_id, tutorId))) {
-      for (const [day, c] of allocatePayout(p)) if (day >= from && day <= to) paid += c;
-    }
     return {
       tutorId,
       name: ctx.nameOf(tutorId),
       minutes: sum(slots.filter((s) => s.tutorExpected > 0 || s.payableMinutes > 0), (s) => s.minutes),
       expectedCents: sum(slots, (s) => s.tutorExpected),
       realizedCents: sum(slots, (s) => s.tutorRealized),
-      paidCents: paid,
       ytdCents: yearToDate(ctx, tutorId, parseKey(to).y),
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-// Paid to a tutor this year: payouts by paid_on, opening balance included
+// Earned by a tutor this year, through today: sessions that happened plus adjustments
 export function yearToDate(ctx, tutorId, year = parseKey(dayKey(ctx.now)).y) {
-  return sum(ctx.payouts.filter((p) => same(p.tutor_id, tutorId) && p.paid_on.startsWith(`${year}-`)), (p) => p.amount_cents);
+  const from = `${year}-01-01`;
+  const to = [dayKey(ctx.now), `${year}-12-31`].sort()[0];
+  const rows = ctx.rows.filter((r) => same(r.session.tutor_id, tutorId) && r.day >= from && r.day <= to);
+  const adj = ctx.adjustments.filter((a) => a.party === 'tutor' && same(a.party_id, tutorId) && a.period >= from && a.period <= to);
+  return sum(groupSlots(rows), (s) => s.tutorRealized) + sum(adj, (a) => a.amount_cents);
 }
 
 // ---------------------------------------------------------------------------
 // Totals for a range
-
-// Payout money in [from, to], by the days of the lines it covered (the
-// remainder, such as adjustments, on the period's last day)
-export function allocatePayout(payout) {
-  const out = new Map();
-  let lined = 0;
-  for (const l of payout.lines ?? []) {
-    if (!l.day || typeof l.amount_cents !== 'number') continue;
-    out.set(l.day, (out.get(l.day) ?? 0) + l.amount_cents);
-    lined += l.amount_cents;
-  }
-  const rest = payout.amount_cents - lined;
-  if (rest) {
-    const end = payout.kind === 'tutor' ? payPeriodEnd(payout.period_start) : payout.period_start;
-    out.set(end, (out.get(end) ?? 0) + rest);
-  }
-  return out;
-}
 
 // Totals for [from, to]. For a whole month (byMonth), Collected is what came in
 // for that month's bills (plus payments not tied to a month received in it);
@@ -684,14 +623,6 @@ export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) &&
     : sum(ctx.payments.filter((p) => p.received_on >= from && p.received_on <= to), (p) => p.amount_cents);
   const tutorExpected = sum(slots, (s) => s.tutorExpected) + tutorAdj;
   const tutorRealized = sum(slots, (s) => s.tutorRealized) + tutorAdj;
-  let paidOut = 0;
-  for (const p of ctx.payouts.filter((x) => x.kind === 'tutor')) {
-    if (cash) {
-      if (p.paid_on >= from && p.paid_on <= to) paidOut += p.amount_cents;
-      continue;
-    }
-    for (const [day, cents] of allocatePayout(p)) if (day >= from && day <= to) paidOut += cents;
-  }
   const studentMinutes = sum(rows.filter((r) => r.familyExpected > 0), (r) => r.minutes);
   const slotMinutes = sum(slots.filter((s) => s.tutorExpected > 0), (s) => s.minutes);
   const netExpected = revenueExpected - tutorExpected;
@@ -704,7 +635,6 @@ export function rangeTotals(ctx, from, to, { byMonth = from === monthOf(from) &&
     collected,
     tutorExpected,
     tutorRealized,
-    paidOut,
     netExpected,
     netRealized,
     marginPct: revenueExpected > 0 ? Math.round((netExpected / revenueExpected) * 100) : null,
@@ -840,11 +770,6 @@ export function needsAttention(ctx, from, to, { sessionsOnly = false } = {}) {
       if (f.changedSincePayment) items.push({ kind: 'changed_paid', parentId: f.parentId, month: m, cents: f.owedCents - f.snapshot.owed_cents });
     }
   }
-  for (const start of new Set(ctx.payouts.filter((p) => p.kind === 'tutor').map((p) => p.period_start))) {
-    for (const t of periodRows(ctx, start)) {
-      if (t.changedSincePayout && !t.settledLater) items.push({ kind: 'changed_paid', tutorId: t.tutorId, periodStart: start, cents: t.ownCents - t.snapshot.owed_cents });
-    }
-  }
   // Sessions a tutor (or the Google sync) deleted after they happened: they are no longer billed or paid
   for (const e of ctx.edits) {
     if (e.action !== 'delete' || !e.old_ends_at || ms(e.at) < ms(e.old_ends_at)) continue;
@@ -879,7 +804,7 @@ export function familyBlockers(ctx, parentId, month) {
   return { ok: blocking.length === 0, items: blocking };
 }
 
-// Whether Mark paid may be used for a tutor's period: { ok, items }
+// Whether a tutor's period is ready for the CPA (nothing open in it): { ok, items }
 export function tutorBlockers(ctx, tutorId, periodStart) {
   const end = payPeriodEnd(periodStart);
   const { items } = needsAttention(ctx, periodStart, end, { sessionsOnly: true });
@@ -889,7 +814,7 @@ export function tutorBlockers(ctx, tutorId, periodStart) {
 }
 
 // ---------------------------------------------------------------------------
-// Snapshots written with a payment or payout (the page's own lines, as data)
+// Snapshot written with a payment (the page's own lines, as data)
 
 export function familySnapshot(f) {
   return [
@@ -911,24 +836,6 @@ export function familySnapshot(f) {
   ];
 }
 
-export function tutorSnapshot(t) {
-  return [
-    ...t.slots.map((s) => ({
-      session_id: s.rows[0].id,
-      session_ids: s.rows.map((r) => r.id),
-      day: s.rows[0].day,
-      student_id: String(s.rows[0].session.student_id),
-      minutes: s.minutes,
-      state: s.rows[0].state,
-      group_key: s.rows[0].groupKey,
-      tutor_rate_id: s.rows[0].tutorRate?.id ?? null,
-      rate_cents: s.rows[0].tutorRate?.rate_cents ?? 0,
-      amount_cents: s.tutorRealized,
-    })),
-    ...t.adjustments.map((a) => ({ adjustment_id: a.id, day: payPeriodEnd(a.period), label: a.label, amount_cents: a.amount_cents })),
-  ];
-}
-
 // ---------------------------------------------------------------------------
 // The session drawer's Billing line (admin only)
 
@@ -943,20 +850,17 @@ export function billingFact(ctx, session, role) {
   const payer = payerFor(ctx, row);
   const familyPaid = payer && ctx.payments.find((p) => same(p.parent_id, payer) && p.period === row.month);
   if (familyPaid) parts.push(`family paid ${money(familyPaid.amount_cents)} on ${shortDate(familyPaid.received_on)}`);
-  const tutorPaid = ctx.payouts.find((p) => p.kind === 'tutor' && same(p.tutor_id, row.session.tutor_id) && p.period_start === row.periodStart);
-  if (tutorPaid) parts.push(`tutor paid ${shortDate(tutorPaid.paid_on)}`);
   if (row.groupKey) parts.push(`group: ${row.groupKey}`);
   if (row.unpriced) parts.push('no family rate yet');
   return parts.join('; ');
 }
 
-// True when a session sits in a month or pay period that money has moved for
+// True when a session sits in a month its family has paid for
 export function inPaidPeriod(ctx, session) {
   const row = ctx?.rows?.find((r) => same(r.id, session.id));
   if (!row) return false;
   const payer = payerFor(ctx, row);
-  return ctx.payments.some((p) => same(p.parent_id, payer) && p.period === row.month)
-    || ctx.payouts.some((p) => p.kind === 'tutor' && same(p.tutor_id, row.session.tutor_id) && p.period_start === row.periodStart);
+  return ctx.payments.some((p) => same(p.parent_id, payer) && p.period === row.month);
 }
 
 // 'Nov 2026 · ABC123' style statement number: month plus six characters of the parent id

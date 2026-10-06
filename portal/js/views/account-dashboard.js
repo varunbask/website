@@ -62,8 +62,8 @@ export function mount(ctx) {
           ['Expected', t.revenueExpected], ['Realized', t.revenueRealized], ['Collected', t.collected],
         ], ranged ? `${hoursText(t.studentMinutes)} student hours` : `Families owe ${money(outstandingMonth)} this month, ${money(allOutstanding(b))} in all. ${hoursText(t.studentMinutes)} student hours.`),
         tile('Tutor pay', 'users-three', [
-          ['Expected', t.tutorExpected], ['Realized', t.tutorRealized], ['Paid', t.paidOut],
-        ], `${hoursText(t.slotMinutes)} hours taught.`),
+          ['Expected', t.tutorExpected], ['Realized', t.tutorRealized],
+        ], `${hoursText(t.slotMinutes)} hours taught. Your CPA runs payroll from the Payroll tab.`),
         tile('Net', 'chart-line-up', [
           ['Expected', t.netExpected], ['Realized', t.netRealized],
         ], `${t.marginPct === null ? 'No revenue yet' : `${t.marginPct}% margin`}. Revenue less tutor pay; no other expenses are tracked.`, true)),
@@ -148,9 +148,8 @@ export function mount(ctx) {
       body.push(h('ul', { class: 'acct-attention-list' }, items.map((it) => h('li', {},
         h('a', { href: tabHref('families', it.month) }, `${b.nameOf(it.parentId)}: ${money(it.cents)} for ${monthName(it.month)}`)))));
     } else if (kind === 'changed_paid') {
-      body.push(h('ul', { class: 'acct-attention-list' }, items.map((it) => h('li', {}, it.parentId
-        ? h('a', { href: tabHref('families', it.month) }, `${b.nameOf(it.parentId)}, ${monthName(it.month)}: ${it.cents > 0 ? '+' : ''}${money(it.cents)} since the payment`)
-        : h('a', { href: tabHref('payroll', it.periodStart) }, `${b.nameOf(it.tutorId)}, ${periodText(it.periodStart)}: ${it.cents > 0 ? '+' : ''}${money(it.cents)} since the payout`)))));
+      body.push(h('ul', { class: 'acct-attention-list' }, items.map((it) => h('li', {},
+        h('a', { href: tabHref('families', it.month) }, `${b.nameOf(it.parentId)}, ${monthName(it.month)}: ${it.cents > 0 ? '+' : ''}${money(it.cents)} since the payment`)))));
     } else if (kind === 'no_payer') {
       body.push(h('p', {}, items.map((it) => b.nameOf(it.studentId)).join(', '), '. ',
         h('a', { href: '/portal/people.html#/everyone' }, 'Link a parent on People'), ' (the first parent linked pays).'));
@@ -261,11 +260,11 @@ export function mount(ctx) {
       body: [table({
         label: 'Tutor pay',
         columns: [
-          { key: 'name', label: 'Tutor' }, { key: 'hours', label: 'Hours', num: true }, { key: 'owed', label: 'Owed', num: true },
-          { key: 'paid', label: 'Paid', num: true }, { key: 'ytd', label: 'This year', num: true },
+          { key: 'name', label: 'Tutor' }, { key: 'hours', label: 'Hours', num: true }, { key: 'owed', label: 'Earned', num: true },
+          { key: 'ytd', label: 'This year', num: true },
         ],
-        rows: tutors.map((x) => ({ cells: { name: x.name, hours: hoursText(x.minutes), owed: cents(x.realizedCents), paid: cents(x.paidCents), ytd: cents(x.ytdCents) } })),
-        foot: { name: 'Total', hours: hoursText(total('minutes')), owed: cents(total('realizedCents')), paid: cents(total('paidCents')), ytd: '' },
+        rows: tutors.map((x) => ({ cells: { name: x.name, hours: hoursText(x.minutes), owed: cents(x.realizedCents), ytd: cents(x.ytdCents) } })),
+        foot: { name: 'Total', hours: hoursText(total('minutes')), owed: cents(total('realizedCents')), ytd: '' },
       })],
     });
   }
@@ -281,23 +280,23 @@ export function mount(ctx) {
         button({ label: 'Back to months', size: 'sm', variant: 'ghost', onClick: () => ctx.setParams({ year: null, month: back.slice(0, 7) }, { replace: true }) })),
       card({
         title: `Month by month, ${y}`,
-        meta: 'Revenue and tutor pay by the month of the session; Collected and Paid out by the day money moved.',
+        meta: 'Revenue and tutor pay by the month of the session; Collected by the day money came in.',
         actions: [csvButton(ctx, `account-${y}.csv`, () => yearCsv(rows))],
         body: [table({
           label: `Month by month, ${y}`,
           columns: [
             { key: 'month', label: 'Month' }, { key: 'rev', label: 'Revenue', num: true }, { key: 'col', label: 'Collected', num: true },
-            { key: 'pay', label: 'Tutor pay', num: true }, { key: 'out', label: 'Paid out', num: true }, { key: 'net', label: 'Net', num: true },
+            { key: 'pay', label: 'Tutor pay', num: true }, { key: 'net', label: 'Net', num: true },
           ],
           rows: rows.map((r) => ({
             cells: {
               month: h('a', { href: `#/dashboard?month=${r.month.slice(0, 7)}` }, monthName(r.month).split(' ')[0]),
-              rev: cents(r.revenueRealized), col: cents(r.collected), pay: cents(r.tutorRealized), out: cents(r.paidOut), net: cents(r.netRealized),
+              rev: cents(r.revenueRealized), col: cents(r.collected), pay: cents(r.tutorRealized), net: cents(r.netRealized),
             },
           })),
           foot: {
             month: 'Total', rev: cents(total('revenueRealized')), col: cents(total('collected')), pay: cents(total('tutorRealized')),
-            out: cents(total('paidOut')), net: cents(total('netRealized')),
+            net: cents(total('netRealized')),
           },
         })],
       }));

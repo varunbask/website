@@ -115,8 +115,8 @@ export function accountRoutes() {
     families: entry(accountFamilies, 'Families'),
     payroll: entry(accountPayroll, 'Payroll'),
     rates: entry(accountRates, 'Rates'),
-    // Printable statement (#/statement/<parent id>?month=) and pay slip (#/payslip/<tutor id>?period=)
+    // Printable statement (#/statement/<parent id>?month=) and tutor pay summary (#/payslip/<tutor id>?period=)
     statement: { ...entry(accountPrint, 'Statement'), id: true, hideTabbar: () => true, back: () => ({ label: 'Back to families', href: '#/families' }) },
-    payslip: { ...entry(accountPrint, 'Pay slip'), id: true, hideTabbar: () => true, back: () => ({ label: 'Back to payroll', href: '#/payroll' }) },
+    payslip: { ...entry(accountPrint, 'Pay summary'), id: true, hideTabbar: () => true, back: () => ({ label: 'Back to payroll', href: '#/payroll' }) },
   };
 }
