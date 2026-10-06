@@ -152,6 +152,12 @@ function finishedAt(task, subs) {
   return first;
 }
 
+// The timestamp that puts a task in a period: dated work belongs to the period
+// it was due in, undated work to the one it was created in
+function homeworkAnchor(task) {
+  return validTime(task.due_at) ? task.due_at : task.created_at;
+}
+
 // 'on-time' | 'late' | 'missing' | 'open' for one task and its submissions.
 // Without a due date nothing can be late or missing: finished work is on time.
 export function homeworkOutcome(task, subs, now = new Date()) {
@@ -173,9 +179,7 @@ export function homeworkSummary(tasks, submissions, period, now = new Date()) {
   const out = { assigned: 0, onTime: 0, late: 0, missing: 0, open: 0, completed: 0 };
   for (const task of tasks ?? []) {
     if (!task) continue;
-    // Dated work belongs to the period it was due in; undated work to the one it was created in
-    const anchor = validTime(task.due_at) ? task.due_at : task.created_at;
-    if (!inPeriod(anchor, period)) continue;
+    if (!inPeriod(homeworkAnchor(task), period)) continue;
     out.assigned += 1;
     const outcome = homeworkOutcome(task, byTask.get(String(task.id)), now);
     if (outcome === 'on-time') out.onTime += 1;
@@ -246,10 +250,12 @@ export function gradeSummary(submissions, period) {
   };
 }
 
-// Assignments whose latest attempt has a score that is not released yet. Only
-// staff ever load these (the database hides them from families), so the view
-// can tell them what this report leaves out.
-export function unreleasedCount(submissions) {
+// Assignments in the period whose latest attempt has a score that is not
+// released yet (an assignment belongs to the period as in homeworkSummary: by
+// its due day, or its created day without a due date). Only staff ever load
+// these (the database hides them from families), so the view can tell them what
+// this report leaves out.
+export function unreleasedCount(tasks, submissions, period) {
   const byTask = new Map();
   for (const sub of submissions ?? []) {
     const key = String(sub.task_id);
@@ -257,8 +263,10 @@ export function unreleasedCount(submissions) {
     byTask.get(key).push(sub);
   }
   let n = 0;
-  for (const subs of byTask.values()) {
-    const grade = one(sortSubs(subs)[0]?.grade);
+  for (const task of tasks ?? []) {
+    if (!task || !inPeriod(homeworkAnchor(task), period)) continue;
+    const latest = sortSubs(byTask.get(String(task.id)))[0];
+    const grade = one(latest?.grade);
     if (grade && isScore(grade.score) && !grade.released_at) n += 1;
   }
   return n;
@@ -360,6 +368,6 @@ export function buildReport({
     homework: homeworkSummary(tasks, submissions, period, now),
     grades: gradeSummary(submissions, period),
     notes: sessionNotes(sessions, period, { now, tutors, names }),
-    unreleased: unreleasedCount(submissions),
+    unreleased: unreleasedCount(tasks, submissions, period),
   };
 }

@@ -457,9 +457,38 @@ describe('unreleasedCount', () => {
       sub(d.id, { created_at: at('2026-09-10'), grade: grade(70, '2026-09-11') }),
       sub(d.id, { created_at: at('2026-09-20'), grade: grade(95, null) }),   // newer draft
     ];
-    expect(unreleasedCount(subs)).toBe(2);
-    expect(unreleasedCount([])).toBe(0);
-    expect(unreleasedCount(null)).toBe(0);
+    expect(unreleasedCount([a, b, c, d], subs, P30)).toBe(2);
+    expect(unreleasedCount([], [], P30)).toBe(0);
+    expect(unreleasedCount(null, null, P30)).toBe(0);
+  });
+
+  test('only assignments due in the period count, not older drafts', () => {
+    const inside = task({ due_at: at('2026-09-20') });
+    const spring = task({ due_at: at('2026-04-10') });
+    const later = task({ due_at: at('2026-10-20') });
+    const subs = [
+      sub(inside.id, { grade: grade(80, null) }),
+      sub(spring.id, { grade: grade(80, null) }),
+      sub(later.id, { grade: grade(80, null) }),
+    ];
+    expect(unreleasedCount([inside, spring, later], subs, P30)).toBe(1);
+    // the same drafts, seen from other days: April's draft is counted in a period that covers April
+    const inSpring = reportPeriod('90d', new Date('2026-05-01T19:00:00Z'));
+    expect(unreleasedCount([inside, spring, later], subs, inSpring)).toBe(1);
+    // this school year, seen next May, covers September and the October due date
+    const nextMay = reportPeriod('year', new Date('2027-05-01T19:00:00Z'));
+    expect(unreleasedCount([inside, spring, later], subs, nextMay)).toBe(2);
+  });
+
+  test('undated work counts by the day it was created', () => {
+    const fresh = task({ due_at: null, created_at: at('2026-09-15') });
+    const stale = task({ due_at: null, created_at: at('2026-03-15') });
+    const subs = [sub(fresh.id, { grade: grade(80, null) }), sub(stale.id, { grade: grade(80, null) })];
+    expect(unreleasedCount([fresh, stale], subs, P30)).toBe(1);
+  });
+
+  test('a task with no submissions is never counted', () => {
+    expect(unreleasedCount([task()], [], P30)).toBe(0);
   });
 });
 
@@ -609,5 +638,11 @@ describe('buildReport', () => {
     const r = buildReport({ tasks: [a], submissions: [sub(a.id, { grade: grade(77, null) })], now: NOW });
     expect(r.grades.count).toBe(0);
     expect(r.unreleased).toBe(1);
+  });
+
+  test('drafts from before the period are not mentioned', () => {
+    const old = task({ due_at: at('2026-04-10') });
+    const r = buildReport({ tasks: [old], submissions: [sub(old.id, { grade: grade(77, null) })], periodKey: '30d', now: NOW });
+    expect(r.unreleased).toBe(0);
   });
 });

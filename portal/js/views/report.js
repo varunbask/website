@@ -107,12 +107,12 @@ function gradesSection(r, ctx) {
   return section('Grades',
     stats(
       stat('Graded', g.count, { note: g.count === 1 ? 'assignment' : 'assignments' }),
-      stat('Average score', g.average, { note: 'out of 100' }),
+      stat('Average score', g.average, { note: 'out of 100, latest score on each assignment' }),
       trendStat),
     h('div', { class: 'rpt-chart' },
       h('p', { class: 'rpt-chart-title' }, 'Score history'),
       scoreChart(g.series, { name: firstName(r.studentName), now: ctx.now })),
-    foot('Only grades released by the tutor are counted.'));
+    foot('Only grades released by the tutor are counted. The average and the chart use the latest score on each assignment, so an assignment that was redone counts once.'));
 }
 
 function notesSection(r) {
