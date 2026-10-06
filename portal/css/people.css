@@ -30,7 +30,8 @@
          div.ppl-card-head (avatar 40, .ppl-id, time.ppl-signed)
          div.ppl-card-body (pill, blockquote.quote.ppl-note, div.callout.ppl-dupe)
          div.ppl-approve (label, .select, .btn)
-       Everyone: div.ppl-toolbar (.ppl-search, .ppl-filter-wrap > .segmented.ppl-filter)
+       Everyone: div.ppl-toolbar (.ppl-search, .ppl-filter-wrap > .segmented.ppl-filter,
+                 .ppl-invites (invite chips, shown while someone has no login), .ppl-add-wrap)
          div.ppl-everyone > section.ppl-group > (.group-header) + ul.ppl-list > li.ppl-person
            div.ppl-person-head (avatar, .ppl-id > .ppl-name > .ppl-name-text + .ppl-you + .ppl-name-edit
              (editing: .ppl-name.is-editing > input.ppl-name-input + Save + Cancel),
@@ -835,6 +836,47 @@
 .ppl-invite-actions, .ppl-invite-email { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
 .ppl-invite-email > .input { flex: 1 1 14rem; min-width: 0; }
 .ppl-add-buttons { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+/* The Invites row under the role filter: toggle chips with counts, then one sentence
+   div.ppl-invites > div.ppl-invites-row (span.ppl-invites-label + div.ppl-invchips[role=group]
+     > button.ppl-invchip[aria-pressed] (label + span.ppl-invchip-meta > .visually-hidden + .ppl-invchip-count))
+     + p.ppl-invite-summary
+   It wraps rather than scrolls, so every chip and its count is on screen at 375px. */
+.ppl-invites { flex: 1 1 100%; display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.ppl-invites-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.ppl-invites-label { font: var(--t-caption); color: var(--text-3); }
+.ppl-invchips { display: flex; flex-wrap: wrap; gap: var(--s-2); min-width: 0; }
+.ppl-invchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background-color: var(--surface);
+  color: var(--text-2);
+  font: 500 13px/18px var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-2) var(--ease-out), border-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+}
+@media (hover: hover) {
+  .ppl-invchip:hover { background-color: var(--hover); color: var(--text); }
+}
+.ppl-invchip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ppl-invchip[aria-pressed="true"] {
+  background-color: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+.ppl-invchip-count { font: 400 12px/16px var(--font-ui); font-variant-numeric: tabular-nums; color: var(--text-3); }
+.ppl-invchip[aria-pressed="true"] .ppl-invchip-count { color: var(--accent-text); }
+.ppl-invite-summary { font: var(--t-meta); color: var(--text-2); }
+.ppl-invite-summary:empty { display: none; }
+@media (max-width: 1023.98px), (pointer: coarse) {
+  .ppl-invchip { min-height: 44px; }
+}
 .ppl-list-text { width: 100%; min-height: 8rem; font-family: var(--font-mono); font-size: 13px; }
 .ppl-list-progress:empty { display: none; }
 .ppl-list-progress, .ppl-list-none { font: var(--t-meta); color: var(--text-2); }
