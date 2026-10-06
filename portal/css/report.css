@@ -1,0 +1,219 @@
+/* Progress report (#/report). Prefix: rpt-. Tokens and components come from app.css;
+   the score chart is the Overview's (.ovw-chart-*, overview.css). No raw hex outside
+   the print block, which is black on white whatever the theme.
+
+   Markup (portal/js/views/report.js)
+     div.rpt-root                          the view column
+       div.rpt-bar                         screen only: period picker, hints
+         div.rpt-period-scroll > .segmented
+         p.field-hint (+ .rpt-draft-note, staff only)
+       p.visually-hidden[role=status]
+       div.rpt-sheet-host > article.rpt-sheet     the part that prints
+         header.rpt-head > div.rpt-title (p.rpt-org, p.rpt-kicker, h2.rpt-student)
+                         + dl.rpt-meta
+         section.rpt-section > h3.rpt-h + dl.rpt-stats > div.rpt-stat (+ .is-good .is-warn .is-bad .is-text)
+                                          > dt.rpt-stat-label + dd.rpt-stat-value + dd.rpt-stat-note
+                             + p.rpt-foot | p.rpt-empty | div.rpt-chart | ol.rpt-notes > li.rpt-note
+*/
+
+.rpt-root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  max-width: 52rem;
+}
+
+/* Screen toolbar ------------------------------------------------------------ */
+
+.rpt-bar { display: flex; flex-direction: column; gap: var(--s-2); }
+/* three segments can outgrow a phone; the control scrolls inside its own strip */
+.rpt-period-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* keeps the focus ring visible inside the scroller */
+  padding: 2px;
+  margin: -2px;
+}
+.rpt-period-scroll::-webkit-scrollbar { display: none; }
+.rpt-period-scroll > .segmented { max-width: none; }
+.rpt-draft-note { display: flex; align-items: center; gap: var(--s-2); color: var(--text-2); }
+.rpt-draft-note > .icon { width: 16px; height: 16px; }
+
+/* The sheet ------------------------------------------------------------------ */
+
+.rpt-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+  padding: var(--s-8);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  color: var(--text);
+}
+
+.rpt-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--s-4) var(--s-8);
+  padding-bottom: var(--s-5);
+  border-bottom: 2px solid var(--text);
+}
+.rpt-title { min-width: 0; }
+.rpt-org { font: var(--t-meta); color: var(--text-3); }
+.rpt-kicker {
+  margin-top: var(--s-3);
+  font: var(--t-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.rpt-student { margin-top: var(--s-1); font: var(--t-display); letter-spacing: -0.02em; overflow-wrap: anywhere; }
+
+.rpt-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
+  gap: var(--s-1) var(--s-4);
+  margin: 0;
+  font: var(--t-meta);
+}
+.rpt-meta > div { display: contents; }
+.rpt-meta dt { color: var(--text-3); }
+.rpt-meta dd { margin: 0; overflow-wrap: anywhere; }
+.rpt-meta-sub { display: block; color: var(--text-3); }
+
+.rpt-section { break-inside: avoid; }
+.rpt-section:has(.rpt-notes) { break-inside: auto; }
+.rpt-h { margin-bottom: var(--s-3); font: var(--t-h2); letter-spacing: -0.01em; }
+
+.rpt-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: var(--s-3);
+  margin: 0;
+}
+.rpt-stat {
+  min-width: 0;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background-color: var(--canvas);
+}
+.rpt-stat-label { font: var(--t-meta); color: var(--text-3); }
+.rpt-stat-value {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin: var(--s-1) 0 0;
+  font: var(--t-figure);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.rpt-stat-value > .icon { width: 20px; height: 20px; }
+.rpt-stat.is-text .rpt-stat-value { font: var(--t-h3); letter-spacing: -0.005em; }
+.rpt-stat-note { margin: var(--s-1) 0 0; font: var(--t-meta); color: var(--text-3); }
+.rpt-stat.is-good .rpt-stat-value { color: var(--success-text); }
+.rpt-stat.is-warn .rpt-stat-value { color: var(--warning-text); }
+.rpt-stat.is-bad .rpt-stat-value { color: var(--danger-text); }
+
+.rpt-foot { margin-top: var(--s-3); font: var(--t-meta); color: var(--text-3); }
+.rpt-stats + .rpt-foot { margin-top: var(--s-3); }
+.rpt-foot + .rpt-foot { margin-top: var(--s-1); }
+.rpt-empty { font: var(--t-read); color: var(--text-2); }
+
+.rpt-chart {
+  margin-top: var(--s-5);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+  break-inside: avoid;
+}
+.rpt-chart-title { margin-bottom: var(--s-3); font: 500 13px/18px var(--font-ui); color: var(--text-2); }
+
+.rpt-notes { display: flex; flex-direction: column; gap: var(--s-5); margin: 0; padding: 0; list-style: none; }
+.rpt-note {
+  padding-left: var(--s-4);
+  border-left: 2px solid var(--line-strong);
+  break-inside: avoid;
+}
+.rpt-note-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-3);
+  font: 500 13px/18px var(--font-ui);
+  color: var(--text-2);
+}
+.rpt-note-date { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.rpt-note-body {
+  margin-top: var(--s-1);
+  font: var(--t-read);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* screen only: a printed page is narrower than 768px too, and must keep the desktop layout */
+@media screen and (max-width: 767.98px) {
+  .rpt-sheet { gap: var(--s-6); padding: var(--s-4); }
+  .rpt-head { gap: var(--s-4); }
+  .rpt-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rpt-stat { padding: var(--s-3); }
+  /* a last figure left alone in its row takes the whole row */
+  .rpt-stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .rpt-stat-value { font-size: 26px; line-height: 32px; }
+  .rpt-stat.is-text .rpt-stat-value { font: var(--t-h3); }
+}
+
+/* Print: the report alone, black on white ------------------------------------- */
+
+@page { margin: 14mm; }
+@media print {
+  :root:has(.rpt-root) { color-scheme: light; background: #fff; }
+  body.app-body:has(.rpt-root) { min-height: 0; background: #fff; color: #000; }
+
+  body:has(.rpt-root) :is(.sidebar, .topbar-wrap, .tabbar, .toasts, .skip-link, .scroll-sentinel, .view-header, .rpt-bar) {
+    display: none !important;
+  }
+  body:has(.rpt-root) :is(.app, .panel, .panel > main, .view-root, .view) {
+    display: block !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .rpt-root { display: block; max-width: none; }
+
+  /* Light, high-contrast tokens for everything inside the sheet, the chart included */
+  .rpt-sheet {
+    --text: #000;
+    --text-2: #111;
+    --text-3: #333;
+    --line: #bbb;
+    --line-strong: #777;
+    --surface: #fff;
+    --canvas: #fff;
+    --success-text: #000;
+    --warning-text: #000;
+    --danger-text: #000;
+    gap: 7mm;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: #fff;
+    color: #000;
+  }
+  .rpt-head { padding-bottom: 4mm; }
+  /* at most five figures: one row each on paper */
+  .rpt-stats { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: minmax(0, 1fr); gap: 3mm; }
+  .rpt-stat { background: #fff; border-color: #777; }
+  .rpt-stat-value { color: #000 !important; }
+  .rpt-note { border-left-color: #777; }
+  .rpt-h { break-after: avoid; }
+}

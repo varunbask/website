@@ -15,6 +15,7 @@ import * as accountFamilies from './views/account-families.js';
 import * as accountPayroll from './views/account-payroll.js';
 import * as accountRates from './views/account-rates.js';
 import * as accountPrint from './views/account-print.js';
+import * as report from './views/report.js';
 import * as referrals from './views/referrals.js';
 import * as reviews from './views/reviews.js';
 import { normalizeFilter } from './review-model.js';
@@ -45,6 +46,7 @@ function studentViews({ overviewScoped }) {
     tasks: { mount: (ctx) => tasks.mount(ctx), title: fixed('Tasks'), scoped: true },
     calendar: { mount: (ctx) => calendar.mount(ctx), title: fixed('Calendar'), scoped: true, wide: true },
     updates: { mount: (ctx) => updates.mount(ctx), title: fixed('Updates'), scoped: true },
+    report: { mount: (ctx) => report.mount(ctx), title: fixed('Progress report'), scoped: true },
   };
 }
 
