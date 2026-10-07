@@ -211,7 +211,8 @@ export function mount(ctx) {
     // family nothing and still pays the tutor.
     function exceptionForm(l) {
       const ex = l.exception ?? {};
-      const reasons = Object.entries(REASONS);
+      // No cancellation policy: Late cancellation is not offered (an old exception keeps its label)
+      const reasons = Object.entries(REASONS).filter(([value]) => value !== 'late_cancel' || ex.reason === 'late_cancel');
       const fam = h('input', { type: 'number', class: 'input acct-num-input', min: '0', max: '100', value: ex.charge_pct ?? '', placeholder: 'policy', 'aria-label': 'Family pays (percent)' });
       const reasonWrap = select({ label: 'Reason', options: [{ value: '', label: 'Reason' }, ...reasons.map(([value, label]) => ({ value, label }))], value: ex.reason ?? '' });
       const reasonSelect = reasonWrap.querySelector('select');
