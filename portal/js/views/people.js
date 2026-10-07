@@ -27,6 +27,13 @@
 // from the invites loaded once with the people (portal/js/invite-status-model.js);
 // nothing is queried per row.
 //
+// Delete (every row but an admin's): asks /api/people what would go (delete_preview),
+// shows it in the confirm dialog, which also asks for the person's name typed
+// back, then deletes them for good (delete_person). The row leaves the list at
+// once, every cached view is dropped (store.invalidateAll) so each page redraws,
+// and the other open portal tabs are told (data-sync.js). The wording and the
+// list left behind are in delete-person-model.js.
+//
 // Pure helpers (normalizeRole, roleCounts, linkedTo, peopleIn, byCreated,
 // approveText) are exported for tests; they never touch the DOM.
 
@@ -47,6 +54,11 @@ import { filterPeople, roleChangeBody, normalizeFullName, NAME_MAX } from '../ap
 import { relativeTime } from '../dates.js';
 import { SUBJECT_MAX, linkSubject, normalizeSubject } from '../schedule-summary.js';
 import { colorOptions, automaticLabel, chosenColors, pickerState, colorSavedText, toneClassFor } from '../tutor-colors-model.js';
+import {
+  canDelete, confirmName, nameMatches, normalizePreview, headline, detailLines, typedLabel, blockedTitle, deleteTitle, doneText,
+  problemText, withoutPerson,
+} from '../delete-person-model.js';
+import { announceDataChanged } from '../data-sync.js';
 
 // ---------------------------------------------------------------------------
 // Pure logic
@@ -1312,6 +1324,79 @@ export function mount(ctx) {
       h('div', { class: 'ppl-link-body' }, chips, adder));
   }
 
+  // Where focus goes when a row leaves the list: the next row's Delete button,
+  // else the one before, else the search box
+  function deleteFocusFallback(person) {
+    const keys = [...everyone.list.querySelectorAll('button[data-focus-key^="delete-"]')].map((b) => b.dataset.focusKey);
+    const at = keys.indexOf(`delete-${person.id}`);
+    return keys[at + 1] ?? (at > 0 ? keys[at - 1] : null) ?? 'ppl-search';
+  }
+
+  // Delete a person for good: what would go (the server counts it), the confirm
+  // dialog with the name typed back, then the delete. The server refuses anything
+  // that must stay (payments, paid lessons, admins); its words are shown as they come.
+  async function removePerson(person, trigger) {
+    let preview = null;
+    await busy(trigger, 'Checking…', async () => {
+      const { status, body } = await peopleApi({ action: 'delete_preview', id: person.id });
+      if (!ctx.alive()) return;
+      if (status !== 200) {
+        if (status === 404) await render();
+        say(problemText(status, body), 'error');
+        return;
+      }
+      preview = normalizePreview(body);
+    });
+    if (!preview || !ctx.alive()) return;
+
+    if (preview.blocked) {
+      await ctx.confirm({ title: blockedTitle(person), body: preview.blocked.message, confirmLabel: null });
+      return;
+    }
+    const ok = await ctx.confirm({
+      title: deleteTitle(person),
+      body: headline(person, preview.counts),
+      details: detailLines(preview),
+      requireText: { label: typedLabel(person), match: (typed) => nameMatches(typed, person) },
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!ok) return;
+
+    // Once confirmed it goes through even if a refresh swapped the page meanwhile
+    const next = ctx.alive() ? deleteFocusFallback(person) : null;
+    let answer = { status: 0, body: {} };
+    await busy(trigger, 'Deleting…', async () => {
+      answer = await peopleApi({ action: 'delete_person', id: person.id, confirm_name: confirmName(person) });
+    });
+    const { status, body } = answer;
+
+    if (status !== 200 || !body.deleted) {
+      if (!ctx.alive()) {
+        ctx.toast({ text: problemText(status, body) });
+        return;
+      }
+      // Redraw first so the list shows what the database really holds, then say why
+      if (status === 404 || status === 409) await render({ key: `delete-${person.id}`, fallback: next });
+      if (!ctx.alive()) return;
+      say(problemText(status, body), 'error');
+      message.scrollIntoView({ block: 'center' });
+      return;
+    }
+
+    ctx.toast({ text: doneText(person) });
+    if (ctx.alive()) {
+      // The row goes now; the refresh the store change starts then loads the truth
+      data = withoutPerson(data, person.id);
+      setPendingCount(data.people.filter((p) => p.role === 'pending').length);
+      drawEveryone();
+      restoreFocus({ key: next, fallback: 'ppl-search' });
+    }
+    // Every cached list, count and switcher is dropped and the page redrawn; other tabs do the same
+    ctx.store.invalidateAll();
+    announceDataChanged();
+  }
+
   // The name with an Edit button that swaps in a field. Enter or Save saves,
   // Escape or Cancel puts the name back; zero rows back means it did not save
   // (act reports it). The sidebar shows a new name of your own after a reload.
@@ -1412,6 +1497,20 @@ export function mount(ctx) {
     const staffColor = (person.role === 'tutor' || person.role === 'admin') && person.calendar_color !== undefined
       ? colorControl(person, name) : null;
 
+    // Anyone but an admin can be deleted for good (after a preview and the name typed back)
+    const remove = canDelete(person, me)
+      ? button({
+        label: 'Delete',
+        variant: 'danger-ghost',
+        size: 'sm',
+        icon: 'trash',
+        className: 'ppl-delete',
+        focusKey: `delete-${person.id}`,
+        ariaLabel: `Delete ${name}`,
+        onClick: () => removePerson(person, remove),
+      })
+      : null;
+
     return h('li', { class: isStudent ? 'ppl-person is-student' : 'ppl-person' },
       h('div', { class: 'ppl-person-head' },
         avatar(name, { size: 32 }),
@@ -1420,7 +1519,7 @@ export function mount(ctx) {
           person.email && person.email !== name && !person.no_login ? h('span', { class: 'ppl-email' }, person.email) : null,
           detail,
           staffColor),
-        h('div', { class: 'ppl-controls' }, workspace, roleSelect(person))),
+        h('div', { class: 'ppl-controls' }, workspace, roleSelect(person), remove)),
       inviteControls(person),
       isStudent
         ? h('div', { class: 'ppl-links' },

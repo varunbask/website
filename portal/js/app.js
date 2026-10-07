@@ -52,6 +52,7 @@ import { navCounts } from './buckets.js';
 import { getSeen, hasNewSince } from './seen.js';
 import { recentChanges } from './sessions-model.js';
 import { toast, confirmDialog } from './overlays.js';
+import { onDataChanged } from './data-sync.js';
 import { dragInProgress, whenDragEnds } from './calendar-drag.js';
 import { errorCallout, skeletonRows, linkTabs } from './ui.js';
 import { displayName } from './format.js';
@@ -725,6 +726,42 @@ export function startApp(config) {
   store.onChange(() => {
     updateNav();
     refreshView();
+  });
+
+  // Whether the person on screen (?student= or ?child=) is still in the lists
+  // the portal loads for this person; true when that cannot be told
+  async function scopeStillListed() {
+    const id = scope?.student?.id;
+    if (!id) return true;
+    try {
+      if (scope.kind === 'student') return (await store.getWorkspace()).students.some((s) => String(s.id) === String(id));
+      if (scope.kind === 'child') return (await store.getChildren(me.id)).some((c) => String(c.id) === String(id));
+    } catch {
+      return true;
+    }
+    return true;
+  }
+
+  // The person on screen was deleted (in another tab): go to the page's default
+  // route without them, and pick the scope again from what is left
+  async function leaveDeletedScope() {
+    const gone = scope?.student;
+    if (!gone || !scopeParam || (await scopeStillListed())) return;
+    if (scope?.student?.id !== gone.id) return;
+    const params = new URLSearchParams(location.search);
+    params.delete(scopeParam);
+    const search = params.toString();
+    scopeLoaded = false;
+    toast({ text: `${displayName(gone)} is no longer in the portal.` });
+    router.go(`${location.pathname}${search ? `?${search}` : ''}${defaultRoute(null)}`, { replace: true });
+  }
+
+  // Another tab of this browser changed data for everyone (a person was
+  // deleted): drop everything this tab cached, which redraws the page, the nav
+  // counts and the student switcher, then leave a student who is gone
+  onDataChanged(() => {
+    store.invalidateAll();
+    leaveDeletedScope();
   });
 
   document.addEventListener('visibilitychange', async () => {
