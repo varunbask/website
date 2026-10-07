@@ -140,8 +140,9 @@ export function mount(ctx) {
     let ws;
     let names;
     try {
-      // staffNames never rejects: without it the tutor chips say "Tutor"
-      [ws, names] = await Promise.all([ctx.store.getWorkspace(), staffNames()]);
+      // staffNames never rejects: without it the tutor chips say "Tutor". Nor do the
+      // tutors' colors: each chip is in its tutor's color.
+      [ws, names] = await Promise.all([ctx.store.getWorkspace(), staffNames(), ctx.store.getTutorColors()]);
     } catch (error) {
       if (!ctx.alive()) return;
       console.error(error);
@@ -363,7 +364,7 @@ export function mount(ctx) {
       h('span', { class: 'stu-value' }, content));
   }
 
-  // The student's tutors as small chips in their subject's colour
+  // The student's tutors as small chips in their own colour
   function tutorChips(tutors) {
     if (!tutors.length) return null;
     const shown = tutors.slice(0, TUTOR_CHIPS);

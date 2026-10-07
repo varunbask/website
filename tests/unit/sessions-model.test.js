@@ -1,10 +1,10 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, afterEach } from 'vitest';
 import {
   clockText, timeRange, durationMinutes, durationText, sessionTitle, movedNote, sessionState,
-  subjectTone, toneClass, subjectLegend, sortSessions, sessionsByDay, upcomingSessions, recentChanges,
+  tutorToneClass, tutorLegend, setTutorColors, tutorColorOf, sortSessions, sessionsByDay, upcomingSessions, recentChanges,
   followingInSeries, weekStartKey, weekKeys, weekTitle, dayMinutes, hourRange, layoutDay, overlaps,
   findClashes, timeInput, addMinutesToTime, validateSessionForm, weeklyTimes, retimeRows, sessionAria,
-  toIcs, SUBJECT_TONES,
+  toIcs,
 } from '../../portal/js/sessions-model.js';
 import { zonedIso, dayKey } from '../../portal/js/dates.js';
 
@@ -70,34 +70,65 @@ describe('sessionState', () => {
   });
 });
 
-describe('subject colors', () => {
-  test('stable, case and space insensitive, in range', () => {
-    expect(subjectTone('Algebra')).toBe(subjectTone(' algebra '));
-    for (const name of ['Algebra', 'SAT Reading', 'AP Chemistry', 'English', 'Physics', 'Spanish']) {
-      const n = subjectTone(name);
-      expect(n).toBeGreaterThanOrEqual(0);
-      expect(n).toBeLessThan(SUBJECT_TONES);
-    }
-    expect(subjectTone('')).toBe(-1);
-    expect(toneClass(null)).toBe('subj-none');
-    expect(toneClass('Algebra')).toMatch(/^subj-[0-5]$/);
+describe('tutor colors', () => {
+  afterEach(() => setTutorColors(new Map()));
+
+  test('a lesson wears the color its tutor was given', () => {
+    setTutorColors([{ profile_id: 't1', color: 'red' }, { profile_id: 't2', color: 'violet' }]);
+    expect(tutorToneClass('t1')).toBe('tc-red');
+    expect(tutorToneClass('t2')).toBe('tc-violet');
+    expect(tutorColorOf('t1')).toEqual({ name: 'red', automatic: false });
   });
 
-  test('a palette gives loaded subjects different tones while tones last', async () => {
-    const { buildPalette } = await import('../../portal/js/sessions-model.js');
-    const seven = ['Math', 'Algebra', 'SAT Reading', 'English', 'Physics', 'Chemistry', 'Spanish'];
-    const six = buildPalette(seven.slice(0, 6));
-    expect(new Set(six.values()).size).toBe(6);
-    expect(buildPalette(['math', ' Math ', 'Algebra']).size).toBe(2);
-    // Same input, same answer, whatever the order
-    expect([...buildPalette(seven).entries()]).toEqual([...buildPalette([...seven].reverse()).entries()]);
-    for (const tone of buildPalette(seven).values()) expect(tone).toBeLessThan(SUBJECT_TONES);
+  test('a tutor with no color gets one automatically, the same every time', () => {
+    expect(tutorToneClass('t9')).toMatch(/^tc-[a-z]+$/);
+    expect(tutorToneClass('t9')).toBe(tutorToneClass('t9'));
+    expect(tutorToneClass('t9')).not.toBe('tc-none');
+    expect(tutorColorOf('t9').automatic).toBe(true);
   });
 
-  test('legend lists each subject once', () => {
+  test('a lesson without a tutor has no color', () => {
+    expect(tutorToneClass(null)).toBe('tc-none');
+    expect(tutorToneClass(undefined)).toBe('tc-none');
+    expect(tutorToneClass('')).toBe('tc-none');
+  });
+
+  test('ids may arrive as numbers or strings', () => {
+    setTutorColors([{ profile_id: 7, color: 'teal' }]);
+    expect(tutorToneClass(7)).toBe('tc-teal');
+    expect(tutorToneClass('7')).toBe('tc-teal');
+  });
+
+  test('the legend lists each tutor once, by name', () => {
+    setTutorColors([{ profile_id: 't1', color: 'red' }, { profile_id: 't2', color: 'blue' }]);
+    const list = [session('2026-10-15', '16:00', '17:00'), session('2026-10-16', '16:00', '17:00'),
+      session('2026-10-17', '10:00', '11:00', { tutor_id: 't2', subject: 'SAT Reading' })];
+    const names = new Map([['t1', 'Varun Baskaran'], ['t2', ' Ethan Poon ']]);
+    expect(tutorLegend(list, names)).toEqual([
+      { tutorId: 't2', label: 'Ethan Poon', tone: 'tc-blue' },
+      { tutorId: 't1', label: 'Varun Baskaran', tone: 'tc-red' },
+    ]);
+  });
+
+  test('without a name the legend shows the subjects, never an id', () => {
     const list = [session('2026-10-15', '16:00', '17:00'), session('2026-10-16', '16:00', '17:00', { subject: 'algebra' }),
-      session('2026-10-17', '10:00', '11:00', { subject: 'SAT Reading' })];
-    expect(subjectLegend(list).map((l) => l.subject)).toEqual(['Algebra', 'SAT Reading']);
+      session('2026-10-16', '17:00', '18:00', { subject: 'SAT Reading' }),
+      session('2026-10-17', '10:00', '11:00', { tutor_id: 't2', subject: null })];
+    const rows = tutorLegend(list, new Map());
+    expect(rows.map((r) => r.label)).toEqual(['Algebra, SAT Reading', 'Tutor']);
+    for (const r of rows) expect(r.label).not.toMatch(/^t\d$/);
+    expect(tutorLegend(list).length).toBe(2);
+    expect(tutorLegend(list, null).length).toBe(2);
+  });
+
+  test('a lesson in the same week from two tutors is two legend entries even with one subject', () => {
+    const list = [session('2026-10-15', '16:00', '17:00'), session('2026-10-15', '17:00', '18:00', { tutor_id: 't2' })];
+    expect(tutorLegend(list, new Map([['t1', 'A'], ['t2', 'B']])).map((r) => r.label)).toEqual(['A', 'B']);
+  });
+
+  test('no sessions, no legend', () => {
+    expect(tutorLegend([], new Map())).toEqual([]);
+    expect(tutorLegend(null, new Map())).toEqual([]);
   });
 });
 

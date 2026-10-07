@@ -29,7 +29,7 @@ import { itemForm } from './item-form.js';
 import { submitWorkSection } from './submit-work.js';
 import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, lessonLabel } from './materials-model.js';
-import { toneClass } from './sessions-model.js';
+import { tutorToneClass } from './sessions-model.js';
 import { renderSessionCreate, renderSessionDetail } from './session-drawer.js';
 import { renderSessionNotes } from './session-notes-drawer.js';
 import { notesDrawerSession } from './schedule-summary.js';
@@ -554,7 +554,7 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
     const caret = icon('caret-right');
     caret.classList.add('asg-lesson-caret');
     nodes.push(h('a', {
-      class: `asg-lesson ${toneClass(found.lesson.subject)}`,
+      class: `asg-lesson ${tutorToneClass(found.lesson.tutor_id)}`,
       href: drawerHref(hash, `s${found.lesson.id}`),
       dataset: { focusKey: 'asg-lesson' },
     },

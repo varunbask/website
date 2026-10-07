@@ -1,4 +1,4 @@
-// Pure logic for tutoring sessions: labels and states, subject colors, the
+// Pure logic for tutoring sessions: labels and states, tutor colors, the
 // week grid layout, clash checks, weekly repeats, edits to a series and the
 // .ics export. No DOM. Times are entered and shown in the business zone
 // (dates.js), with " PT" when the viewer's clock is in another zone.
@@ -12,8 +12,8 @@ import {
   WEEK_START, dayKey, addDays, weekday, zonedIso, businessTime, viewerIsInBusinessZone,
   parseKey, daysBetween,
 } from './dates.js';
+import { tutorToneClass } from './tutor-colors-model.js';
 
-export const SUBJECT_TONES = 6;
 export const MAX_SESSION_MINUTES = 480;
 export const DAY_START_HOUR = 7;      // the week grid shows at least 7 am to 9 pm
 export const DAY_END_HOUR = 21;
@@ -104,66 +104,31 @@ export function sessionState(session, now = new Date()) {
 }
 
 // ---------------------------------------------------------------------------
-// Subject colors. Each subject prefers a tone from a hash of its name; the
-// subjects loaded on the page share out the tones so two subjects never look
-// alike while there are tones to spare (rememberSubjects, called by the store).
+// Tutor colors. A lesson is drawn in the color of its tutor (the admin picks it,
+// or the tutor's id picks one; tutor-colors-model.js). The store hands the
+// loaded colors to setTutorColors; tutorToneClass(tutor_id) is the class a
+// lesson's row, block, chip or dot carries.
 
-const subjectKey = (subject) => subject.trim().toLowerCase();
+export { setTutorColors, tutorToneClass, tutorColorOf } from './tutor-colors-model.js';
 
-function hashTone(key) {
-  let hash = 5381;
-  for (const ch of key) hash = ((hash * 33) ^ ch.codePointAt(0)) >>> 0;
-  return hash % SUBJECT_TONES;
-}
-
-// Map<subject key, tone>: in name order, each takes its preferred tone or the
-// next free one; once all tones are used, a subject keeps its preferred tone
-export function buildPalette(subjects) {
-  const keys = [...new Set((subjects ?? []).filter((x) => !blank(x)).map(subjectKey))].sort();
-  const used = new Set();
-  const palette = new Map();
-  for (const key of keys) {
-    let tone = hashTone(key);
-    if (used.size < SUBJECT_TONES) while (used.has(tone)) tone = (tone + 1) % SUBJECT_TONES;
-    used.add(tone);
-    palette.set(key, tone);
-  }
-  return palette;
-}
-
-const knownSubjects = new Set();
-let palette = new Map();
-
-// Adds subjects to the page's palette (the store calls this as data loads)
-export function rememberSubjects(subjects) {
-  let changed = false;
-  for (const x of subjects ?? []) {
-    if (blank(x) || knownSubjects.has(subjectKey(x))) continue;
-    knownSubjects.add(subjectKey(x));
-    changed = true;
-  }
-  if (changed) palette = buildPalette([...knownSubjects]);
-}
-
-export function subjectTone(subject) {
-  if (blank(subject)) return -1;
-  const key = subjectKey(subject);
-  return palette.get(key) ?? hashTone(key);
-}
-
-export function toneClass(subject) {
-  const n = subjectTone(subject);
-  return n < 0 ? 'subj-none' : `subj-${n}`;
-}
-
-// Distinct subjects in first-seen order, for a legend: [{ subject, tone }]
-export function subjectLegend(sessions) {
-  const seen = new Map();
+// The tutors of some sessions, once each, for the calendar legend:
+// [{ tutorId, label, tone }] by label. names is a Map of tutor ids to names
+// (staffNames()). Without a name the label is the subjects that tutor teaches in
+// these sessions (never an id), or "Tutor" when they have none.
+export function tutorLegend(sessions, names = new Map()) {
+  const byTutor = new Map();
   for (const s of sortSessions(sessions)) {
-    const name = sessionTitle(s);
-    if (!seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), { subject: name, tone: toneClass(s.subject) });
+    const key = String(s.tutor_id ?? '');
+    if (!byTutor.has(key)) byTutor.set(key, { tutorId: s.tutor_id ?? null, name: null, subjects: new Map(), tone: tutorToneClass(s.tutor_id) });
+    const entry = byTutor.get(key);
+    const name = names?.get?.(key);
+    if (typeof name === 'string' && name.trim()) entry.name = name.trim();
+    const subject = blank(s.subject) ? null : s.subject.trim();
+    if (subject && !entry.subjects.has(subject.toLowerCase())) entry.subjects.set(subject.toLowerCase(), subject);
   }
-  return [...seen.values()];
+  return [...byTutor.values()]
+    .map((e) => ({ tutorId: e.tutorId, label: e.name ?? ([...e.subjects.values()].join(', ') || 'Tutor'), tone: e.tone }))
+    .sort((a, b) => a.label.localeCompare(b.label) || String(a.tutorId).localeCompare(String(b.tutorId)));
 }
 
 // ---------------------------------------------------------------------------

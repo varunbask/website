@@ -9,6 +9,7 @@ import {
   attendanceGuard, attendanceTakenText,
 } from '../../portal/js/schedule-summary.js';
 import { zonedIso } from '../../portal/js/dates.js';
+import { tutorToneClass } from '../../portal/js/sessions-model.js';
 
 // The Students view imports the store chain, which builds a Supabase client
 vi.mock('../../portal/js/supabase.js', () => ({ sb: {} }));
@@ -192,12 +193,24 @@ describe('tutors', () => {
     ];
     const list = tutorEntries(rows, names);
     expect(list.map((t) => [t.name, t.subject])).toEqual([['Daniel Ortiz', 'Algebra'], ['Priya Shah', 'SAT Reading']]);
-    expect(list[0].tone).toMatch(/^subj-\d$/);
+    expect(list[0].tone).toBe(tutorToneClass('t1'));
+    expect(list[1].tone).toBe(tutorToneClass('t2'));
+    expect(list[0].tone).toMatch(/^tc-[a-z]+$/);
   });
 
-  test('a missing subject has no colour and a missing name says Tutor', () => {
+  test('a missing subject keeps the tutor\u2019s color and a missing name says Tutor', () => {
     const [one] = tutorEntries([{ tutor_id: 't9', subject: null }], names);
-    expect(one).toMatchObject({ name: 'Tutor', subject: null, tone: 'subj-none' });
+    expect(one).toMatchObject({ name: 'Tutor', subject: null, tone: tutorToneClass('t9') });
+    expect(one.tone).not.toBe('tc-none');
+  });
+
+  test('the color follows the tutor, not the subject', () => {
+    const rows = [
+      { tutor_id: 't1', student_id: 's1', subject: 'Algebra' },
+      { tutor_id: 't1', student_id: 's2', subject: 'Physics' },
+    ];
+    const [a, b] = tutorEntries(rows, names);
+    expect(a.tone).toBe(b.tone);
   });
 
   test('the rpc rows bring their own name', () => {

@@ -11,7 +11,7 @@
      ul.ovw-task-list > li.ovw-task, .ovw-updates-list, .ovw-card-empty, .ovw-dayhead
      section.card.ovw-progress > dl.ovw-metrics > div.ovw-metric ; div.ovw-chart-block > figure.ovw-chart
 
-   Tutoring sessions (overview.js; the subject tone class .subj-N from app.css sits on the row)
+   Tutoring sessions (overview.js; the tutor tone class .tc-NAME from app.css sits on the row)
      section.card.is-list.ovw-sessions | .ovw-nextsess > ul.ovw-changes > li.ovw-change.tone-*
        + ul.ovw-sess-list > li.ovw-sess-item > a.row.ovw-sess
            (span.ovw-sess-date, span.ovw-sess-main > .ovw-sess-title + .ovw-sess-meta, span.ovw-sess-aside, svg)

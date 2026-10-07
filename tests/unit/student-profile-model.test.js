@@ -242,7 +242,7 @@ describe('subjects', () => {
     const chips = subjectChips(rows, new Map([['t9', 'Lee Tutor']]));
     expect(chips.map((c) => c.subject)).toEqual(['Algebra', 'SAT Reading']);
     expect(chips[0].tutors).toEqual(['Daniel Ortiz', 'Lee Tutor']);
-    expect(chips[0].tone).toMatch(/^subj-/);
+    expect(chips[0].tone).toMatch(/^tc-[a-z]+$/);
     expect(chips[1].tutors).toEqual(['Priya Shah']);
   });
 

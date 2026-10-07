@@ -46,6 +46,7 @@ import { displayName } from '../format.js';
 import { filterPeople, roleChangeBody, normalizeFullName, NAME_MAX } from '../app-model.js';
 import { relativeTime } from '../dates.js';
 import { SUBJECT_MAX, linkSubject, normalizeSubject } from '../schedule-summary.js';
+import { colorOptions, automaticLabel, chosenColors, pickerState, colorSavedText, toneClassFor } from '../tutor-colors-model.js';
 
 // ---------------------------------------------------------------------------
 // Pure logic
@@ -130,10 +131,13 @@ async function loadParentLinks() {
   return sb.from('parent_students').select('parent_id, student_id');
 }
 
-// profiles.no_login and portal_invites come with the invites migration; the
-// page still loads without them
+// profiles.no_login and portal_invites come with the invites migration, and
+// profiles.calendar_color with the tutor colors one; the page still loads
+// without them (no color pickers while the column is missing)
 async function loadProfiles() {
   const fields = 'id, email, full_name, role, requested_role, signup_note, created_at';
+  const withColor = await sb.from('profiles').select(`${fields}, no_login, calendar_color`);
+  if (!withColor.error) return withColor;
   const withFlag = await sb.from('profiles').select(`${fields}, no_login`);
   if (!withFlag.error) return withFlag;
   return sb.from('profiles').select(fields);
@@ -242,6 +246,8 @@ export function mount(ctx) {
   function syncCounts() {
     try {
       ctx.store.invalidatePending?.();
+      // A role change can clear a tutor's color: the rest of the portal reloads them
+      ctx.store.refreshTutorColors?.();
     } catch {
       // older store: the badge catches up on the next load
     }
@@ -951,6 +957,7 @@ export function mount(ctx) {
     const students = data.people.filter((p) => p.role === 'student').sort(byName);
     let n = 0;
     const animate = firstRender && !ctx.isRefresh;
+    colorControls.clear();
     list.replaceChildren(...groups.map((g) => h('section', { class: 'ppl-group', 'aria-label': g.label },
       role === 'all' ? groupHeader({ label: g.label, count: g.people.length }) : null,
       h('ul', { class: 'ppl-list' }, g.people.map((p) => {
@@ -963,6 +970,74 @@ export function mount(ctx) {
         return li;
       })))));
     restoreFocus(focus);
+  }
+
+  // Staff rows: the color this person's lessons wear on every calendar. The
+  // select saves at once, with a toast; a refusal shows under it and puts the
+  // old choice back. `colorControls` lets one save repaint every row, because an
+  // automatic color depends on the colors the others were given.
+  const colorControls = new Map();
+
+  function paintColor(control, colors) {
+    const state = pickerState(control.person, colors);
+    control.sel.options[0].textContent = automaticLabel(state.automatic);
+    control.sel.value = state.chosen ?? '';
+    control.swatch.className = `ppl-color-swatch ${toneClassFor(state.shown)}`;
+  }
+
+  function paintColors() {
+    const colors = chosenColors(data.people);
+    for (const control of colorControls.values()) paintColor(control, colors);
+  }
+
+  function colorControl(person, name) {
+    const swatch = h('span', { class: 'ppl-color-swatch', 'aria-hidden': 'true' });
+    const error = h('p', { class: 'ppl-color-error', role: 'alert' });
+    const wrap = select({
+      id: uid('ppl-color'),
+      label: `Calendar color for ${name}`,
+      size: 'sm',
+      options: colorOptions(),
+    });
+    const sel = wrap.firstElementChild;
+    sel.dataset.focusKey = `color-${person.id}`;
+    // Where the browser lets a menu item be colored (not Safari), each name wears its own color
+    for (const option of sel.options) if (option.value) option.className = toneClassFor(option.value);
+    const control = { person, sel, swatch };
+    colorControls.set(person.id, control);
+    sel.addEventListener('change', async () => {
+      const next = sel.value || null;
+      error.textContent = '';
+      sel.disabled = true;
+      let failure = null;
+      try {
+        const result = await sb.from('profiles').update({ calendar_color: next }).eq('id', person.id).select('id, calendar_color');
+        if (result.error) failure = result.error.message || 'please try again.';
+        else if (!result.data?.length) failure = 'nothing changed. Refresh the page and try again.';
+        else person.calendar_color = result.data[0].calendar_color ?? null;
+      } catch {
+        failure = 'please try again.';
+      }
+      if (!ctx.alive()) return;
+      sel.disabled = false;
+      sel.focus({ preventScroll: true });
+      paintColors();
+      if (failure) {
+        error.textContent = `That didn’t save: ${failure}`;
+        return;
+      }
+      try {
+        ctx.store.refreshTutorColors();
+      } catch {
+        // older store: other pages pick the color up on the next load
+      }
+      ctx.toast({ text: colorSavedText(name, next) });
+    });
+    paintColor(control, chosenColors(data.people));
+    return h('div', { class: 'ppl-color' },
+      h('span', { class: 'ppl-color-label', 'aria-hidden': 'true' }, 'Calendar color'),
+      h('span', { class: 'ppl-color-pick' }, swatch, wrap),
+      error);
   }
 
   function roleSelect(person) {
@@ -1333,13 +1408,18 @@ export function mount(ctx) {
       : null;
     if (workspace) workspace.setAttribute('aria-label', `Open workspace for ${name}`);
 
+    // Tutors and admins get a calendar color (once the column exists)
+    const staffColor = (person.role === 'tutor' || person.role === 'admin') && person.calendar_color !== undefined
+      ? colorControl(person, name) : null;
+
     return h('li', { class: isStudent ? 'ppl-person is-student' : 'ppl-person' },
       h('div', { class: 'ppl-person-head' },
         avatar(name, { size: 32 }),
         h('div', { class: 'ppl-id' },
           nameField(person, name, self),
           person.email && person.email !== name && !person.no_login ? h('span', { class: 'ppl-email' }, person.email) : null,
-          detail),
+          detail,
+          staffColor),
         h('div', { class: 'ppl-controls' }, workspace, roleSelect(person))),
       inviteControls(person),
       isStudent

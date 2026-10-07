@@ -290,14 +290,26 @@
   --ease-out: cubic-bezier(.16, 1, .3, 1);
   --ease-sheet: cubic-bezier(.32, .72, 0, 1);
 
-  /* Subject tones for sessions (sessions-model.js toneClass): soft fill,
-     text on it, and the solid edge bar */
-  --subj-0-bg: #E6F0FB; --subj-0-text: #1D5E9A; --subj-0-solid: #2F78BD;
-  --subj-1-bg: #EFEAFB; --subj-1-text: #5B3FA6; --subj-1-solid: #7A5BD1;
-  --subj-2-bg: #FBF1D9; --subj-2-text: #7A5200; --subj-2-solid: #C08A00;
-  --subj-3-bg: #FBE9EF; --subj-3-text: #9B2C55; --subj-3-solid: #D0487A;
-  --subj-4-bg: #E8F3EA; --subj-4-text: #2D6A3A; --subj-4-solid: #3E9A55;
-  --subj-5-bg: #E1F2F5; --subj-5-text: #1F5F6B; --subj-5-solid: #2B8A9C;
+  /* Tutor tones for lessons (sessions-model.js tutorToneClass): a soft fill,
+     the text on it and the solid edge bar, per color name. The solid shades are
+     the colors the owner's old scheduler used (red, violet, blue, lime, indigo,
+     pink, teal and their neighbours). The admin picks a name per tutor
+     (profiles.calendar_color); the names match TUTOR_COLORS in
+     tutor-colors-model.js. */
+  --tc-red-bg: #FEE2E2; --tc-red-text: #991B1B; --tc-red-solid: #EF4444;
+  --tc-orange-bg: #FFEDD5; --tc-orange-text: #9A3412; --tc-orange-solid: #F97316;
+  --tc-amber-bg: #FEF3C7; --tc-amber-text: #92400E; --tc-amber-solid: #F59E0B;
+  --tc-lime-bg: #ECFCCB; --tc-lime-text: #3F6212; --tc-lime-solid: #84CC16;
+  --tc-green-bg: #DCFCE7; --tc-green-text: #166534; --tc-green-solid: #22C55E;
+  --tc-teal-bg: #CCFBF1; --tc-teal-text: #115E59; --tc-teal-solid: #14B8A6;
+  --tc-cyan-bg: #CFFAFE; --tc-cyan-text: #155E75; --tc-cyan-solid: #06B6D4;
+  --tc-blue-bg: #DBEAFE; --tc-blue-text: #1E40AF; --tc-blue-solid: #3B82F6;
+  --tc-indigo-bg: #E0E7FF; --tc-indigo-text: #3730A3; --tc-indigo-solid: #6366F1;
+  --tc-violet-bg: #EDE9FE; --tc-violet-text: #5B21B6; --tc-violet-solid: #8B5CF6;
+  --tc-purple-bg: #F3E8FF; --tc-purple-text: #6B21A8; --tc-purple-solid: #A855F7;
+  --tc-pink-bg: #FCE7F3; --tc-pink-text: #9D174D; --tc-pink-solid: #EC4899;
+  --tc-rose-bg: #FFE4E6; --tc-rose-text: #9F1239; --tc-rose-solid: #F43F5E;
+  --tc-slate-bg: #F1F5F9; --tc-slate-text: #1E293B; --tc-slate-solid: #64748B;
 
   --nav-w: 248px;
   --topbar-h: 52px;
@@ -365,23 +377,40 @@
   --nav-active-shadow: inset 0 0 0 1px #FFFFFF14;
   --pop-border: transparent;
 
-  --subj-0-bg: #1B2B3D; --subj-0-text: #9CC6F0; --subj-0-solid: #5B9BE0;
-  --subj-1-bg: #2A2340; --subj-1-text: #C6B4F5; --subj-1-solid: #9A80E6;
-  --subj-2-bg: #3A2E12; --subj-2-text: #F0CF7A; --subj-2-solid: #D9A62A;
-  --subj-3-bg: #3D1E2A; --subj-3-text: #F2A9C2; --subj-3-solid: #E06A96;
-  --subj-4-bg: #1C3324; --subj-4-text: #9FD8AE; --subj-4-solid: #5BB874;
-  --subj-5-bg: #163238; --subj-5-text: #93D6E1; --subj-5-solid: #45AFC2;
+  --tc-red-bg: #3F2226; --tc-red-text: #FCA5A5; --tc-red-solid: #EF4444;
+  --tc-orange-bg: #412A1D; --tc-orange-text: #FDBA74; --tc-orange-solid: #F97316;
+  --tc-amber-bg: #40321B; --tc-amber-text: #FCD34D; --tc-amber-solid: #F59E0B;
+  --tc-lime-bg: #2B3A1D; --tc-lime-text: #BEF264; --tc-lime-solid: #84CC16;
+  --tc-green-bg: #1A392A; --tc-green-text: #86EFAC; --tc-green-solid: #22C55E;
+  --tc-teal-bg: #173637; --tc-teal-text: #5EEAD4; --tc-teal-solid: #14B8A6;
+  --tc-cyan-bg: #153640; --tc-cyan-text: #67E8F9; --tc-cyan-solid: #06B6D4;
+  --tc-blue-bg: #1E2D46; --tc-blue-text: #93C5FD; --tc-blue-solid: #3B82F6;
+  --tc-indigo-bg: #262845; --tc-indigo-text: #A5B4FC; --tc-indigo-solid: #6366F1;
+  --tc-violet-bg: #2D2646; --tc-violet-text: #C4B5FD; --tc-violet-solid: #8B5CF6;
+  --tc-purple-bg: #322546; --tc-purple-text: #D8B4FE; --tc-purple-solid: #A855F7;
+  --tc-pink-bg: #3E2235; --tc-pink-text: #F9A8D4; --tc-pink-solid: #EC4899;
+  --tc-rose-bg: #40212A; --tc-rose-text: #FDA4AF; --tc-rose-solid: #F43F5E;
+  --tc-slate-bg: #262A32; --tc-slate-text: #CBD5E1; --tc-slate-solid: #64748B;
 }
 
-/* A subject tone sets three custom properties that session chips, blocks and
-   legend swatches read */
-.subj-0 { --subj-bg: var(--subj-0-bg); --subj-text: var(--subj-0-text); --subj-solid: var(--subj-0-solid); }
-.subj-1 { --subj-bg: var(--subj-1-bg); --subj-text: var(--subj-1-text); --subj-solid: var(--subj-1-solid); }
-.subj-2 { --subj-bg: var(--subj-2-bg); --subj-text: var(--subj-2-text); --subj-solid: var(--subj-2-solid); }
-.subj-3 { --subj-bg: var(--subj-3-bg); --subj-text: var(--subj-3-text); --subj-solid: var(--subj-3-solid); }
-.subj-4 { --subj-bg: var(--subj-4-bg); --subj-text: var(--subj-4-text); --subj-solid: var(--subj-4-solid); }
-.subj-5 { --subj-bg: var(--subj-5-bg); --subj-text: var(--subj-5-text); --subj-solid: var(--subj-5-solid); }
-.subj-none { --subj-bg: var(--neutral-bg); --subj-text: var(--neutral-text); --subj-solid: var(--neutral-solid); }
+/* A tutor tone sets three custom properties that session chips, blocks, rows,
+   dots and legend swatches read (they keep the --subj- names they had when
+   lessons were colored by subject) */
+.tc-red { --subj-bg: var(--tc-red-bg); --subj-text: var(--tc-red-text); --subj-solid: var(--tc-red-solid); }
+.tc-orange { --subj-bg: var(--tc-orange-bg); --subj-text: var(--tc-orange-text); --subj-solid: var(--tc-orange-solid); }
+.tc-amber { --subj-bg: var(--tc-amber-bg); --subj-text: var(--tc-amber-text); --subj-solid: var(--tc-amber-solid); }
+.tc-lime { --subj-bg: var(--tc-lime-bg); --subj-text: var(--tc-lime-text); --subj-solid: var(--tc-lime-solid); }
+.tc-green { --subj-bg: var(--tc-green-bg); --subj-text: var(--tc-green-text); --subj-solid: var(--tc-green-solid); }
+.tc-teal { --subj-bg: var(--tc-teal-bg); --subj-text: var(--tc-teal-text); --subj-solid: var(--tc-teal-solid); }
+.tc-cyan { --subj-bg: var(--tc-cyan-bg); --subj-text: var(--tc-cyan-text); --subj-solid: var(--tc-cyan-solid); }
+.tc-blue { --subj-bg: var(--tc-blue-bg); --subj-text: var(--tc-blue-text); --subj-solid: var(--tc-blue-solid); }
+.tc-indigo { --subj-bg: var(--tc-indigo-bg); --subj-text: var(--tc-indigo-text); --subj-solid: var(--tc-indigo-solid); }
+.tc-violet { --subj-bg: var(--tc-violet-bg); --subj-text: var(--tc-violet-text); --subj-solid: var(--tc-violet-solid); }
+.tc-purple { --subj-bg: var(--tc-purple-bg); --subj-text: var(--tc-purple-text); --subj-solid: var(--tc-purple-solid); }
+.tc-pink { --subj-bg: var(--tc-pink-bg); --subj-text: var(--tc-pink-text); --subj-solid: var(--tc-pink-solid); }
+.tc-rose { --subj-bg: var(--tc-rose-bg); --subj-text: var(--tc-rose-text); --subj-solid: var(--tc-rose-solid); }
+.tc-slate { --subj-bg: var(--tc-slate-bg); --subj-text: var(--tc-slate-text); --subj-solid: var(--tc-slate-solid); }
+.tc-none { --subj-bg: var(--neutral-bg); --subj-text: var(--neutral-text); --subj-solid: var(--neutral-solid); }
 
 
 /* 3. Responsive tokens ---------------------------------------------------- */
