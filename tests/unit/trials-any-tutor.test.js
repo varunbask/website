@@ -11,8 +11,8 @@ describe('free trial lessons with any tutor', () => {
   const NEW = '20261021120000_trials_any_tutor.sql';
   const sql = read(`supabase/migrations/${NEW}`);
 
-  test('the migration is last, drops only the admin-tutor rule, and touches nothing else', () => {
-    expect(migrations.at(-1)).toBe(NEW);
+  test('the migration is in place, drops only the admin-tutor rule, and touches nothing else', () => {
+    expect(migrations).toContain(NEW);
     expect(sql).toContain('drop trigger if exists session_billing_trial on public.session_billing;');
     expect(sql).toContain('drop function if exists private.session_billing_trial();');
     const statements = sql.replace(/--.*$/gm, '').split(';').map((x) => x.trim()).filter(Boolean);

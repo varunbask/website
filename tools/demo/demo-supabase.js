@@ -606,13 +606,26 @@
       case 'staff_names':
         return { data: db.profiles.filter((p) => ['tutor', 'admin'].includes(p.role)).map(({ id: pid, full_name }) => ({ id: pid, full_name })), error: null };
       case 'my_statements': {
-        const rows = db.statements.filter((x) => x.parent_id === meId && x.snapshot).map((x) => ({
+        // Their own statements, and another parent's when they are linked to
+        // every student on it (mom and dad); the students are in the snapshot,
+        // else the paying parent's billed students
+        const mine = new Set(db.parent_students.filter((l) => l.parent_id === meId).map((l) => l.student_id));
+        const studentsOf = (x) => (Array.isArray(x.snapshot.student_ids) && x.snapshot.student_ids.length
+          ? x.snapshot.student_ids
+          : db.parent_students.filter((l) => l.parent_id === x.parent_id && l.bills).map((l) => l.student_id));
+        // ...and only when they share every child the paying parent pays for today
+        const family = (x) => db.parent_students.filter((l) => l.parent_id === x.parent_id && l.bills).map((l) => l.student_id);
+        const shared = (x) => ((ids) => ids.length > 0 && ids.every((sid) => mine.has(sid)))(studentsOf(x)) && family(x).every((sid) => mine.has(sid));
+        const rows = db.statements.filter((x) => x.snapshot && (x.parent_id === meId || shared(x))).map((x) => ({
           period: x.period, sent_on: x.sent_on, due_cents: x.due_cents ?? x.snapshot.due_cents,
-          // every payment of theirs to date, not voided: any month, or none
-          paid_total_cents: db.payments.filter((p) => p.parent_id === meId && !p.voided_at).reduce((t, p) => t + p.amount_cents, 0),
+          // every payment of the paying parent to date, not voided: any month, or none
+          paid_total_cents: db.payments.filter((p) => p.parent_id === x.parent_id && !p.voided_at).reduce((t, p) => t + p.amount_cents, 0),
           snapshot: x.snapshot,
+          own: x.parent_id === meId,
+          payer_id: x.parent_id,
+          payer_name: db.profiles.find((p) => p.id === x.parent_id)?.full_name ?? '',
         }));
-        return { data: rows.sort((a, b) => b.period.localeCompare(a.period)), error: null };
+        return { data: rows.sort((a, b) => b.period.localeCompare(a.period) || Number(b.own) - Number(a.own)), error: null };
       }
       case 'my_google_connection':
         return { data: [], error: null };

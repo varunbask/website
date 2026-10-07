@@ -66,7 +66,7 @@ describe('stylesheets', () => {
     }
     expect(versions.get('app.css').size).toBe(pages.length);
     expect([...versions.get('app.css').values()][0]).toBe('8');
-    expect([...versions.get('people.css').values()][0]).toBe('14');
+    expect([...versions.get('people.css').values()][0]).toBe('15');
   });
 
   test('the confirm dialog styles for the typed name and the list exist', () => {

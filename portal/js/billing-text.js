@@ -112,6 +112,7 @@ export function statementSnapshot(ctx, f, { previousCents = 0, sentOn } = {}) {
   return {
     v: 1,
     number: statementNumber(f.parentId, f.month),
+    student_ids: statementStudents(ctx, f),
     business: s.business_name,
     pay_note: s.pay_note ?? null,
     name: f.name,
@@ -126,6 +127,19 @@ export function statementSnapshot(ctx, f, { previousCents = 0, sentOn } = {}) {
     due_cents: previousCents + f.owedCents - f.paidCents,
     paid_total_cents: paidTotal,
   };
+}
+
+// The students a statement covers, so another parent linked to every one of
+// them (mom and dad) can read it too (my_statements). The month's lessons and
+// adjustments name them; a month with only a balance brought forward falls back
+// to the students this parent pays for.
+export function statementStudents(ctx, f) {
+  const ids = new Set(f.lines.map((l) => String(l.session.student_id)));
+  for (const a of f.adjustments ?? []) if (a.student_id) ids.add(String(a.student_id));
+  if (!ids.size) {
+    for (const l of ctx.parentLinks ?? []) if (same(l.parent_id, f.parentId) && l.bills) ids.add(String(l.student_id));
+  }
+  return [...ids].sort();
 }
 
 // What Families offers for a family's month, and how it is written:
@@ -202,11 +216,22 @@ function settledStatus(due, newer) {
 // Every row's status, in the order given (my_statements() lists newest first)
 export function statementStatuses(rows, today) {
   const day = (r) => String(r.period).slice(0, 10);
-  const order = rows.map((_, i) => i).sort((a, b) => day(rows[b]).localeCompare(day(rows[a])));
   const out = new Array(rows.length);
-  order.forEach((index, rank) => {
-    out[index] = statementStatus(rows[index], today, rank === 0 ? null : rows[order[rank - 1]]);
+  // Each paying parent's statements carry into each other, never into another
+  // payer's (a parent can see a second payer's bills, e.g. mom pays for one
+  // child and dad for another)
+  const byPayer = new Map();
+  rows.forEach((r, i) => {
+    const key = String(r.payer_id ?? '');
+    if (!byPayer.has(key)) byPayer.set(key, []);
+    byPayer.get(key).push(i);
   });
+  for (const list of byPayer.values()) {
+    const order = list.sort((a, b) => day(rows[b]).localeCompare(day(rows[a])));
+    order.forEach((index, rank) => {
+      out[index] = statementStatus(rows[index], today, rank === 0 ? null : rows[order[rank - 1]]);
+    });
+  }
   return out;
 }
 
