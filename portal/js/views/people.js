@@ -112,6 +112,28 @@ export function studentsOf(personId, links, key, byId) {
     .sort(byName);
 }
 
+// "Same family as": the children of otherId that parentId is not linked to yet,
+// so one choice links mom to everyone dad already has (or the other way round)
+export function familyJoinIds(links, parentId, otherId) {
+  const mine = new Set((links ?? []).filter((l) => l.parent_id === parentId).map((l) => l.student_id));
+  return [...new Set((links ?? []).filter((l) => l.parent_id === otherId && !mine.has(l.student_id)).map((l) => l.student_id))];
+}
+
+// "Kevin", "Kevin and Ava", "Kevin, Ava and Leo"
+export function andList(names) {
+  if (names.length < 2) return names.join('');
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+// What the toast says after "Same family as": who pays stays the same, and the
+// parent who just joined sees those bills under Billing too
+export function familyJoinText(parentName, otherName, childNames, otherPaysAll) {
+  const linked = `Linked ${parentName} to ${andList(childNames)}.`;
+  return otherPaysAll
+    ? `${linked} ${otherName} still gets the bill, and ${parentName} sees it under Billing too.`
+    : `${linked} Each child’s bill stays with the parent who pays.`;
+}
+
 // The Everyone list: people with a real role (not pending), filtered by role
 // and search text, grouped in the order Students, Parents, Tutors, Admins.
 // Returns [{ role, label, people }] with empty groups left out.
@@ -1257,16 +1279,22 @@ export function mount(ctx) {
       }))
       : h('p', { class: 'ppl-none' }, 'None yet');
 
+    // Two parents (mom and dad): say what each of them sees
+    const note = !isTutor && linked.length > 1
+      ? h('p', { class: 'ppl-link-note' }, `Each parent here sees ${studentName}’s lessons and homework. The parent marked Pays gets the bill; another parent sees it too when linked to all of that parent’s children.`)
+      : null;
+
     return h('div', { class: 'ppl-link-group' },
       h('span', { class: 'ppl-link-label', id: labelId }, label),
-      h('div', { class: 'ppl-link-body' }, chips, adder));
+      h('div', { class: 'ppl-link-body' }, chips, adder, note));
   }
 
   // A parent's children, from the parent's side: one parent can have any number
   // of children (two kids with us = two chips), and a child can have two parents
-  function childGroup(parent, students) {
+  function childGroup(parent, students, parents) {
     const parentName = displayName(parent);
     const addKey = `add-child-${parent.id}`;
+    const joinKey = `join-family-${parent.id}`;
     const labelId = uid('ppl-links');
     const linked = studentsOf(parent.id, data.parentLinks, 'parent_id', data.byId);
     const linkedIds = new Set(linked.map((p) => p.id));
@@ -1292,6 +1320,34 @@ export function mount(ctx) {
           { key: `remove-child-${parent.id}-${child}`, fallback: addKey });
       });
       adder = h('div', { class: 'ppl-add-row' }, picker);
+    }
+
+    // Same family as another parent: links this parent to every child the other
+    // has, in one step (mom and dad). Whoever pays keeps paying.
+    const partners = (parents ?? []).filter((p) => p.id !== parent.id && familyJoinIds(data.parentLinks, parent.id, p.id).length);
+    let joiner = null;
+    if (partners.length) {
+      const picker = select({
+        label: `Link ${parentName} to the same children as another parent`,
+        size: 'sm',
+        value: '',
+        options: [{ value: '', label: 'Same family as' }, ...partners.map((p) => ({ value: p.id, label: displayName(p) }))],
+      });
+      picker.classList.add('ppl-add');
+      const sel = picker.firstElementChild;
+      sel.dataset.focusKey = joinKey;
+      sel.addEventListener('change', () => {
+        if (!sel.value) return;
+        const other = sel.value;
+        const ids = familyJoinIds(data.parentLinks, parent.id, other);
+        if (!ids.length) return;
+        sel.disabled = true;
+        const otherPaysAll = ids.every((id) => data.parentLinks.some((l) => l.parent_id === other && l.student_id === id && l.bills));
+        const text = familyJoinText(parentName, displayName(data.byId.get(other)), ids.map((id) => displayName(data.byId.get(id))), otherPaysAll);
+        act(sb.from('parent_students').insert(ids.map((id) => ({ parent_id: parent.id, student_id: id }))),
+          text, { key: `remove-child-${parent.id}-${ids[0]}`, fallback: joinKey });
+      });
+      joiner = h('div', { class: 'ppl-add-row' }, picker);
     }
 
     const chips = linked.length
@@ -1321,7 +1377,7 @@ export function mount(ctx) {
 
     return h('div', { class: 'ppl-link-group' },
       h('span', { class: 'ppl-link-label', id: labelId }, 'Children'),
-      h('div', { class: 'ppl-link-body' }, chips, adder));
+      h('div', { class: 'ppl-link-body' }, chips, adder, joiner));
   }
 
   // Where focus goes when a row leaves the list: the next row's Delete button,
@@ -1526,7 +1582,7 @@ export function mount(ctx) {
           linkGroup(person, 'tutor', linkedTo(person.id, data.tutorLinks, 'tutor_id', data.byId), tutors),
           linkGroup(person, 'parent', linkedTo(person.id, data.parentLinks, 'parent_id', data.byId), parents))
         : null,
-      person.role === 'parent' ? h('div', { class: 'ppl-links is-parent' }, childGroup(person, students)) : null);
+      person.role === 'parent' ? h('div', { class: 'ppl-links is-parent' }, childGroup(person, students, parents)) : null);
   }
 
   return render();

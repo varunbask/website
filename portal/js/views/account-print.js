@@ -10,7 +10,7 @@ import { todayKey } from '../dates.js';
 import { timeRange } from '../sessions-model.js';
 import {
   money, hoursText, monthName, familyMonth, familyBalanceBefore, tutorPeriod, dueDate, billDate, dayText, shortDate,
-  statementNumber, periodText, monthParam, payPeriodStart,
+  statementNumber, periodText, monthParam, payPeriodStart, payDate,
 } from '../billing-model.js';
 import { labelText, methodText, stateText } from '../billing-text.js';
 import { loadPriced } from './account-shared.js';
@@ -41,7 +41,7 @@ export function mount(ctx) {
         h('header', { class: 'acct-statement-head' },
           h('div', {}, h('p', { class: 'acct-statement-org' }, s.business_name), h('h1', {}, `Pay summary: ${t.name}`)),
           h('dl', { class: 'acct-statement-meta' },
-            meta('Period', periodText(start)), meta('Printed', dayText(today)))),
+            meta('Period', periodText(start)), meta('Pay date', dayText(payDate(start), start)), meta('Printed', dayText(today)))),
         h('table', { class: 'acct-statement-lines' },
           h('thead', {}, h('tr', {}, ['Date', 'Student', 'Subject', 'Hours', 'Amount'].map((x, i) => h('th', { class: i > 2 ? 'num' : null }, x)))),
           h('tbody', {}, t.slots.map((slot) => {

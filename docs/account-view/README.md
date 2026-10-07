@@ -29,5 +29,16 @@ scheduler.
 5. Settings: bills due on the 15th, and your Zelle details under "How to pay".
    Family bills are dated the 1st of the next month (September is billed
    October 1). Tutor pay is counted the 1st to the 15th and the 16th to the end
-   of the month; the Payroll tab is information for the CPA, who runs payroll
-   (CSV and pay summary per period, Check first when a period has open items).
+   of the month, paid on the 15th and the 1st of the next month; the Payroll
+   tab is information for the CPA, who runs payroll (CSV and pay summary per
+   period; Check first when a tutor in the period has no pay rate).
+6. The calendar is the source of truth. Every session is priced as it stands:
+   no review step, nothing to accept. A lesson without attendance counts as
+   held, a cancelled lesson is not billed or paid, and a change made after the
+   fact just changes the numbers. Needs attention lists only a lesson with no
+   family rate (it holds that family's bill back), a tutor with no pay rate
+   (the period reads Check first), and, for information, two lessons at once
+   for one tutor, a student with no paying parent and families past due.
+   On Families, Mark paid on a family's row records the month's balance in one
+   click (by the family's usual method, today's date) and Undo takes it back;
+   Record payment under Details is for odd amounts.

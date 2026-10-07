@@ -4,7 +4,7 @@
 // No DOM, no network.
 
 import {
-  money, hoursText, monthName, shortDate, dayText, periodText, payPeriodEnd, dueDate, billDate, statementNumber, STATES,
+  money, hoursText, monthName, shortDate, dayText, periodText, payPeriodEnd, payDate, payDateText, dueDate, billDate, statementNumber, STATES,
 } from './billing-model.js';
 
 const same = (a, b) => String(a) === String(b);
@@ -19,13 +19,14 @@ export function policyText(policy, settings) {
     ? 'No-shows (attendance marked Absent) are billed to the family and paid to the tutor in full.'
     : `No-shows (attendance marked Absent) are billed at ${policy.absent_family_pct} percent and paid to the tutor at ${policy.absent_tutor_pct} percent.`;
   const unconfirmed = policy.count_unconfirmed
-    ? 'A session that ended without attendance counts as attended on this page until someone records it, but no payment can be recorded for its month, and its tutor’s pay period shows Check first, until it is confirmed or accepted.'
-    : 'A session that ended without attendance counts for nothing until someone records it; no payment can be recorded for its month, and its tutor’s pay period shows Check first, until it is confirmed or accepted.';
+    ? 'Lessons without attendance count as held.'
+    : 'Lessons without attendance are not billed or paid until someone records them.';
   return [
-    'Cancelled sessions are not billed and not paid. There is no cancellation policy: families cancel or reschedule whenever they need to.',
+    'The Account page prices every lesson on the calendar as it stands, so changing the calendar changes the numbers. Only a lesson with no family rate holds a family’s bill back, and only a tutor with no pay rate marks a pay period Check first.',
+    'Cancelled lessons are not billed and not paid. There is no cancellation policy: families cancel or reschedule whenever they need to.',
     noShow,
     unconfirmed,
-    `Families are billed by calendar month, with the bill dated the 1st of the next month and due on the ${ordinal(settings.due_day)}. A parent sees a month’s bill in the portal only after you release it, usually on the 1st (Families, Release bills). Tutor pay is counted twice a month, the 1st to the 15th and the 16th to the end of the month, for payroll.`,
+    `Families are billed by calendar month, with the bill dated the 1st of the next month and due on the ${ordinal(settings.due_day)}. A parent sees a month’s bill in the portal only after you release it, usually on the 1st (Families, Release bills). Tutor pay is counted twice a month, the 1st to the 15th and the 16th to the end of the month, for payroll, and paid on the 15th and on the 1st of the next month.`,
   ].join(' ');
 }
 
@@ -75,7 +76,7 @@ export function statementText(ctx, f, { previousCents = 0 } = {}) {
 
 function noteFor(l) {
   if (l.state === 'expected') return ' (upcoming)';
-  if (l.state === 'cancelled' || l.state === 'conflict') return l.familyRealized ? ` (late cancellation, ${l.pct.familyRealized}%)` : ' (cancelled)';
+  if (l.state === 'cancelled') return l.familyRealized ? ` (late cancellation, ${l.pct.familyRealized}%)` : ' (cancelled)';
   if (l.state === 'noshow') return l.pct.familyRealized === 100 ? ' (no-show)' : ` (no-show, ${l.pct.familyRealized}%)`;
   if (l.exception?.reason === 'trial') return ' (free trial)';
   return '';
@@ -111,6 +112,7 @@ export function statementSnapshot(ctx, f, { previousCents = 0, sentOn } = {}) {
   return {
     v: 1,
     number: statementNumber(f.parentId, f.month),
+    student_ids: statementStudents(ctx, f),
     business: s.business_name,
     pay_note: s.pay_note ?? null,
     name: f.name,
@@ -127,6 +129,19 @@ export function statementSnapshot(ctx, f, { previousCents = 0, sentOn } = {}) {
   };
 }
 
+// The students a statement covers, so another parent linked to every one of
+// them (mom and dad) can read it too (my_statements). The month's lessons and
+// adjustments name them; a month with only a balance brought forward falls back
+// to the students this parent pays for.
+export function statementStudents(ctx, f) {
+  const ids = new Set(f.lines.map((l) => String(l.session.student_id)));
+  for (const a of f.adjustments ?? []) if (a.student_id) ids.add(String(a.student_id));
+  if (!ids.size) {
+    for (const l of ctx.parentLinks ?? []) if (same(l.parent_id, f.parentId) && l.bills) ids.add(String(l.student_id));
+  }
+  return [...ids].sort();
+}
+
 // What Families offers for a family's month, and how it is written:
 //   kind     'mark'  not released yet (the control reads Release)
 //            'save'  marked sent before the portal kept snapshots (no snapshot yet)
@@ -134,9 +149,9 @@ export function statementSnapshot(ctx, f, { previousCents = 0, sentOn } = {}) {
 //                    forward changed since (a payment recorded later is no change:
 //                    the parent's status follows payments by itself)
 //            null    nothing to do
-//   blocked  the month still has open items (unpriced or unconfirmed sessions),
-//            the same gate as Record payment; the buttons stay off until they are
-//            resolved so a parent never sees $0.00 lines or "Paid in full" early
+//   blocked  a session in the month has no family rate, the same gate as Mark paid and
+//            Record payment; the buttons stay off until a rate is added so a parent
+//            never sees $0.00 lines
 //   sentOn   the day that goes into the snapshot: a statement sent before
 //            snapshots keeps the day it really went out (its due date must not
 //            slide forward), a deliberate Release again counts from today
@@ -201,11 +216,22 @@ function settledStatus(due, newer) {
 // Every row's status, in the order given (my_statements() lists newest first)
 export function statementStatuses(rows, today) {
   const day = (r) => String(r.period).slice(0, 10);
-  const order = rows.map((_, i) => i).sort((a, b) => day(rows[b]).localeCompare(day(rows[a])));
   const out = new Array(rows.length);
-  order.forEach((index, rank) => {
-    out[index] = statementStatus(rows[index], today, rank === 0 ? null : rows[order[rank - 1]]);
+  // Each paying parent's statements carry into each other, never into another
+  // payer's (a parent can see a second payer's bills, e.g. mom pays for one
+  // child and dad for another)
+  const byPayer = new Map();
+  rows.forEach((r, i) => {
+    const key = String(r.payer_id ?? '');
+    if (!byPayer.has(key)) byPayer.set(key, []);
+    byPayer.get(key).push(i);
   });
+  for (const list of byPayer.values()) {
+    const order = list.sort((a, b) => day(rows[b]).localeCompare(day(rows[a])));
+    order.forEach((index, rank) => {
+      out[index] = statementStatus(rows[index], today, rank === 0 ? null : rows[order[rank - 1]]);
+    });
+  }
   return out;
 }
 
@@ -215,6 +241,7 @@ export function payoutText(ctx, t) {
   const lines = [];
   lines.push(`${s.business_name}`);
   lines.push(`Pay for ${t.name}, ${periodText(t.periodStart)}`);
+  lines.push(payDateText(t.periodStart));
   lines.push('');
   for (const slot of t.slots) {
     const r = slot.rows[0];
@@ -279,8 +306,8 @@ export function familiesCsv(rows) {
 // One pay period, one row per tutor, for the CPA
 export function payrollCsv(rows) {
   return csvText(
-    ['Tutor', 'Period start', 'Period end', 'Hours', 'Rate', 'Sessions', 'Adjustments', 'Total'],
-    rows.map((t) => [t.name, t.periodStart, payPeriodEnd(t.periodStart), hoursText(t.minutes), t.rate ? dollars(t.rate.rate_cents) : '',
+    ['Tutor', 'Period start', 'Period end', 'Pay date', 'Hours', 'Rate', 'Sessions', 'Adjustments', 'Total'],
+    rows.map((t) => [t.name, t.periodStart, payPeriodEnd(t.periodStart), payDate(t.periodStart), hoursText(t.minutes), t.rate ? dollars(t.rate.rate_cents) : '',
       dollars(t.realizedCents), dollars(t.adjustmentCents), dollars(t.totalCents)]),
   );
 }

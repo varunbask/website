@@ -14,6 +14,7 @@
          ul.acct-lines > li.acct-line(.is-cancelled) > a.acct-line-what + .pill + span.acct-line-rate + span.acct-line-amount
          dl.acct-summary > div.acct-summary-row(.is-total) > dt + dd
          div.acct-pay-form, div.acct-inline-form(.is-tight) > label.acct-inline-field > span + control
+       td > span.acct-row-actions > .btn (Mark paid | Undo | Add rate) + .btn (Details)         a family's row
      section.card.acct-period
 */
 
@@ -59,7 +60,6 @@
 .acct-attention-groups { display: flex; flex-direction: column; gap: var(--s-2); }
 .acct-attention-group > summary { cursor: pointer; }
 .acct-attention-group[open] > summary .icon:first-child { transform: rotate(90deg); }
-.acct-attention-bulk { display: flex; gap: var(--s-2); padding: var(--s-2) 0; }
 .acct-attention-list { list-style: none; margin: 0; padding: 0; }
 .acct-attention-item {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-2) var(--s-4);
@@ -127,6 +127,8 @@ a.acct-line-what:hover .acct-line-when { text-decoration: underline; }
 .acct-pay-form { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-4); border-radius: var(--r-md); background-color: var(--surface); border: 1px solid var(--line); }
 .acct-pay-form .acct-inline-field > .input, .acct-pay-form .acct-inline-field > .select { width: 100%; }
 .acct-side-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+/* Mark paid / Undo and Details, side by side on a family's row */
+.acct-row-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); }
 .acct-contact > summary { cursor: pointer; font: var(--t-meta); color: var(--text-2); }
 .acct-gate { align-items: flex-start; }
 .acct-carried { font: var(--t-meta); color: var(--text-2); }
