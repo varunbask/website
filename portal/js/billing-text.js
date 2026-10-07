@@ -25,7 +25,7 @@ export function policyText(policy, settings) {
     'Cancelled sessions are not billed and not paid. There is no cancellation policy: families cancel or reschedule whenever they need to.',
     noShow,
     unconfirmed,
-    `Families are billed by calendar month, with the bill dated the 1st of the next month and due on the ${ordinal(settings.due_day)}. A parent sees a month's bill in the portal only after you release it, usually on the 1st (Families, Release bills). Tutor pay is counted twice a month, the 1st to the 15th and the 16th to the end of the month, for payroll.`,
+    `Families are billed by calendar month, with the bill dated the 1st of the next month and due on the ${ordinal(settings.due_day)}. A parent sees a month’s bill in the portal only after you release it, usually on the 1st (Families, Release bills). Tutor pay is counted twice a month, the 1st to the 15th and the 16th to the end of the month, for payroll.`,
   ].join(' ');
 }
 

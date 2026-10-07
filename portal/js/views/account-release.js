@@ -8,6 +8,7 @@ import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import { button } from '../ui.js';
 import { statementSnapshot, sendColumns } from '../billing-text.js';
+import { monthName } from '../billing-model.js';
 import { releaseHeadline, releaseCounts, releaseCopy, releaseAll, releaseResultCopy } from '../billing-release.js';
 
 // What to save for a ready family: its snapshot and the statements columns
@@ -31,7 +32,7 @@ export function releaseBar(plan, { onOpen }) {
   const c = releaseCounts(plan);
   // Students with no paying parent cannot be released, so they never keep the button on
   const finished = !c.ready && !c.heldFamilies;
-  return h('section', { class: `acct-release is-${head.tone}`, 'aria-label': 'Release bills' },
+  return h('section', { class: `acct-release is-${head.tone}`, 'aria-label': `Release bills, ${monthName(plan.month)}` },
     icon(finished ? 'check-circle' : 'envelope-simple', { size: 20 }),
     h('div', { class: 'acct-release-text' },
       h('p', { class: 'acct-release-title' }, head.title),
@@ -88,18 +89,18 @@ export function releaseDialog({ ctx, b, plan, month, today }) {
       running = true;
       const total = plan.ready.length;
       const bar = h('progress', { class: 'acct-release-progress', max: String(total), value: '0', 'aria-label': 'Release progress' });
-      const status = h('p', { class: 'confirm-body', role: 'status', 'aria-live': 'polite' }, `Releasing 0 of ${total}`);
-      inner.replaceChildren(
-        h('h2', { class: 'confirm-title', id: titleId }, copy.runningTitle),
-        bar,
-        status);
+      const status = h('p', { class: 'confirm-body', role: 'status', 'aria-live': 'polite' }, `Released 0 of ${total}`);
+      const title = h('h2', { class: 'confirm-title', id: titleId, tabindex: '-1' }, copy.runningTitle);
+      inner.replaceChildren(title, bar, status);
+      // the buttons are gone: keep focus inside the dialog
+      title.focus();
       const result = await releaseAll(plan.ready, (item) => {
         const { columns } = statementColumns(b, today, item);
         return writeStatement(month, item.action.kind, item.parentId, columns);
       }, {
-        onProgress: ({ done, item }) => {
+        onProgress: ({ done }) => {
           bar.value = done;
-          status.textContent = `Releasing ${done} of ${total}: ${item.name}`;
+          status.textContent = `Released ${done} of ${total}`;
         },
       });
       running = false;

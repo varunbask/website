@@ -195,18 +195,18 @@ describe('what the page and the dialog say', () => {
 
   test('the strip under the month picker says where the month stands', () => {
     expect(releaseHeadline(plan)).toEqual({
-      title: 'October 2026: 2 of 6 families released',
-      meta: '2 are ready. 2 held back. 1 student has no paying parent.',
+      title: '2 of 6 families released',
+      meta: '2 are ready. 2 held back. 1 changed since release. 1 student has no paying parent.',
       tone: 'ready',
     });
     const fresh = releasePlan(october(), MONTH, TODAY);
-    expect(releaseHeadline(fresh).title).toBe('October 2026: none of 6 families released yet');
+    expect(releaseHeadline(fresh).title).toBe('None of 6 families released yet');
     expect(releaseHeadline(fresh).meta).toContain('Parents see nothing until you release.');
     expect(releaseHeadline(releasePlan(october(), MONTH, '2026-10-20'))).toMatchObject({ tone: 'waiting' });
     expect(releaseHeadline(releasePlan(october(), MONTH, '2026-10-20')).meta).toBe('4 are ready. 2 held back. 1 student has no paying parent. October 2026 has not ended yet (usually released Nov 1).');
     // everything out
     const done = { ...plan, ready: [], held: plan.held.filter((x) => x.reason === 'no_payer') };
-    expect(releaseHeadline(done)).toMatchObject({ title: 'October 2026: all 2 families released', tone: 'done' });
+    expect(releaseHeadline(done)).toMatchObject({ title: 'All 2 families released', tone: 'done' });
     expect(releaseHeadline(done).meta).toBe('1 family has changed since release. Open its row and use Release again. 1 student has no paying parent.');
     expect(releaseHeadline({ ...done, held: [], already: done.already.slice(0, 1) }).meta).toBe('Parents can read them under Billing in the portal.');
   });
@@ -250,7 +250,7 @@ describe('what the page and the dialog say', () => {
 
   test('the policy text tells the admin parents see nothing until release', () => {
     const text = policyText(POLICY, SETTINGS);
-    expect(text).toContain('A parent sees a month\'s bill in the portal only after you release it, usually on the 1st');
+    expect(text).toContain('A parent sees a month’s bill in the portal only after you release it, usually on the 1st');
     expect(text).toContain('with the bill dated the 1st of the next month and due on the 15th');
     expect(text).not.toMatch(/[–—]/);
   });

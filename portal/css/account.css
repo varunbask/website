@@ -135,14 +135,15 @@ a.acct-line-what:hover .acct-line-when { text-decoration: underline; }
 
 /* Release bills: the strip under the month picker, each family's own control, and the confirm dialog */
 .acct-release {
-  display: flex; align-items: center; flex-wrap: wrap; gap: var(--s-3) var(--s-4);
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: var(--s-3) var(--s-4);
   padding: var(--s-3) var(--s-4); border: 1px solid var(--line-strong); border-radius: var(--r-md); background-color: var(--surface);
 }
-.acct-release > .icon { flex: none; color: var(--text-3); }
+.acct-release > .icon { color: var(--text-3); align-self: start; margin-top: 2px; }
+@media (max-width: 767.98px) { .acct-release { grid-template-columns: 20px minmax(0, 1fr); } .acct-release > .btn { grid-column: 1 / -1; justify-self: start; } }
 .acct-release.is-ready { border-color: var(--info-solid); }
 .acct-release.is-ready > .icon { color: var(--info-text); }
 .acct-release.is-done > .icon { color: var(--success-text); }
-.acct-release-text { flex: 1 1 18rem; min-width: 0; }
+.acct-release-text { min-width: 0; }
 .acct-release-title { font: 600 14px/20px var(--font-ui); }
 .acct-release-meta { font: var(--t-meta); color: var(--text-2); }
 .acct-release-row { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); }

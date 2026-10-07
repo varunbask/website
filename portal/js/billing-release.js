@@ -104,7 +104,7 @@ export function releaseHeadline(plan) {
   const orphans = noPayer ? `${noPayer} ${plural(noPayer, 'student has', 'students have')} no paying parent.` : null;
   if (!c.ready && !c.heldFamilies) {
     return {
-      title: `${month}: all ${familiesText(c.already)} released`,
+      title: `All ${familiesText(c.already)} released`,
       meta: [
         c.changed
           ? `${c.changed} ${plural(c.changed, 'family has', 'families have')} changed since release. Open ${plural(c.changed, 'its row', 'their rows')} and use Release again.`
@@ -118,13 +118,14 @@ export function releaseHeadline(plan) {
   const parts = [
     c.ready ? `${c.ready} ${plural(c.ready, 'is', 'are')} ready.` : 'None are ready.',
     c.heldFamilies ? `${c.heldFamilies} held back.` : null,
+    c.changed ? `${c.changed} changed since release.` : null,
     orphans,
     // a month still running says when it is usually released; a finished one, that nothing is out yet
     plan.monthEnded
       ? (c.already ? null : 'Parents see nothing until you release.')
       : `${month} has not ended yet (usually released ${shortDate(billDate(plan.month))}).`,
   ].filter(Boolean);
-  return { title: `${month}: ${state}`, meta: parts.join(' '), tone: plan.monthEnded ? 'ready' : 'waiting' };
+  return { title: state.charAt(0).toUpperCase() + state.slice(1), meta: parts.join(' '), tone: plan.monthEnded ? 'ready' : 'waiting' };
 }
 
 // What the confirm dialog says
