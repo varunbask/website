@@ -45,13 +45,14 @@ const sent = (parent, extra = {}) => ({
   parent_id: parent, period: MONTH, sent_on: '2026-11-01', due_cents: 4500, month_cents: 4500, previous_cents: 0, ...extra,
 });
 
-// Six families in October: alan is ready, ryan has a session nobody confirmed,
+// Six families in October: alan is ready (his lesson never got attendance, which
+// counts as held and holds nothing back), ryan has a lesson with no family rate,
 // nina only cancelled, sam is released, tia was released and then changed, vic
 // was marked sent before the portal kept copies. maya has no paying parent.
 function october({ statements = [], extra = {} } = {}) {
   const sessions = [
-    session('kevin', '2026-10-05'),
-    session('amy', '2026-10-06', { attendance: null }),
+    session('kevin', '2026-10-05', { attendance: null }),
+    session('amy', '2026-10-06'),
     session('lee', '2026-10-07', { status: 'cancelled', attendance: null, cancelled_at: at('2026-10-06', '08:00') }),
     session('ben', '2026-10-08'),
     session('cy', '2026-10-09'),
@@ -61,7 +62,7 @@ function october({ statements = [], extra = {} } = {}) {
   const billing = {
     settings: SETTINGS,
     policies: [POLICY],
-    familyRates: ['kevin', 'amy', 'lee', 'ben', 'cy', 'di', 'maya'].map(rate),
+    familyRates: ['kevin', 'lee', 'ben', 'cy', 'di', 'maya'].map(rate),
     tutorRates: [{ id: nextId++, tutor_id: 'ethan', rate_cents: 3000, effective_from: '2026-10-01', voided_at: null }],
     sessionBilling: [], edits: [], payments: [], payouts: [], adjustments: [], contacts: [],
     statements,
@@ -84,7 +85,7 @@ describe('release planning: who is ready, held back, already out', () => {
   const b = october({ statements: STATEMENTS });
   const plan = releasePlan(b, MONTH, TODAY, { noLogin: new Set(['alan']) });
 
-  test('a family with everything confirmed and a rate is ready', () => {
+  test('a family with a rate is ready, whether or not attendance was recorded', () => {
     expect(names(plan.ready)).toEqual(['Alan Wang', 'Vic Hu']);
     expect(plan.ready[0]).toMatchObject({ parentId: 'alan', noLogin: true, previous: 0 });
     expect(plan.ready[0].action).toMatchObject({ kind: 'mark', blocked: false });
@@ -100,16 +101,16 @@ describe('release planning: who is ready, held back, already out', () => {
     expect(plan.ready.map((x) => x.parentId)).not.toContain('tia');
   });
 
-  test('held back, with the reason: open items, nothing owed, no paying parent', () => {
+  test('held back, with the reason: no family rate, nothing owed, no paying parent', () => {
     expect(plan.held.map((x) => [x.name, x.reason])).toEqual([
       ['Maya Ito', 'no_payer'], ['Nina Cho', 'nothing'], ['Ryan Li', 'blocked'],
     ]);
     const ryan = plan.held.find((x) => x.parentId === 'ryan');
-    expect(ryan.detail).toBe('1 session needs attention first (ended without attendance)');
+    expect(ryan.detail).toBe('1 session has no family rate (add one on Rates)');
     expect(plan.held.find((x) => x.studentId === 'maya')).toMatchObject({ parentId: null, detail: 'no paying parent is linked to this student' });
   });
 
-  test('the blocked families are exactly the ones Record payment is blocked for', () => {
+  test('the blocked families are exactly the ones Mark paid and Record payment are blocked for', () => {
     for (const f of familyRows(b, MONTH)) {
       const blockedHere = plan.held.some((x) => x.parentId === f.parentId && x.reason === 'blocked');
       expect(blockedHere, f.name).toBe(!familyBlockers(b, f.parentId, MONTH).ok && !plan.already.some((x) => x.parentId === f.parentId));
@@ -170,7 +171,7 @@ describe('what the page and the dialog say', () => {
     expect(copy.held).toEqual([
       'Maya Ito: no paying parent is linked to this student',
       'Nina Cho: nothing owed for the month',
-      'Ryan Li: 1 session needs attention first (ended without attendance)',
+      'Ryan Li: 1 session has no family rate (add one on Rates)',
     ]);
     expect(copy.warning).toBeNull();
   });

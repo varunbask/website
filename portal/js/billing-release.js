@@ -9,7 +9,7 @@
 
 import {
   familyRows, familyBlockers, familyBalanceBefore, needsAttention, studentsWithoutPayer,
-  monthEnd, monthName, billDate, dayText, shortDate, ATTENTION,
+  monthEnd, monthName, billDate, dayText, shortDate,
 } from './billing-model.js';
 import { sendAction } from './billing-text.js';
 
@@ -19,16 +19,15 @@ const familiesText = (n) => `${n} ${plural(n, 'family', 'families')}`;
 
 // Why a family or student is held back
 export const HELD_REASONS = Object.freeze({
-  blocked: 'Open items on the calendar',
+  blocked: 'No family rate',
   nothing: 'Nothing owed',
   no_payer: 'No paying parent',
 });
 
-// A one-line list of what is open for a family: "Ended without attendance; No family rate"
+// What holds a family back, in one line: "2 sessions have no family rate (add one on Rates)"
 function blockedDetail(gate) {
-  const titles = [...new Set(gate.items.map((it) => ATTENTION[it.kind]?.title).filter(Boolean))];
   const n = gate.items.length;
-  return `${n} ${plural(n, 'session needs', 'sessions need')} attention first (${titles.join('; ').toLowerCase()})`;
+  return `${n} ${plural(n, 'session has', 'sessions have')} no family rate (add one on Rates)`;
 }
 
 // Nothing to bill: no charges this month and nothing brought forward. A month
@@ -42,8 +41,9 @@ const nothingOwed = (f, previousCents) => f.owedCents === 0 && previousCents <= 
 //   already  families with a released statement, left exactly as they are;
 //            changed says the month moved since (that is Release again, one
 //            family at a time, because the parent sees the new version)
-//   held     what stays back, with the reason: blocked by the same open items
-//            as Record payment, nothing owed, or a student with no paying parent
+//   held     what stays back, with the reason: a session with no family rate (the
+//            same gate as Mark paid and Record payment), nothing owed, or a
+//            student with no paying parent
 //   monthEnded  false while the month is still running (releasing is allowed,
 //            with a warning)
 // noLogin is a Set of parent ids who have no login yet; their statement is

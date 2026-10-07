@@ -1,21 +1,26 @@
 // The Account page's money rules, in one place, with no DOM and no network.
 // Every number on the page comes from the sessions on the calendar priced by
 // the rates and policy the admin set (supabase/migrations/20261010120000_billing.sql).
-// Nothing here writes; the views call these and render the result.
+// The calendar is the source of truth: a session is priced as it stands today,
+// with no audit trail to clear first. A session added, moved, lengthened or
+// deleted after it happened simply changes the numbers. Only what makes a
+// number impossible to work out (no family rate, no tutor pay rate) is listed
+// and holds anything back. Nothing here writes; the views call these and
+// render the result.
 //
 // Money is integer cents. Days are Pacific 'YYYY-MM-DD' keys (dates.js). A
 // month is the key of its first day ('2026-11-01'); a pay period is the key of
 // its first Sunday. A session belongs to the month and the pay period of the
 // Pacific day it starts on and is never split.
 //
-//   ctx = buildContext({ sessions, links, rules, billing, now, adminIds })
+//   ctx = buildContext({ sessions, links, rules, billing, now })
 //     sessions  every session from the ledger start (store.getAllSessions)
 //     links     tutor_students rows (tutor_id, student_id, subject)
 //     rules     session_series rows (id, start_time, end_time)
 //     billing   store.getBilling(): settings, policies, familyRates, tutorRates,
-//               sessionBilling, edits, payments, payouts, adjustments, contacts,
-//               statements, parentLinks, names, fullNames
-//     adminIds  ids of admins, so their own edits are not flagged
+//               sessionBilling, payments, payouts, adjustments, contacts,
+//               statements, parentLinks, names, fullNames (the store also loads
+//               session_edits; nothing here reads it)
 
 import { dayKey, addDays, parseKey, weekday } from './dates.js';
 import { durationMinutes } from './sessions-model.js';
@@ -141,6 +146,18 @@ export function periodText(start) {
   return `${shortDate(start)} to ${shortDate(end, start)}`;
 }
 
+// The day a pay period is paid, as the old scheduler had it: the 1st to the
+// 15th is paid on the 15th, the 16th to the end of the month on the 1st of the
+// next month. A label only: the page records no payouts (the CPA runs payroll).
+export function payDate(start) {
+  return start.endsWith('-01') ? `${start.slice(0, 8)}15` : addMonths(monthOf(start), 1);
+}
+
+// 'Pays Oct 15', 'Pays Nov 1' (with the year when it is not the period's own: 'Pays Jan 1, 2027')
+export function payDateText(start) {
+  return `Pays ${shortDate(payDate(start), start)}`;
+}
+
 // ---------------------------------------------------------------------------
 // Rates and policy
 
@@ -188,18 +205,17 @@ export function tutorRateFor(tutorId, day, rates) {
 
 export const STATES = Object.freeze({
   cancelled: 'Cancelled',
-  conflict: 'Cancelled after attendance',
   expected: 'Upcoming',
   attended: 'Attended',
   noshow: 'No-show',
   unconfirmed: 'No attendance yet',
 });
 
+// A cancelled session is cancelled, whatever attendance says. One that ended
+// without attendance counts as held (the policy can switch that off).
 export function stateOf(session, now) {
   const ended = ms(session.ends_at) <= now.getTime();
-  if (session.status === 'cancelled') {
-    return session.attendance === 'present' || session.attendance === 'late' ? 'conflict' : 'cancelled';
-  }
+  if (session.status === 'cancelled') return 'cancelled';
   if (!ended) return 'expected';
   if (session.attendance === 'present' || session.attendance === 'late') return 'attended';
   if (session.attendance === 'absent') return 'noshow';
@@ -211,7 +227,6 @@ export function stateOf(session, now) {
 function percentages(state, policy, exception) {
   const base = {
     cancelled: [0, 0, 0, 0],
-    conflict: [0, 0, 0, 0],
     expected: [100, 0, 100, 0],
     attended: [100, 100, 100, 100],
     noshow: [policy.absent_family_pct, policy.absent_family_pct, policy.absent_tutor_pct, policy.absent_tutor_pct],
@@ -270,7 +285,7 @@ export function sessionMoney(session, ctx) {
 // ---------------------------------------------------------------------------
 // Context
 
-export function buildContext({ sessions = [], links = [], rules = [], billing, now = new Date(), adminIds = [] }) {
+export function buildContext({ sessions = [], links = [], rules = [], billing, now = new Date() }) {
   const settings = billing.settings;
   const payer = new Map();
   const payerCount = new Map();
@@ -287,7 +302,6 @@ export function buildContext({ sessions = [], links = [], rules = [], billing, n
     familyRates: billing.familyRates ?? [],
     tutorRates: billing.tutorRates ?? [],
     sessionBilling: new Map((billing.sessionBilling ?? []).map((r) => [String(r.session_id), r])),
-    edits: billing.edits ?? [],
     payments: (billing.payments ?? []).filter(live),
     payouts: (billing.payouts ?? []).filter(live),
     adjustments: (billing.adjustments ?? []).filter(live),
@@ -295,7 +309,6 @@ export function buildContext({ sessions = [], links = [], rules = [], billing, n
     statements: billing.statements ?? [],
     names: billing.names ?? new Map(),
     rules: new Map((rules ?? []).map((r) => [String(r.id), r])),
-    adminIds: new Set((adminIds ?? []).map(String)),
     links: links ?? [],
     parentLinks: billing.parentLinks ?? [],
     payerOf: (studentId) => payer.get(String(studentId)) ?? null,
@@ -419,7 +432,6 @@ export function familyMonth(ctx, parentId, month) {
   const minutes = sum(counted.filter((l) => l.familyRealized > 0 || l.familyExpected > 0), (l) => l.minutes);
   const statement = ctx.statements.find((x) => same(x.parent_id, parentId) && x.period === month);
   const lastPayment = payments.reduce((best, p) => (!best || p.received_on > best.received_on ? p : best), null);
-  const snapshot = payments.filter((p) => p.period === month).reduce((best, p) => (!best || p.created_at > best.created_at ? p : best), null);
   return {
     parentId: String(parentId),
     name: ctx.nameOf(parentId),
@@ -436,8 +448,6 @@ export function familyMonth(ctx, parentId, month) {
     paidCents,
     dueCents: owedCents - paidCents,
     lastPayment,
-    snapshot,
-    changedSincePayment: Boolean(snapshot) && snapshot.owed_cents !== owedCents,
     // Everything owed through this month, after every payment (loose ones too)
     balanceThrough: familyBalance(ctx, parentId, month),
     // The day the bill was released (statements.sent_on), and whether the portal
@@ -493,7 +503,6 @@ export function dueDate(ctx, month, sentOn = null) {
 
 export function familyStatus(ctx, f) {
   const today = dayKey(ctx.now);
-  if (f.changedSincePayment) return { key: 'changed', label: 'Changed since payment', tone: 'danger' };
   if (f.paidCents > 0 && f.dueCents <= 0) {
     if (f.dueCents < 0) return { key: 'credit', label: `Credit ${money(-f.dueCents)}`, tone: 'info' };
     return { key: 'paid', label: f.lastPayment ? `Paid ${shortDate(f.lastPayment.received_on, today)}` : 'Paid', tone: 'success' };
@@ -665,66 +674,43 @@ export function yearRows(ctx, year) {
 
 // ---------------------------------------------------------------------------
 // Needs attention
+//
+// Only what makes a number impossible to work out, each with its fix:
+//   unpriced       a session with no family rate (Add rate): holds that family's
+//                  month back from Mark paid, Record payment and Release
+//   no_tutor_rate  a tutor with no pay rate (Set it on Rates): marks their pay
+//                  period Check first
+//   overlap        one tutor, two students at the same time (Mark as group so the
+//                  tutor is paid once): information, never holds anything back
+//   no_payer       a student with no paying parent (Link a parent): information
+//   overdue        a family past its due date: information
+// Everything else (attendance never recorded, a session added or changed after
+// it happened, a cancellation, a deletion, a month edited after it was paid)
+// just changes the numbers.
 
 export const ATTENTION = Object.freeze({
-  unconfirmed: { title: 'Ended without attendance', blocks: true },
-  added_late: { title: 'Added after it happened', blocks: true },
-  longer: { title: 'Longer than its series', blocks: true },
-  altered: { title: 'Changed after it ended', blocks: true },
-  conflict: { title: 'Cancelled after attendance was recorded', blocks: true },
-  overlap: { title: 'Same tutor, same time: group or clash?', blocks: true },
   unpriced: { title: 'No family rate', blocks: true },
   no_tutor_rate: { title: 'No tutor pay rate', blocks: true },
+  overlap: { title: 'Same tutor, same time', blocks: false },
   no_payer: { title: 'No paying parent', blocks: false },
-  deleted_late: { title: 'Deleted after it happened', blocks: false },
   overdue: { title: 'Overdue families', blocks: false },
-  changed_paid: { title: 'Paid, then changed on the calendar', blocks: false },
-  older_unconfirmed: { title: 'Older sessions without attendance', blocks: false },
 });
 
-// Accepted on the list, with no edit to the session since
-export function isAccepted(ctx, row) {
-  const at = row.exception?.reviewed_at;
-  if (!at) return false;
-  return !ctx.edits.some((e) => same(e.session_id, row.id) && e.at > at);
+// An overlap the admin chose to Accept on the list (session_billing.reviewed_at): it is a real clash, not a group
+export function isAccepted(row) {
+  return Boolean(row.exception?.reviewed_at);
 }
 
-function editsOf(ctx, id) {
-  return ctx.edits.filter((e) => same(e.session_id, id));
-}
-
-// Flags on one session (kinds above that apply to it), before Accept
+// Flags on one session: only a missing family rate. A free lesson (a trial)
+// needs no rate, and a cancelled session is never priced.
 export function flagsFor(ctx, row) {
-  const s = row.session;
-  const flags = [];
-  if (row.state === 'unconfirmed') flags.push('unconfirmed');
-  if (row.state === 'conflict') flags.push('conflict');
-  if (s.created_at && ms(s.created_at) > ms(s.ends_at) && row.state !== 'cancelled') flags.push('added_late');
-  const edits = editsOf(ctx, row.id);
-  const byAdmin = (e) => Boolean(e.editor) && ctx.adminIds.has(String(e.editor));
-  const span = (a, b) => ms(b) - ms(a);
-  // made longer by someone other than the admin (before or after it happened)
-  const lengthened = edits.some((e) => e.action === 'update' && !byAdmin(e) && e.old_ends_at && e.new_ends_at
-    && span(e.new_starts_at, e.new_ends_at) > span(e.old_starts_at, e.old_ends_at));
-  if (row.state !== 'cancelled' && lengthened) flags.push('longer');
-  const retimed = (e) => ms(e.new_starts_at) !== ms(e.old_starts_at) || ms(e.new_ends_at) !== ms(e.old_ends_at);
-  const alteredLate = edits.some((e) => e.action === 'update' && e.old_ends_at && !byAdmin(e)
-    && ((ms(e.at) > ms(e.old_ends_at) && ((e.new_status && e.new_status !== e.old_status) || retimed(e)))
-      // moved so that it had already ended when the change was made
-      || (retimed(e) && e.new_ends_at && ms(e.new_ends_at) <= ms(e.at))));
-  if (alteredLate) flags.push('altered');
-  // No cancellation policy: families cancel or reschedule whenever they need to,
-  // so a cancellation is never flagged or charged
-  // a free lesson (a trial) needs no rate
-  if (row.unpriced && row.exception?.charge_pct !== 0) flags.push('unpriced');
-  return flags;
+  return row.unpriced && row.exception?.charge_pct !== 0 ? ['unpriced'] : [];
 }
-
 
 // Payable sessions of one tutor that overlap without sharing a group key
 export function overlapsOf(rows) {
   const out = new Set();
-  const payable = rows.filter((r) => r.state !== 'cancelled' && r.state !== 'conflict');
+  const payable = rows.filter((r) => r.state !== 'cancelled');
   for (let i = 0; i < payable.length; i += 1) {
     for (let j = i + 1; j < payable.length; j += 1) {
       const a = payable[i];
@@ -739,14 +725,13 @@ export function overlapsOf(rows) {
   return out;
 }
 
-// Everything that needs a decision in [from, to]: { items, byKind }
-// Each item: { kind, rowId?, row?, tutorId?, studentId?, parentId?, month?, periodStart?, cents?, count? }
-// sessionsOnly skips the family-wide and paid-period checks (for the gates).
+// Everything worth a look in [from, to]: { items, byKind }
+// Each item: { kind, rowId?, row?, tutorId?, studentId?, parentId?, month?, cents? }
+// sessionsOnly skips the family-wide checks (no payer, overdue), for the gates.
 export function needsAttention(ctx, from, to, { sessionsOnly = false } = {}) {
   const items = [];
   const rows = ctx.rows.filter((r) => inRange(r, from, to));
   for (const r of rows) {
-    if (isAccepted(ctx, r)) continue;
     for (const kind of flagsFor(ctx, r)) {
       items.push({ kind, rowId: r.id, row: r, tutorId: String(r.session.tutor_id), studentId: String(r.session.student_id), parentId: payerFor(ctx, r) });
     }
@@ -760,7 +745,7 @@ export function needsAttention(ctx, from, to, { sessionsOnly = false } = {}) {
   for (const [tutorId, list] of byTutor) {
     for (const id of overlapsOf(list)) {
       const r = list.find((x) => x.id === id);
-      if (!isAccepted(ctx, r)) items.push({ kind: 'overlap', rowId: id, row: r, tutorId, studentId: String(r.session.student_id), parentId: payerFor(ctx, r) });
+      if (!isAccepted(r)) items.push({ kind: 'overlap', rowId: id, row: r, tutorId, studentId: String(r.session.student_id), parentId: payerFor(ctx, r) });
     }
     if (list.some((r) => r.noTutorRate && r.state !== 'cancelled')) items.push({ kind: 'no_tutor_rate', tutorId });
   }
@@ -773,19 +758,8 @@ export function needsAttention(ctx, from, to, { sessionsOnly = false } = {}) {
       if (f.dueCents > 0 && f.balanceThrough > 0 && today > dueDate(ctx, m, f.sentOn)) {
         items.push({ kind: 'overdue', parentId: f.parentId, month: m, cents: Math.min(f.dueCents, f.balanceThrough) });
       }
-      if (f.changedSincePayment) items.push({ kind: 'changed_paid', parentId: f.parentId, month: m, cents: f.owedCents - f.snapshot.owed_cents });
     }
   }
-  // Sessions a tutor (or the Google sync) deleted after they happened: they are no longer billed or paid
-  for (const e of ctx.edits) {
-    if (e.action !== 'delete' || !e.old_ends_at || ms(e.at) < ms(e.old_ends_at)) continue;
-    if (e.editor && ctx.adminIds.has(String(e.editor))) continue;
-    const day = dayKey(e.old_starts_at);
-    if (day < from || day > to || day < ctx.settings.ledger_start) continue;
-    items.push({ kind: 'deleted_late', edit: e, tutorId: String(e.tutor_id), studentId: String(e.student_id), day, by: e.editor ? String(e.editor) : null });
-  }
-  const older = ctx.rows.filter((r) => r.day < from && r.state === 'unconfirmed' && !isAccepted(ctx, r)).length;
-  if (older) items.push({ kind: 'older_unconfirmed', count: older });
   return group(items);
 }
 
@@ -798,26 +772,24 @@ function group(items) {
   return { items, byKind };
 }
 
-const FAMILY_BLOCKS = new Set(['unconfirmed', 'added_late', 'longer', 'altered', 'conflict', 'unpriced']);
-const TUTOR_BLOCKS = new Set(['unconfirmed', 'added_late', 'longer', 'altered', 'conflict', 'overlap']);
-
-// Whether Record payment and Release may be used for a family's month: { ok, items }.
+// Whether Mark paid, Record payment and Release may be used for a family's
+// month: { ok, items }. Only a session with no family rate holds it back.
 // `attention` is needsAttention(ctx, month, monthEnd(month), { sessionsOnly: true }),
 // passed in when many families are checked in one go so it is worked out once.
 export function familyBlockers(ctx, parentId, month, { attention = null } = {}) {
   const f = familyMonth(ctx, parentId, month);
   const ids = new Set(f.lines.filter((l) => !l.paidBy).map((l) => l.id));
   const { items } = attention ?? needsAttention(ctx, month, monthEnd(month), { sessionsOnly: true });
-  const blocking = items.filter((it) => FAMILY_BLOCKS.has(it.kind) && ids.has(it.rowId));
+  const blocking = items.filter((it) => it.kind === 'unpriced' && ids.has(it.rowId));
   return { ok: blocking.length === 0, items: blocking };
 }
 
-// Whether a tutor's period is ready for the CPA (nothing open in it): { ok, items }
+// Whether a tutor's period is ready for the CPA: { ok, items }. Only a missing
+// pay rate holds it back (the period then reads Check first).
 export function tutorBlockers(ctx, tutorId, periodStart) {
   const end = payPeriodEnd(periodStart);
   const { items } = needsAttention(ctx, periodStart, end, { sessionsOnly: true });
-  const blocking = items.filter((it) => (TUTOR_BLOCKS.has(it.kind) && same(it.tutorId, tutorId))
-    || (it.kind === 'no_tutor_rate' && same(it.tutorId, tutorId)));
+  const blocking = items.filter((it) => it.kind === 'no_tutor_rate' && same(it.tutorId, tutorId));
   return { ok: blocking.length === 0, items: blocking };
 }
 

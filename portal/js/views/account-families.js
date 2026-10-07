@@ -1,9 +1,11 @@
 // Account > Families (account.html, admin). Monthly billing: one row per paying
 // parent with the month's sessions, adjustments and payments, a running
-// balance, Record payment (blocked while the month has open items), the
-// statement, Copy as text and Release. A parent sees nothing about a month until
-// it is released: Release bills at the top does every ready family at once, and
-// each family has its own Release (and Release again) too.
+// balance, a one-click Mark paid (and Undo once paid in full) on the row,
+// Record payment for odd amounts, the statement, Copy as text and Release.
+// Mark paid, Record payment and Release wait only for a rate on every session.
+// A parent sees nothing about a month until it is released: Release bills at
+// the top does every ready family at once, and each family has its own Release
+// (and Release again) too.
 
 import { sb } from '../supabase.js';
 import { h } from '../dom.js';
@@ -13,20 +15,25 @@ import { button, pill, segmented, select, emptyState, busy, drawerHref } from '.
 import { todayKey } from '../dates.js';
 import { timeRange } from '../sessions-model.js';
 import {
-  money, signedMoney, hoursText, parseMoney, monthName, familyRows, familyBlockers, familyBalanceBefore, familySnapshot,
-  dueDate, billDate, dayText, shortDate, statementNumber, ATTENTION,
+  money, hoursText, parseMoney, monthEnd, monthName, familyRows, familyBlockers, familyBalanceBefore, needsAttention,
+  dueDate, billDate, dayText, shortDate, statementNumber,
 } from '../billing-model.js';
 import { statementText, sendAction, familiesCsv, labelText, methodText, stateText, METHODS, LABELS } from '../billing-text.js';
 import { releasePlan, releaseDoneText, releaseLabel } from '../billing-release.js';
 import {
-  setHeader, monthFrom, monthPicker, loadPriced, table, cents, csvButton, act, saveSessionBilling, clientKey, note, tabHref, askReason,
+  FAMILY_METHODS, paidControl, paymentRow, paymentOutcome, markPaidText, markPaidLabel, undoLabel, undoDoneText, heldNote, UNDO_REASON,
+} from '../billing-paid.js';
+import {
+  setHeader, monthFrom, monthPicker, loadPriced, table, cents, csvButton, act, saveSessionBilling, clientKey, askReason,
 } from './account-shared.js';
 import { releaseBar, releaseDialog, statementColumns, writeStatement } from './account-release.js';
 
-const FAMILY_METHODS = ['zelle', 'venmo', 'check', 'cash', 'card', 'other'];
 const FAMILY_LABELS = ['late_fee', 'discount', 'credit', 'other'];
 const REASONS = { late_cancel: 'Late cancellation', no_show_forgiven: 'No-show forgiven', trial: 'Trial lesson (free)', other: 'Other' };
-const STATE_TONES = { attended: 'success', noshow: 'warning', unconfirmed: 'danger', expected: 'neutral', cancelled: 'neutral', conflict: 'danger' };
+const STATE_TONES = { attended: 'success', noshow: 'warning', unconfirmed: 'neutral', expected: 'neutral', cancelled: 'neutral' };
+
+// Voids a row (kept on record, stops counting), with the reason
+const voidQuery = (tableName, id, reason) => sb.from(tableName).update({ voided_at: new Date().toISOString(), void_reason: reason }).eq('id', id).select('id');
 
 export function mount(ctx) {
   const month = monthFrom(ctx.route, ctx.now);
@@ -43,6 +50,10 @@ export function mount(ctx) {
     const { b, data } = loaded;
     const today = todayKey(ctx.now);
     const all = familyRows(b, month);
+    // A session with no family rate is the only thing that holds a family back;
+    // worked out once for the whole month
+    const attention = needsAttention(b, month, monthEnd(month), { sessionsOnly: true });
+    const gateOf = (f) => familyBlockers(b, f.parentId, month, { attention });
     // People added without a login: their bill is released like the others and
     // reaches them as copied text or a printout
     const noLogin = new Set((data.people ?? []).filter((p) => isPlaceholderEmail(p.email)).map((p) => String(p.id)));
@@ -91,11 +102,13 @@ export function mount(ctx) {
             paid: cents(f.paidCents),
             balance: h('span', { class: f.balanceCents > 0 ? 'num acct-owes' : 'num' }, money(f.balanceCents)),
             status: pill(f.status),
-            more: button({
-              label: open.has(f.parentId) ? 'Hide' : 'Details', size: 'sm', variant: 'ghost',
-              ariaLabel: `${open.has(f.parentId) ? 'Hide' : 'Show'} details for ${f.name}`,
-              onClick: () => { if (open.has(f.parentId)) open.delete(f.parentId); else open.add(f.parentId); paint(); },
-            }),
+            more: h('span', { class: 'acct-row-actions' },
+              paidAction(f),
+              button({
+                label: open.has(f.parentId) ? 'Hide' : 'Details', size: 'sm', variant: 'ghost',
+                ariaLabel: `${open.has(f.parentId) ? 'Hide' : 'Show'} details for ${f.name}`,
+                onClick: () => { if (open.has(f.parentId)) open.delete(f.parentId); else open.add(f.parentId); paint(); },
+              })),
           },
           after: open.has(f.parentId) ? details(f) : null,
         })),
@@ -107,7 +120,7 @@ export function mount(ctx) {
     // One family's month
 
     function details(f) {
-      const gate = familyBlockers(b, f.parentId, month);
+      const gate = gateOf(f);
       const previous = familyBalanceBefore(b, f.parentId, month);
       const byStudent = new Map();
       for (const l of f.lines) {
@@ -118,9 +131,6 @@ export function mount(ctx) {
       const sessions = [...byStudent].map(([studentId, lines]) => h('div', { class: 'acct-student-block' },
         h('h4', { class: 'acct-student-name' }, b.nameOf(studentId)),
         h('ul', { class: 'acct-lines' }, lines.map((l) => lineRow(l)))));
-      const changed = f.changedSincePayment
-        ? note(`Paid ${money(f.snapshot.amount_cents)} on ${shortDate(f.snapshot.received_on, today)} when the month came to ${money(f.snapshot.owed_cents)}; it now comes to ${money(f.owedCents)} (${signedMoney(f.owedCents - f.snapshot.owed_cents)}). The difference stays in the balance.`, 'warning-circle')
-        : null;
       return h('div', { class: 'acct-details' },
         h('div', { class: 'acct-details-main' },
           sessions.length ? sessions : h('p', { class: 'card-meta' }, 'No sessions this month.'),
@@ -128,7 +138,6 @@ export function mount(ctx) {
           payments(f)),
         h('aside', { class: 'acct-details-side' },
           summary(f, previous),
-          changed,
           contact(f),
           gate.ok ? recordPayment(f, previous) : blocked(gate),
           h('div', { class: 'acct-side-actions' },
@@ -198,11 +207,12 @@ export function mount(ctx) {
     }
 
     // What the family pays for one lesson. Tutors are always paid their standard
-    // rate for what happened. Trial lessons are free and only the admin teaches them.
+    // rate for what happened, so a free trial lesson (any tutor's) costs the
+    // family nothing and still pays the tutor.
     function exceptionForm(l) {
       const ex = l.exception ?? {};
-      const ownLesson = b.adminIds.has(String(l.session.tutor_id));
-      const reasons = Object.entries(REASONS).filter(([value]) => value !== 'trial' || ownLesson);
+      // No cancellation policy: Late cancellation is not offered (an old exception keeps its label)
+      const reasons = Object.entries(REASONS).filter(([value]) => value !== 'late_cancel' || ex.reason === 'late_cancel');
       const fam = h('input', { type: 'number', class: 'input acct-num-input', min: '0', max: '100', value: ex.charge_pct ?? '', placeholder: 'policy', 'aria-label': 'Family pays (percent)' });
       const reasonWrap = select({ label: 'Reason', options: [{ value: '', label: 'Reason' }, ...reasons.map(([value, label]) => ({ value, label }))], value: ex.reason ?? '' });
       const reasonSelect = reasonWrap.querySelector('select');
@@ -238,15 +248,16 @@ export function mount(ctx) {
       }
     }
 
-    const blockedTitle = (gate) => `Resolve ${gate.items.length} ${gate.items.length === 1 ? 'item' : 'items'} before recording a payment or releasing the bill`;
+    const blockedTitle = (gate) => `${heldNote(gate).title}. ${heldNote(gate).text}`;
 
     function blocked(gate) {
-      const kinds = [...new Set(gate.items.map((it) => ATTENTION[it.kind].title))];
+      const note = heldNote(gate);
+      const studentId = gate.items[0]?.row?.session.student_id;
       return h('div', { class: 'callout tone-warning acct-gate' },
         icon('lock-simple', { size: 20 }),
         h('div', { class: 'callout-body' },
-          h('p', { class: 'callout-title' }, blockedTitle(gate)),
-          h('p', { class: 'callout-text' }, kinds.join('; '), '. ', h('a', { href: tabHref('dashboard', month) }, 'Open Needs attention'), '.')));
+          h('p', { class: 'callout-title' }, note.title),
+          h('p', { class: 'callout-text' }, note.text, ' ', h('a', { href: studentId ? `#/rates?student=${studentId}` : '#/rates' }, 'Add a rate'), '.')));
     }
 
     function recordPayment(f, previous) {
@@ -261,17 +272,15 @@ export function mount(ctx) {
       save.addEventListener('click', () => busy(save, 'Saving…', async () => {
         const c = parseMoney(amount.value, { allowNegative: true });
         if (c === null) { ctx.toast({ text: 'Enter the amount received, like 450 (a refund is negative).' }); amount.focus(); return; }
-        await act(ctx, () => sb.from('payments').insert({
-          client_key: key,
-          parent_id: f.parentId,
-          period: loose.checked ? null : month,
-          amount_cents: c,
+        await act(ctx, () => sb.from('payments').insert(paymentRow(f, {
+          key,
+          month,
+          cents: c,
           method: methodWrap.querySelector('select').value,
-          received_on: on.value || today,
+          receivedOn: on.value || today,
           reference: ref.value.trim() || null,
-          lines: loose.checked ? [] : familySnapshot(f),
-          owed_cents: loose.checked ? 0 : f.owedCents,
-        }).select('id'), { done: `${money(c)} from ${f.name} recorded.` });
+          loose: loose.checked,
+        })).select('id'), { done: `${money(c)} from ${f.name} recorded.` });
       }));
       return h('div', { class: 'acct-pay-form' },
         h('h4', {}, 'Record payment'),
@@ -337,10 +346,74 @@ export function mount(ctx) {
         h('div', { class: 'acct-inline-form' }, phone, handle, pref, save));
     }
 
-    async function voidRow(tableName, id, done) {
-      const reason = await askReason('Void this?', 'It stays on record and stops counting. This can’t be undone. Say why, for the record.');
+    async function voidRow(tableName, id, done, ask = {}) {
+      const reason = await askReason(ask.title ?? 'Void this?', ask.body ?? 'It stays on record and stops counting. This can’t be undone. Say why, for the record.', { confirmLabel: ask.confirmLabel ?? 'Void' });
       if (!reason || !ctx.alive()) return;
-      await act(ctx, () => sb.from(tableName).update({ voided_at: new Date().toISOString(), void_reason: reason }).eq('id', id).select('id'), { done });
+      await act(ctx, () => voidQuery(tableName, id, reason), { done });
+    }
+
+    // ---------------------------------------------------------------------
+    // Mark paid and Undo, on the family's row
+
+    // One payment for the month, for exactly what is due, the way the family
+    // usually pays, received today (Pacific). The toast can take it back.
+    function paidAction(f) {
+      const gate = gateOf(f);
+      const control = paidControl(f, { held: !gate.ok });
+      if (control.kind === 'mark') return markPaidButton(f, control);
+      if (control.kind === 'undo') {
+        return button({
+          label: 'Undo', size: 'sm', variant: 'ghost', ariaLabel: undoLabel({ name: f.name, payment: control.payment }), focusKey: `undo-${f.parentId}`,
+          onClick: () => voidRow('payments', control.payment.id, 'Payment voided.', {
+            title: 'Undo this payment?',
+            body: `The ${money(control.payment.amount_cents)} payment from ${f.name} stays on record and stops counting, so the month goes back to what is due. Say why, for the record.`,
+            confirmLabel: 'Undo payment',
+          }),
+        });
+      }
+      if (gate.ok) return null;
+      const studentId = gate.items[0]?.row?.session.student_id;
+      const add = button({ label: 'Add rate', size: 'sm', variant: 'ghost', href: studentId ? `#/rates?student=${studentId}` : '#/rates' });
+      add.title = blockedTitle(gate);
+      return add;
+    }
+
+    function markPaidButton(f, control) {
+      // one key per button: pressed again after a send that landed, it records nothing new
+      const key = clientKey();
+      const btn = button({
+        label: 'Mark paid', size: 'sm', icon: 'check', focusKey: `markpaid-${f.parentId}`,
+        ariaLabel: markPaidLabel({ name: f.name, cents: control.cents }),
+      });
+      btn.title = `${money(control.cents)} by ${methodText(control.method)}, received today`;
+      btn.addEventListener('click', () => busy(btn, 'Saving…', async () => {
+        const row = paymentRow(f, { key, month, cents: control.cents, method: control.method, receivedOn: todayKey(new Date()) });
+        await act(ctx, () => sb.from('payments').insert(row).select('id'), {
+          done: (result) => {
+            const { id } = paymentOutcome(result);
+            return {
+              text: markPaidText({ name: f.name, cents: control.cents, method: control.method }),
+              action: id ? { label: 'Undo', run: () => undoPaid(f.name, id) } : undefined,
+            };
+          },
+        });
+      }));
+      return btn;
+    }
+
+    // The toast's Undo: void that payment the way Void does. The page has
+    // redrawn since, so this reports through the toast and the store, not the view.
+    async function undoPaid(name, id) {
+      let result;
+      try {
+        result = await voidQuery('payments', id, UNDO_REASON);
+      } catch (error) {
+        result = { error };
+      }
+      const ok = !result?.error && Array.isArray(result?.data) && result.data.length > 0;
+      if (result?.error) console.error(result.error);
+      ctx.toast({ text: ok ? undoDoneText(name) : 'That didn’t undo. Open Details and void the payment there.' });
+      if (ok) ctx.store.invalidateBilling();
     }
 
     async function copy(text, done) {

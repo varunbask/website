@@ -45,7 +45,7 @@ export async function loadPriced(ctx, root, { first = true } = {}) {
   try {
     const data = await ctx.store.getBilling();
     const priced = buildContext({
-      sessions: data.sessions, links: data.links, rules: data.rules, billing: data.billing, now: new Date(), adminIds: data.adminIds,
+      sessions: data.sessions, links: data.links, rules: data.rules, billing: data.billing, now: new Date(),
     });
     return { b: priced, data };
   } catch (error) {
@@ -108,6 +108,8 @@ export function csvButton(ctx, fileName, make) {
 
 // Runs a write that returns rows (.select('id')). An error or no rows (row
 // security refused it) shows a toast; success reloads the billing data.
+// `done` is the toast text, or a function of the result that returns the toast
+// ({ text, action }), for a write that offers an Undo.
 // Returns true on success.
 export async function act(ctx, run, { done, failed = 'That didn’t save. Refresh the page and try again.', expect: count = null } = {}) {
   let result;
@@ -125,7 +127,7 @@ export async function act(ctx, run, { done, failed = 'That didn’t save. Refres
     ctx.toast({ text: result?.error?.message && /paid period|happened|frozen|priced a paid/.test(result.error.message) ? `${result.error.message.charAt(0).toUpperCase()}${result.error.message.slice(1)}.` : failed });
     return false;
   }
-  if (done) ctx.toast({ text: done });
+  if (done) ctx.toast(typeof done === 'function' ? done(result) : { text: done });
   ctx.store.invalidateBilling();
   return true;
 }
@@ -136,16 +138,6 @@ export async function saveSessionBilling(sessionId, fields) {
   if (existing.error) return existing;
   if (existing.data) return sb.from('session_billing').update(fields).eq('session_id', sessionId).select('session_id');
   return sb.from('session_billing').insert({ session_id: sessionId, ...fields }).select('session_id');
-}
-
-// Sets attendance on sessions (admin), checking every row came back, then
-// reloads everything that shows sessions
-export async function markAttendance(ctx, ids, value, { done } = {}) {
-  const ok = await act(ctx, () => sb.from('sessions').update({ attendance: value }).in('id', ids).select('id'), {
-    done, expect: ids.length, failed: 'Some sessions did not save. Refresh the page and try again.',
-  });
-  if (ok) ctx.store.invalidate(null);
-  return ok;
 }
 
 // A text input bound to a label, for inline forms
