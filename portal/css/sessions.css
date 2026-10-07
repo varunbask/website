@@ -3,8 +3,8 @@
    Spec: docs/superpowers/specs/2026-10-02-tutoring-schedules.md ("Session drawer").
 
    Drawer detail
-     div.ses-head (+ .is-cancelled) > p.drawer-kind + div.ses-titlerow.subj-N >
-       span.ses-dot (the subject colour) + h2.drawer-title ; then dl.ses-facts
+     div.ses-head (+ .is-cancelled) > p.drawer-kind + div.ses-titlerow.tc-NAME >
+       span.ses-dot (the tutor colour) + h2.drawer-title ; then dl.ses-facts
        dl.ses-facts > div.ses-fact > dt + dd (span.ses-when-date + span.ses-when-time,
        span.ses-person > span.avatar + name, span.ses-place + a.btn.ses-join)
      div.ses-action-error                staff action errors (cancel, delete)
@@ -28,7 +28,7 @@
          ... ul.ses-callout-list
        div.ses-form-errors > div.callout.tone-danger[role=alert]
 
-   Subject colour: put .subj-0 to .subj-5 (or .subj-none) on an element and read
+   Tutor colour: put .tc-NAME (or .tc-none) on an element and read
    var(--subj-bg), var(--subj-text) and var(--subj-solid) (defined in app.css).
 */
 
@@ -364,7 +364,7 @@ input[type="time"].input { font-variant-numeric: tabular-nums; }
      (form.mat-link-form), p.mat-hint
    li.mat-item > span.mat-icon + a.mat-open (span.mat-title + span.mat-meta)
      + button.icon-btn.mat-remove
-   a.asg-lesson.subj-N   "Set in the Algebra lesson on Tue, Oct 6" (assignment drawer)
+   a.asg-lesson.tc-NAME   "Set in the Algebra lesson on Tue, Oct 6" (assignment drawer)
    p.note.asg-lesson-note   the same, on the create form */
 
 .mat-section > h3 {

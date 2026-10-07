@@ -18,7 +18,7 @@ import {
 } from '../ui.js';
 import { itemStatus } from '../status.js';
 import { dueLabel, dayKey, parseKey, todayKey, dayHeading } from '../dates.js';
-import { sessionTitle, sessionState, toneClass as subjectTone, upcomingSessions } from '../sessions-model.js';
+import { sessionTitle, sessionState, tutorToneClass, upcomingSessions } from '../sessions-model.js';
 import {
   changeNotes, canJoin, placeText, whenText, sessionRowLabel, tutorEntries, tutorsTitle,
 } from '../schedule-summary.js';
@@ -216,7 +216,9 @@ async function loadAll(ctx, studentId, { tutors: wantTutors = true } = {}) {
   const sessions = ctx.store.getSessions(studentId).catch(() => null);
   const tutors = wantTutors ? ctx.store.getTutors(studentId).catch(() => null) : Promise.resolve(null);
   const names = staffNames().catch(() => new Map());
+  const colors = ctx.store.getTutorColors();   // never rejects; lessons are in their tutor's color
   const data = await ctx.store.getStudentData(studentId);
+  await colors;
   const tutorRows = await tutors;
   // staffNames may be empty (or not name this tutor): the tutor list has names too
   const known = new Map((await names) ?? []);
@@ -247,7 +249,7 @@ function opensSession(ctx, id) {
   };
 }
 
-// One upcoming session: date block in the subject's colour, subject, when, who,
+// One upcoming session: date block in the tutor's colour, subject, when, who,
 // and where. Opens the session. Online and starting within 15 minutes (or
 // already under way) it gets a Join link under the row (a sibling of the row's
 // link, so a link never holds a link); otherwise the row names the place.
@@ -267,7 +269,7 @@ function sessionItem(ctx, s, names) {
   const caret = icon('caret-right');
   caret.classList.add('ovw-sess-caret');
   const link = h('a', {
-    class: `row ovw-sess ${subjectTone(s.subject)}`,
+    class: `row ovw-sess ${tutorToneClass(s.tutor_id)}`,
     href: openHref(ctx, `s${s.id}`),
     'aria-label': sessionRowLabel(s, { who, now }),
     dataset: { focusKey: `row-s${s.id}`, sessionId: String(s.id) },
@@ -350,7 +352,7 @@ function nextSessionCard(ctx, { sessions, names, studentId }) {
   return card;
 }
 
-// The student's tutors with their subjects, the subject in its own colour
+// The student's tutors with their subjects, the subject in the tutor's colour
 // invite: a student's "Get Google Calendar invites" control in the card's footer
 function tutorsCard(ctx, { span, title, tutors, names, studentId, invite = false }) {
   const titleId = uid('ovw-tutors');

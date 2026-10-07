@@ -151,7 +151,9 @@ export function startApp(config) {
   async function resolveScope(my, key, search) {
     let result;
     try {
-      result = await loadScope({ search: new URLSearchParams(search), store, me });
+      // The tutors' colors load beside the scope (they never reject), so the first
+      // lesson on any page is already in its tutor's color
+      [result] = await Promise.all([loadScope({ search: new URLSearchParams(search), store, me }), store.getTutorColors()]);
     } catch (error) {
       if (my !== seq) return false;
       console.error(error);

@@ -8,7 +8,7 @@
 
 import { dayKey, todayKey, daysBetween, weekday, longDate, parseKey } from './dates.js';
 import {
-  sortSessions, isCancelled, sessionTitle, timeRange, shortDayText, toneClass, ATTENDANCE,
+  sortSessions, isCancelled, sessionTitle, timeRange, shortDayText, tutorToneClass, ATTENDANCE,
 } from './sessions-model.js';
 import { nextSessionOf, nextSessionParts } from './schedule-summary.js';
 import { overdueItems, gradedItems } from './overview-model.js';
@@ -102,7 +102,7 @@ export function recentRows(sessions, names, now = new Date(), { limit = RECENT_L
     return {
       id: s.id,
       title: sessionTitle(s),
-      tone: toneClass(s.subject),
+      tone: tutorToneClass(s.tutor_id),
       month: m,
       day: d,
       when: recentWhen(s, today, { viewerInZone }),

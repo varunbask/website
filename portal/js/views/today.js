@@ -18,7 +18,7 @@ import { itemStatus } from '../status.js';
 import { dayKey, dueLabel, todayKey } from '../dates.js';
 import { avatar, button, drawerHref, emptyState, errorCallout, pill, rowList, segmented } from '../ui.js';
 import { staffNames } from '../updates-feed.js';
-import { ATTENDANCE, canEditSession, shortDayText, sessionTitle, timeRange, toneClass } from '../sessions-model.js';
+import { ATTENDANCE, canEditSession, shortDayText, sessionTitle, timeRange, tutorToneClass } from '../sessions-model.js';
 import {
   todayPlan, todayPill, todayRowLabel, nextLine, placeText, canJoin, sessionGaps, gapsText, catchUpWindow,
   showAllLabel, sessionCount, attendanceSaved, attendanceErrorText, attendanceGuard, attendanceTakenText, quickLabel,
@@ -277,7 +277,7 @@ function sessionRow(ctx, s, { plan, studentNames, staff, showTutor, links, catch
   const caret = icon('caret-right');
   caret.classList.add('tdy-caret');
   const link = h('a', {
-    class: ['row', 'tdy-row', toneClass(s.subject)].join(' '),
+    class: ['row', 'tdy-row', tutorToneClass(s.tutor_id)].join(' '),
     href: drawerHref(typeof location === 'undefined' ? '' : location.hash, `s${s.id}`),
     'aria-label': catchUp ? `${day}, ${spoken}` : spoken,
     dataset: { focusKey: `row-s${s.id}`, sessionId: String(s.id) },
@@ -417,11 +417,13 @@ export async function mount(ctx) {
   let pending = 0;
   let staff = new Map();
   try {
-    // staffNames never rejects; it names each session's tutor for an admin
+    // staffNames never rejects; it names each session's tutor for an admin. The
+    // tutors' colors never reject either: each lesson row is in its tutor's color.
     [ws, pending, staff] = await Promise.all([
       ctx.store.getWorkspace(),
       admin ? ctx.store.getPendingCount().catch(() => 0) : 0,
       admin ? staffNames() : new Map(),
+      ctx.store.getTutorColors(),
     ]);
   } catch (error) {
     if (!ctx.alive()) return;

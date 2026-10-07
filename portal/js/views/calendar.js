@@ -38,7 +38,7 @@ import { markSeen } from '../seen.js';
 import { staffNames } from '../updates-feed.js';
 import {
   clockText, timeRange, sessionTitle, sessionState, sessionAria, sessionsByDay, isCancelled,
-  toneClass, subjectLegend, hourRange, layoutDay, weekTitle, durationMinutes, followingInSeries, timeInput,
+  tutorToneClass, tutorLegend, hourRange, layoutDay, weekTitle, durationMinutes, followingInSeries, timeInput,
 } from '../sessions-model.js';
 import {
   announceGoogleReturn, tutorGoogleControl, studentInviteControl, syncNow, syncSoon, personalEvents, cachedPersonalEvents,
@@ -218,7 +218,7 @@ export function mount(ctx) {
     googleEl = studentInviteControl({ toast: ctx.toast });
   }
 
-  const legendEl = h('ul', { class: 'cal-legend', 'aria-label': 'Subjects', hidden: true });
+  const legendEl = h('ul', { class: 'cal-legend', 'aria-label': 'Tutors', hidden: true });
 
   const toolbar = h('div', { class: 'cal-toolbar' },
     h('div', { class: 'cal-toolbar-main' }, title, navGroup),
@@ -568,23 +568,23 @@ export function mount(ctx) {
     else body.replaceChildren(state.view === 'month' ? monthLayout() : listLayout());
   }
 
-  // The subjects of the sessions in view, as swatch and name; one subject
-  // needs no legend
+  // The tutors of the sessions in view, as swatch and name (their subjects when
+  // a name is not known); one tutor needs no legend
   function renderLegend() {
     let entries = [];
     if (state.status === 'ready') {
       const range = viewRange(state.view, state, today);
-      entries = subjectLegend(sessionsInRange(state.shown, range.start, range.end));
+      entries = tutorLegend(sessionsInRange(state.shown, range.start, range.end), state.tutorNames);
     }
-    const subjects = entries.length < 2 ? [] : entries;
+    const tutors = entries.length < 2 ? [] : entries;
     // The Personal item shows when the week on screen has Google events in it
     const personal = personalWeek();
     const hasPersonal = Boolean(personal && (personal.timed.length || personal.allDay.length));
-    legendEl.hidden = !subjects.length && !hasPersonal;
-    legendEl.setAttribute('aria-label', hasPersonal ? 'Key' : 'Subjects');
-    const items = subjects.map((e) => h('li', { class: `cal-legend-item ${e.tone}` },
+    legendEl.hidden = !tutors.length && !hasPersonal;
+    legendEl.setAttribute('aria-label', hasPersonal ? 'Key' : 'Tutors');
+    const items = tutors.map((e) => h('li', { class: `cal-legend-item ${e.tone}` },
       h('span', { class: 'cal-swatch', 'aria-hidden': 'true' }),
-      h('span', {}, e.subject)));
+      h('span', {}, e.label)));
     if (hasPersonal) {
       items.push(h('li', { class: 'cal-legend-item is-personal' },
         h('span', { class: 'cal-swatch', 'aria-hidden': 'true' }),
@@ -618,7 +618,7 @@ export function mount(ctx) {
       href: drawerHref(currentHash(), `s${s.id}`),
       dataset: { focusKey: `row-s${s.id}`, sessionId: String(s.id) },
     },
-    h('span', { class: `row-lead cal-lead ${toneClass(s.subject)}` }, h('span', { class: 'cal-swatch' })),
+    h('span', { class: `row-lead cal-lead ${tutorToneClass(s.tutor_id)}` }, h('span', { class: 'cal-swatch' })),
     h('span', { class: 'row-main' },
       h('span', { class: 'row-title' }, sessionTitle(s)),
       meta ? h('span', { class: 'row-meta' }, meta) : null),
@@ -753,7 +753,7 @@ export function mount(ctx) {
     const el = h('button', {
       type: 'button',
       class: [
-        'cal-block', toneClass(s.subject), size,
+        'cal-block', tutorToneClass(s.tutor_id), size,
         cancelled ? 'is-cancelled' : null,
         moved ? 'is-moved' : null,
         st.key === 'now' ? 'is-now' : null,
@@ -860,7 +860,7 @@ export function mount(ctx) {
         const time = h('span', { class: 'cal-block-time num' });
         const minutes = durationMinutes(s);
         const size = minutes < 43 ? 'is-tiny' : minutes < 60 ? 'is-short' : null;
-        const ghost = h('div', { class: ['cal-block', 'cal-drag-ghost', toneClass(s.subject), size].filter(Boolean).join(' '), 'aria-hidden': 'true' },
+        const ghost = h('div', { class: ['cal-block', 'cal-drag-ghost', tutorToneClass(s.tutor_id), size].filter(Boolean).join(' '), 'aria-hidden': 'true' },
           h('span', { class: 'cal-block-head' }, time),
           h('span', { class: 'cal-block-title' }, sessionTitle(s)));
         el.classList.add('is-drag-source');
@@ -1244,11 +1244,11 @@ export function mount(ctx) {
     return el;
   }
 
-  // A session on a month cell: start time and subject in the subject's tone,
+  // A session on a month cell: start time and subject in the tutor's tone,
   // struck through when cancelled
   function sessionChip(s) {
     const el = h('span', {
-      class: ['cal-chip', 'cal-chip-session', toneClass(s.subject), isCancelled(s) ? 'is-cancelled' : null].filter(Boolean).join(' '),
+      class: ['cal-chip', 'cal-chip-session', tutorToneClass(s.tutor_id), isCancelled(s) ? 'is-cancelled' : null].filter(Boolean).join(' '),
       title: sessionAria(s, { who: spokenWho(s), now: ctx.now }),
       dataset: { sessionId: String(s.id) },
     },
@@ -1271,7 +1271,7 @@ export function mount(ctx) {
   function dotRow(daySessions, dayItems) {
     return h('span', { class: 'cal-dots', 'aria-hidden': 'true' },
       dotsForDay(daySessions, dayItems, audience).map((dot) => h('span', {
-        class: dot.kind === 'session' ? `cal-dot is-session ${toneClass(dot.session.subject)}` : `cal-dot is-${dot.kind}`,
+        class: dot.kind === 'session' ? `cal-dot is-session ${tutorToneClass(dot.session.tutor_id)}` : `cal-dot is-${dot.kind}`,
       })));
   }
 
@@ -1516,7 +1516,7 @@ export function mount(ctx) {
 
   async function load() {
     if (allScope) {
-      const [ws, names] = await Promise.all([ctx.store.getWorkspace(), staffNames()]);
+      const [ws, names] = await Promise.all([ctx.store.getWorkspace(), staffNames(), ctx.store.getTutorColors()]);
       const studentNames = new Map((ws.students ?? []).map((s) => [String(s.id), displayName(s)]));
       state.tutorNames = names;
       state.studentNames = studentNames;
@@ -1535,6 +1535,7 @@ export function mount(ctx) {
         return [];
       }),
       staffNames(),
+      ctx.store.getTutorColors(),
     ]);
     state.tutorNames = names;
     state.sessions = sessions;

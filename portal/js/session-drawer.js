@@ -21,7 +21,7 @@ import { displayName, firstName, canHaveSessions } from './format.js';
 import { staffNames } from './updates-feed.js';
 import { sb } from './supabase.js';
 import {
-  ATTENDANCE, sessionState, sessionTitle, toneClass, movedNote, isCancelled, followingInSeries,
+  ATTENDANCE, sessionState, sessionTitle, tutorToneClass, movedNote, isCancelled, followingInSeries,
   canEditSession, toIcs,
 } from './sessions-model.js';
 import {
@@ -290,7 +290,8 @@ export function renderSessionDetail(dctx) {
     let found;
     let names;
     try {
-      [found, names] = await Promise.all([locate(dctx), staffNames()]);
+      // The tutors' colors never reject; the title's dot is in the tutor's color
+      [found, names] = await Promise.all([locate(dctx), staffNames(), dctx.store.getTutorColors()]);
       if (found) Object.assign(found, await loadExtras(dctx, found));
     } catch (error) {
       if (!current()) return;
@@ -624,7 +625,7 @@ function buildDetail(dctx, found, { now, names, actions }) {
 
   const head = h('div', { class: cancelled ? 'ses-head is-cancelled' : 'ses-head' },
     h('p', { class: 'drawer-kind' }, 'Tutoring session'),
-    h('div', { class: `ses-titlerow ${toneClass(session.subject)}` },
+    h('div', { class: `ses-titlerow ${tutorToneClass(session.tutor_id)}` },
       h('span', { class: 'ses-dot', 'aria-hidden': 'true' }),
       h('h2', { class: 'drawer-title', tabindex: '-1' }, title)),
     facts);

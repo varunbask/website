@@ -6,7 +6,7 @@
 import { dayKey, todayKey, daysBetween, weekday, longDate, parseKey, viewerIsInBusinessZone } from './dates.js';
 import {
   clockText, timeRange, shortDayText, sessionTitle, sessionState, isCancelled, sortSessions,
-  upcomingSessions, recentChanges, toneClass, canEditSession,
+  upcomingSessions, recentChanges, tutorToneClass, canEditSession,
 } from './sessions-model.js';
 import { isNewSince } from './seen.js';
 
@@ -146,7 +146,8 @@ export function sessionRowLabel(session, { who = null, now = new Date(), viewerI
 // ---------------------------------------------------------------------------
 // Tutors
 
-// Tutors with their subject, by name: [{ id, name, subject, tone }]. rows are
+// Tutors with their subject, by name: [{ id, name, subject, tone }], the tone
+// being the tutor's color. rows are
 // getTutors() rows ({ tutor_id, full_name, subject }) or tutor_students rows
 // ({ tutor_id, student_id, subject }); names (a Map of ids to names, from
 // staffNames) fills in a missing full_name.
@@ -159,7 +160,7 @@ export function tutorEntries(rows, names = new Map()) {
         id: row.tutor_id,
         name: own ?? names.get?.(String(row.tutor_id)) ?? 'Tutor',
         subject,
-        tone: toneClass(subject),
+        tone: tutorToneClass(row.tutor_id),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name) || (a.subject ?? '').localeCompare(b.subject ?? ''));

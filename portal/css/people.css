@@ -11,7 +11,7 @@
        div.stu-results > div.stu-table > div.stu-scroll >
          div.stu-head[aria-hidden] (column labels) + ul.stu-list > li > a.stu-row
            span.stu-who (avatar + span.stu-id > .stu-name + .stu-email)
-           span.stu-tutors > span.stu-chip.subj-N (a tutor and the subject), under the name
+           span.stu-tutors > span.stu-chip.tc-NAME (a tutor and the subject), under the name
            span.stu-cell.stu-review (> .stu-review-badge) | .is-empty
            span.stu-cell.stu-session | .stu-next | .stu-last | .stu-avg > span.stu-label + span.stu-value
            svg.stu-caret
@@ -36,6 +36,9 @@
            div.ppl-person-head (avatar, .ppl-id > .ppl-name > .ppl-name-text + .ppl-you + .ppl-name-edit
              (editing: .ppl-name.is-editing > input.ppl-name-input + Save + Cancel),
              .ppl-controls > .ppl-open + .ppl-role)
+             (a tutor or admin also has, under the name: div.ppl-color > span.ppl-color-label
+              + span.ppl-color-pick > span.ppl-color-swatch.tc-NAME + .select.is-sm
+              + p.ppl-color-error)
            div.ppl-links > div.ppl-link-group x2 (students; parents get one: Children)
              tutors: ul.ppl-chips.is-tutors > li.ppl-tutor > span.ppl-chip + input.ppl-subject-input
                      (the chip names the tutor and subject; the input changes the subject)
@@ -240,7 +243,7 @@
 .stu-next-due.is-danger { color: var(--danger-text); font-weight: 500; }
 .stu-none { font-weight: 400; color: var(--text-3); }
 
-/* A student's tutors, each in the colour of the subject (app.css .subj-N) */
+/* A student's tutors, each in the tutor's colour (app.css .tc-NAME) */
 .stu-tutors {
   display: flex;
   flex-wrap: wrap;
@@ -610,6 +613,40 @@
 }
 .ppl-open > .icon { color: var(--text-3); }
 
+/* A tutor's or admin's calendar color: the swatch wears the tone (app.css .tc-NAME)
+   of the chosen color, or of the automatic one while the select says Automatic */
+.ppl-color {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-3);
+  margin-top: var(--s-2);
+}
+.ppl-color-label { font: var(--t-caption); color: var(--text-3); }
+.ppl-color-pick { display: inline-flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.ppl-color-swatch {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background-color: var(--subj-solid, var(--neutral-solid));
+}
+.ppl-color .select.is-sm { width: 200px; max-width: 100%; }
+@media (max-width: 767.98px) {
+  .ppl-color-pick { flex: 1 1 100%; }
+  .ppl-color .select.is-sm { flex: 1 1 auto; width: auto; max-width: 280px; }
+}
+.ppl-color select option {
+  background-color: var(--subj-bg, var(--raised));
+  color: var(--subj-text, var(--text));
+}
+.ppl-color-error {
+  flex: 1 1 100%;
+  font: var(--t-meta);
+  color: var(--danger-text);
+}
+.ppl-color-error:empty { display: none; }
+
 /* Tutors and Parents for a student, aligned with the name */
 .ppl-links {
   display: grid;
@@ -741,6 +778,7 @@
 @media (forced-colors: active) {
   .ppl-chip,
   .ppl-you,
+  .ppl-color-swatch,
   .stu-chip,
   .stu-review-badge { border: 1px solid CanvasText; }
   .stu-filter[aria-pressed="true"] { border-color: Highlight; outline: 2px solid Highlight; outline-offset: -3px; }

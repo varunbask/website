@@ -10,7 +10,7 @@ import { sb } from './supabase.js';
 import { one, displayName } from './format.js';
 import { deriveItems } from './buckets.js';
 import { loadUpdates } from './updates-feed.js';
-import { rememberSubjects } from './sessions-model.js';
+import { colorMap, setTutorColors, tutorColors } from './tutor-colors-model.js';
 import { zonedIso } from './dates.js';
 import { STALE_MS, isStale, oldestStamp } from './freshness.js';
 
@@ -24,6 +24,7 @@ const children = new Map();   // parentId -> Promise<Profile[]>
 let workspace = null;         // Promise<Workspace> | null
 let pending = null;           // Promise<number> | null
 let billing = null;           // Promise<Billing> | null (admin's Account page)
+let tutorColorsLoad = null;   // Promise<Map<tutor id, color name>> | null (the admin's calendar colors)
 
 const listeners = new Set();
 let queued = null;            // ids changed since the last emit ('*' for everything)
@@ -105,7 +106,6 @@ async function loadSessions(studentId) {
     .order('starts_at', { ascending: true })
     .order('id', { ascending: true }));
   if (error) throw error;
-  rememberSubjects((data ?? []).map((x) => x.subject));
   return data ?? [];
 }
 
@@ -117,13 +117,51 @@ export function getSessions(studentId) {
 async function loadTutors(studentId) {
   const { data, error } = await sb.rpc('student_tutors', { p_student: studentId });
   if (error) throw error;
-  rememberSubjects((data ?? []).map((x) => x.subject));
   return data ?? [];
 }
 
 // The student's tutors with their subjects: [{ tutor_id, full_name, subject }]
 export function getTutors(studentId) {
   return remember(tutors, String(studentId), () => loadTutors(studentId));
+}
+
+// ---------------------------------------------------------------------------
+// Tutor colors: lessons are drawn in their tutor's color. calendar_colors()
+// holds the admin's choices (colors only, by id); a tutor without one gets an
+// automatic color (tutor-colors-model.js).
+
+async function loadTutorColors() {
+  const { data, error } = await sb.rpc('calendar_colors');
+  if (error) throw error;
+  return colorMap(data);
+}
+
+// Map of tutor ids to color names, loaded once and handed to sessions-model so
+// every view colors lessons the same way. Never rejects: when the call fails
+// (or the migration has not run) the page keeps what it had, or automatic
+// colors, and the next call tries again.
+export function getTutorColors() {
+  if (!tutorColorsLoad) {
+    const promise = loadTutorColors().then(
+      (map) => {
+        setTutorColors(map);
+        return map;
+      },
+      () => {
+        if (tutorColorsLoad === promise) tutorColorsLoad = null;
+        return tutorColors();
+      },
+    );
+    tutorColorsLoad = promise;
+  }
+  return tutorColorsLoad;
+}
+
+// After the admin changes a color (or a role, which can clear one): load the
+// colors again. Quiet, like the other drops: views read the colors when they draw.
+export function refreshTutorColors() {
+  tutorColorsLoad = null;
+  return getTutorColors();
 }
 
 // ---------------------------------------------------------------------------
@@ -198,7 +236,6 @@ async function loadWorkspace() {
   // Sessions are extra: if they fail (or the table is missing), the rest of the
   // workspace still loads and sessionsError says why the schedule is empty
   if (sess.error) console.error(sess.error);
-  rememberSubjects([...(sess.data ?? []), ...(links.data ?? [])].map((x) => x.subject));
   return {
     loadedAt: Date.now(),
     students: [...(people.data ?? [])].sort(byName),
@@ -422,6 +459,7 @@ export function invalidateAll() {
   workspace = null;
   pending = null;
   billing = null;
+  tutorColorsLoad = null;
   emit(['*']);
 }
 

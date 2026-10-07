@@ -4,6 +4,7 @@ import {
   showChildrenRow, childHref, childSummary, childLines, RECENT_LIMIT, RECAP_PREVIEW_CHARS,
 } from '../../portal/js/family-model.js';
 import { deriveItems } from '../../portal/js/buckets.js';
+import { tutorToneClass } from '../../portal/js/sessions-model.js';
 import { zonedIso } from '../../portal/js/dates.js';
 
 // Wednesday, October 14, 2026 at 12:00 pm Pacific
@@ -167,7 +168,9 @@ describe('recentRows', () => {
       attendance: { label: 'Present', tone: 'success' }, recap: 'We covered ratios. Try page 4.',
     });
     expect(rows[0].label).toBe('Algebra with Daniel, Monday, October 12, present');
-    expect(rows[0].tone).toMatch(/^subj-/);
+    expect(rows[0].tone).toMatch(/^tc-[a-z]+$/);
+    expect(rows[0].tone).toBe(tutorToneClass('t1'));
+    expect(rows[1].tone).toBe(tutorToneClass('t2'));
     expect(rows[1]).toMatchObject({ title: 'Chemistry', who: 'Priya', attendance: null, recap: null });
   });
 

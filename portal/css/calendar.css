@@ -4,25 +4,25 @@
        div.cal-toolbar-main > h2.cal-title[aria-live] + div.cal-nav > .btn.cal-today + div.cal-steps > .icon-btn x2
        div.cal-toolbar-controls > div.segmented.cal-seg (scope, staff) + div.cal-filter (tutor segmented or select)
                                   + div.segmented.cal-seg (Week / Month / List) + .btn.cal-new (staff)
-       ul.cal-legend > li.cal-legend-item.subj-N > span.cal-swatch + span (two or more subjects only)
+       ul.cal-legend > li.cal-legend-item.tc-NAME > span.cal-swatch + span (two or more tutors only)
      div.cal-body
        week:  div.cal-week-wrap > div.cal-week[--hours] (hour height --hour-h)
                 > div.cal-week-row.cal-week-head > div.cal-week-corner + div.cal-week-dayhead(.is-today .is-weekend) x7
                     > span.cal-week-daylabel (span.cal-week-dow + span.cal-num) + button.icon-btn.cal-week-add (staff)
                 > div.cal-week-row.cal-week-dues > div.cal-week-duelabel + div.cal-week-due.cal-chips x7 > a.cal-chip.is-{kind}
                 > div.cal-week-row.cal-week-body > div.cal-week-hours > span.cal-week-hour[--i]
-                    + div.cal-week-track x7 > button.cal-block.subj-N(.is-tiny .is-short .is-cancelled .is-moved .is-now)[--top --height --col --cols]
+                    + div.cal-week-track x7 > button.cal-block.tc-NAME(.is-tiny .is-short .is-cancelled .is-moved .is-now)[--top --height --col --cols]
                         > span.cal-block-head (span.cal-block-time + span.cal-block-place) + span.cal-block-title
                           + span.cal-block-foot (span.cal-block-who + span.cal-block-tag)
                       and div.cal-now[--top] on today's column
               phones: div.cal-agenda.cal-week-list (group headers and rows, as the list view)
        month: div.cal-layout > div.cal-grid-wrap > table.cal-month.cap-{0..3}
                 td(.is-outside .is-weekend .is-today .is-past .is-selected) > button.cal-day
-                  > span.cal-num(.is-label) + (span.cal-chips > span.cal-chip(.cal-chip-session.subj-N) ... + span.cal-more | span.cal-dots > span.cal-dot.is-{kind})
+                  > span.cal-num(.is-label) + (span.cal-chips > span.cal-chip(.cal-chip-session.tc-NAME) ... + span.cal-more | span.cal-dots > span.cal-dot.is-{kind})
               + section.cal-panel > div.cal-panel-head (h3.cal-panel-title, .cal-panel-tag, .cal-panel-meta, .btn.cal-panel-back)
                 + h4.cal-panel-day + ul.row-list ... | div.cal-panel-empty > p + div.cal-panel-actions
        list:  div.cal-agenda > group headers + ul.row-list, div.cal-agenda-more, details.group.cal-undated
-     Session rows are a.row with span.row-lead.cal-lead.subj-N > span.cal-swatch.
+     Session rows are a.row with span.row-lead.cal-lead.tc-NAME > span.cal-swatch.
    Chip and dot kinds: open soon overdue submitted graded done missed draft failed (and session on dots). */
 
 
@@ -72,7 +72,7 @@
 .cal-filter .select { min-width: 168px; }
 .cal-new { flex: none; }
 
-/* Subject legend: a swatch and a name per subject in view */
+/* Tutor legend: a swatch and a name per tutor in view */
 .cal-legend {
   display: flex;
   flex-wrap: wrap;
@@ -264,7 +264,7 @@
 }
 .cal-week.can-create .cal-week-track { cursor: cell; }
 
-/* A session: a card in the subject's tone with a 3px bar. Its box comes from
+/* A session: a card in its tutor's tone with a 3px bar. Its box comes from
    layoutDay through --top and --height (fractions of the track) and --col and
    --cols (side by side when sessions overlap). */
 .cal-block {
@@ -571,7 +571,7 @@ td.is-today .cal-num {
   color: var(--warning-text);
 }
 .cal-chip.is-failed { background-color: var(--danger-bg); color: var(--danger-text); }
-/* A session in a month cell: start time and subject in the subject's tone */
+/* A session in a month cell: start time and subject in the tutor's tone */
 .cal-chip-session {
   background-color: var(--subj-bg);
   border-left: 3px solid var(--subj-solid);
@@ -778,7 +778,7 @@ td.is-today .cal-num {
 }
 
 
-/* Session rows (day panel and list): a swatch in the subject's tone leads */
+/* Session rows (day panel and list): a swatch in the tutor's tone leads */
 .cal-lead .cal-swatch {
   width: 12px;
   height: 12px;
