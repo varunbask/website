@@ -62,10 +62,10 @@ function normalizeSub(sub) {
 async function loadStudentData(studentId) {
   const [tasks, subs] = await Promise.all([
     sb.from('tasks')
-      .select('id, student_id, kind, title, details, due_at, completed_at, created_at, created_by, session_id, series_id')
+      .select('id, student_id, kind, title, details, due_at, extended_from, completed_at, created_at, created_by, session_id, series_id')
       .eq('student_id', studentId),
     sb.from('submissions')
-      .select('id, task_id, student_id, body, body_doc, file_type, note, status, error, attempts, status_changed_at, created_at, grade:grades(score, feedback, reviewed_by, reviewed_at, released_at)')
+      .select('id, task_id, student_id, body, body_doc, file_type, note, status, error, attempts, status_changed_at, created_at, grade:grades(result, feedback, reviewed_by, reviewed_at, released_at)')
       .eq('student_id', studentId)
       .order('created_at', { ascending: false }),
   ]);
@@ -246,9 +246,9 @@ async function selectAll(makeQuery) {
 async function loadWorkspace() {
   const [people, tasks, subs, sess, links] = await Promise.all([
     selectAll(() => sb.from('profiles').select('id, full_name, email').eq('role', 'student').order('id')),
-    selectAll(() => sb.from('tasks').select('id, student_id, kind, title, due_at, completed_at, created_at, session_id, series_id').order('id')),
+    selectAll(() => sb.from('tasks').select('id, student_id, kind, title, due_at, extended_from, completed_at, created_at, session_id, series_id').order('id')),
     selectAll(() => sb.from('submissions')
-      .select('id, task_id, student_id, file_type, status, error, attempts, status_changed_at, created_at, grade:grades(score, reviewed_at, released_at)')
+      .select('id, task_id, student_id, file_type, status, error, attempts, status_changed_at, created_at, grade:grades(result, reviewed_at, released_at)')
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })),
     selectAll(() => sb.from('sessions').select(SESSION_FIELDS).order('id')),

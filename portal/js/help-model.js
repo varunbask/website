@@ -54,6 +54,9 @@ function contact(role) {
   };
 }
 
+// The three results, the same words for students and parents
+const RESULTS_TEXT = 'Each grade is one of three results. Completed: the work was done. Missing: nothing usable was handed in (work past its due date with nothing handed in shows as Missing too). Extended: more time, so the assignment goes back to To do with a new due date and can be handed in again.';
+
 function homework(role) {
   const parent = role === PARENT;
   const steps = parent
@@ -61,15 +64,17 @@ function homework(role) {
       'Your child opens an assignment under Assignments and submits their own answer. You can see everything here, but only they can submit.',
       `They can write the answer in the portal or attach a file (PDF, JPG or PNG photo, or text file, up to ${uploadMb} MB). A photo of handwritten work is fine.`,
       `Each assignment can be submitted up to ${MAX_SUBMISSIONS} times, so a better answer can be sent again.`,
-      'An AI assistant drafts a grade and feedback. Their tutor checks every grade before anyone sees it, and may change it.',
-      ['Once the tutor releases it, the score and feedback appear under ', link('Graded', '#/assignments/graded'), '. Until then the assignment shows as In review.'],
+      'An AI assistant drafts a result and feedback. Their tutor checks every grade before anyone sees it, and may change it.',
+      ['Once the tutor releases it, the result and any feedback appear under ', link('Graded', '#/assignments/graded'), '. Until then the assignment shows as In review.'],
+      RESULTS_TEXT,
     ]
     : [
       ['Open an assignment from ', link('Assignments', '#/assignments/todo'), '.'],
       `Choose Write your answer to type it in the portal, or attach a file (PDF, JPG or PNG photo, or text file, up to ${uploadMb} MB). A photo of handwritten work is fine.`,
       `Choose Submit work. You can submit up to ${MAX_SUBMISSIONS} times for each assignment, so you can improve your answer and send it again.`,
-      'An AI assistant drafts a grade and feedback. Your tutor checks every grade before you see it, and may change it.',
-      ['Once your tutor releases it, the score and feedback appear under ', link('Graded', '#/assignments/graded'), '. Until then the assignment shows as In review.'],
+      'An AI assistant drafts a result and feedback. Your tutor checks every grade before you see it, and may change it.',
+      ['Once your tutor releases it, the result and any feedback appear under ', link('Graded', '#/assignments/graded'), '. Until then the assignment shows as In review.'],
+      RESULTS_TEXT,
     ];
   return { id: 'homework', title: 'How homework works', blocks: [{ type: 'steps', items: steps }] };
 }
@@ -113,7 +118,9 @@ const grading = {
     type: 'list',
     items: [
       [link('Review queue', '#/review'), ' lists submissions the AI has graded, oldest first. Work it could not grade is there too, marked Could not grade.'],
-      'Open one, check the score and feedback, edit them if you like, then choose Release to family. Save draft keeps your edits private.',
+      'Open one, check the suggested result and the feedback, change them if you like, then choose Release to family. Save draft keeps your edits private.',
+      'Choose Completed when the work was done, Missing when nothing usable came in, or Extended to give more time: pick the new due date, and releasing puts the assignment back in the student’s To do. Feedback is optional.',
+      'To give more time on work that was never handed in, open the assignment and use Extend.',
       'Students and families see nothing until you release. If you release by mistake, Edit or unrelease takes it back.',
     ],
   }],

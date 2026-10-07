@@ -14,9 +14,10 @@
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import {
-  button, pill, scoreChip, newPill, avatar, emptyState, errorCallout, itemRow, rowList, visuallyHidden, labelPart,
+  button, pill, newPill, avatar, emptyState, errorCallout, itemRow, rowList, visuallyHidden, labelPart,
 } from '../ui.js';
-import { itemStatus } from '../status.js';
+import { itemStatus, resultStatus } from '../status.js';
+import { resultOf } from '../results.js';
 import { dueLabel, dayKey, parseKey, todayKey, dayHeading } from '../dates.js';
 import { sessionTitle, sessionState, tutorToneClass, upcomingSessions } from '../sessions-model.js';
 import {
@@ -503,10 +504,7 @@ function latestGradeCard(ctx, item, isNew) {
   const { task, grade } = item;
   const feedback = String(grade.feedback ?? '').trim();
   card.append(
-    h('p', { class: 'ovw-score' },
-      h('span', { class: 'ovw-score-value' }, String(grade.score)),
-      h('span', { class: 'ovw-score-max', 'aria-hidden': 'true' }, '/100'),
-      visuallyHidden(' out of 100')),
+    h('p', { class: 'ovw-result' }, pill(resultStatus(resultOf(grade)))),
     h('p', { class: 'ovw-grade-title' }, task.title || 'Untitled'),
     h('p', { class: 'ovw-grade-date' }, `Graded ${shortDay(grade.released_at, ctx.now)}`),
     feedback ? h('p', { class: 'ovw-grade-feedback' }, feedback) : null,
@@ -640,11 +638,9 @@ async function mountStudent(ctx) {
       seen: getSeen('updates', ctx.me.id, student.id),
     }),
     recentSessionsCard(ctx, { sessions, names, studentId: student.id }),
-    // Below their due work. Released grades only: RLS gives a student a null
-    // grade for anything not released. No name: the caption reads "Released scores".
-    h('div', { class: 'span-12' }, progressPanel({
-      items, tasks: data.tasks, grades: data.submissions.map((sub) => sub.grade).filter(Boolean), name: '', now,
-    })),
+    // Below their due work. Released results only: RLS gives a student a null
+    // grade for anything not released.
+    h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, submissions: data.submissions, now })),
     familyAboutCard(ctx, student),
   ];
   animate(ctx, blocks);
@@ -759,11 +755,12 @@ function recentlyGradedCard(ctx, list, seen) {
     const isNew = ctx.audience === 'family' && item.bucket === 'graded' && isNewSince(grade.released_at, seen, ctx.now);
     const when = `Graded ${shortDay(grade.released_at, ctx.now)}`;
     const meta = firstLine(grade.feedback) || when;
+    const result = resultStatus(resultOf(grade), { audience: ctx.audience });
     return miniRow(ctx, item, {
       meta,
-      status: scoreChip(grade.score),
+      status: pill(result),
       extra: isNew ? newPill() : null,
-      label: [task.title || 'Untitled', `Score ${grade.score} out of 100`, when, isNew ? 'New' : null, meta !== when ? labelPart(meta) : null]
+      label: [task.title || 'Untitled', result.label, when, isNew ? 'New' : null, meta !== when ? labelPart(meta) : null]
         .filter(Boolean).join(', '),
     });
   })));
@@ -857,7 +854,7 @@ async function mountParent(ctx) {
     recentlyGradedCard(ctx, gradedItems(items).slice(0, 3), seenGraded),
     recentSessionsCard(ctx, { sessions, names, studentId: student.id }),
     calm ? null : comingUpCard(ctx, coming),
-    h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, grades: data.submissions.map((s) => s.grade).filter(Boolean), name: first, now })),
+    h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, submissions: data.submissions, now })),
     familyAboutCard(ctx, student),
   ].filter(Boolean);
   animate(ctx, blocks);
@@ -942,7 +939,7 @@ async function mountStaff(ctx) {
   const blocks = [
     nextSessionCard(ctx, { sessions, names, studentId: student.id }),
     ...staffProfileCards(ctx, student, profile),
-    h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, grades: data.submissions.map((s) => s.grade).filter(Boolean), name: first, now })),
+    h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, submissions: data.submissions, now })),
     needsReviewCard(ctx, entries, data.tasks, name),
     comingUpCard(ctx, comingUp(items, now), { span: 'span-4', mini: true, overdue: overdueItems(items, { tasks: true }) }),
     updatesCard(ctx, {

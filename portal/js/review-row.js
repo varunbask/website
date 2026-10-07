@@ -10,14 +10,13 @@
 
 import { h } from './dom.js';
 import { icon } from './icons.js';
-import { avatar, pill, scoreChip, draftChip } from './ui.js';
+import { avatar, pill, draftChip } from './ui.js';
 import { one } from './format.js';
-import { submissionStatus } from './status.js';
+import { submissionStatus, resultStatus } from './status.js';
+import { resultOf } from './results.js';
 import { relativeTime } from './dates.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
 import { waitingLabel, reviewHref } from './review-model.js';
-
-const hasScore = (grade) => grade && grade.score !== null && grade.score !== undefined;
 
 function caret() {
   const el = icon('caret-right');
@@ -25,9 +24,9 @@ function caret() {
   return el;
 }
 
-// Draft chip for unreleased work that has a score (AI draft or edited)
+// Draft chip for unreleased work that has a result (AI draft or edited)
 function draftOf(grade) {
-  return grade && !grade.released_at && hasScore(grade) ? draftChip(grade.score) : null;
+  return grade && !grade.released_at ? draftChip(grade) : null;
 }
 
 export function queueRow(sub, {
@@ -83,9 +82,9 @@ export function releasedRow(sub, { studentName = '', taskTitle = '', now = new D
   const name = studentName || 'Student';
   const title = taskTitle || 'Assignment';
   const when = grade?.released_at ? releasedText(grade.released_at, now) : null;
-  const score = hasScore(grade) ? grade.score : null;
+  const result = grade?.released_at ? resultStatus(resultOf(grade), { audience: 'staff' }) : null;
 
-  const label = [name, title, score === null ? null : `Score ${score} out of 100`, when?.text]
+  const label = [name, title, result?.label, when?.text]
     .filter(Boolean).join(', ');
 
   return h('li', {}, h('a', {
@@ -100,6 +99,6 @@ export function releasedRow(sub, { studentName = '', taskTitle = '', now = new D
     h('span', { class: 'row-meta rvw-row-meta' }, h('span', { class: 'rvw-row-task' }, title))),
   h('span', { class: 'row-aside' },
     when ? h('span', { class: 'row-due num', title: when.full }, when.text) : null,
-    h('span', { class: 'row-status' }, score === null ? null : scoreChip(score))),
+    h('span', { class: 'row-status' }, result ? pill(result) : null)),
   caret()));
 }

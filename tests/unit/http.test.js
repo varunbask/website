@@ -30,7 +30,7 @@ function setup({ caller = { id: STUDENT }, role = 'student', submission = sub(),
     waitUntil: vi.fn((p) => background.push(p)),
     env: ENV,
     now,
-    fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => completion({ results: [{ id: 7, feedback: 'ok', score: 90 }] }) })),
+    fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => completion({ results: [{ id: 7, feedback: 'ok', result: 'completed' }] }) })),
   };
   return { repo, deps, background };
 }
@@ -92,7 +92,7 @@ describe('handleGrade', () => {
     expect(res.status).toBe(202);
     expect(json).toEqual({ id: 7, status: 'grading' });
     expect(deps.waitUntil).toHaveBeenCalledTimes(1);
-    expect(repo.saveAiGrade).toHaveBeenCalledWith(7, { score: 90, feedback: 'ok' });
+    expect(repo.saveAiGrade).toHaveBeenCalledWith(7, { result: 'completed', feedback: 'ok' });
   });
 
   test('409 when a student retries failed work', async () => {

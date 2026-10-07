@@ -15,6 +15,7 @@ import { staffNames } from '../updates-feed.js';
 import { startGrading } from '../grading.js';
 import { filePreview } from '../file-preview.js';
 import { workIcon } from '../labels.js';
+import { resultOf } from '../results.js';
 import { gradeEditor } from '../grade-editor.js';
 import { docPreview } from '../doc-preview.js';
 import {
@@ -22,8 +23,8 @@ import {
 } from '../review-model.js';
 
 const FIELDS = 'id, task_id, student_id, body, body_doc, storage_path, file_type, note, status, error, attempts, '
-  + 'status_changed_at, created_at, student:profiles(full_name, email), task:tasks(title, details, due_at), '
-  + 'grade:grades(score, feedback, reviewed_by, reviewed_at, released_at)';
+  + 'status_changed_at, created_at, student:profiles(full_name, email), task:tasks(id, title, details, due_at, extended_from), '
+  + 'grade:grades(result, feedback, reviewed_by, reviewed_at, released_at)';
 
 const JUST_RELEASED_MS = 10 * 60 * 1000;
 
@@ -33,7 +34,7 @@ const JUST_RELEASED_MS = 10 * 60 * 1000;
 // that. A fresh visit (not a refresh) clears them, so abandoned typing never
 // overrides the stored grade and an old release never shows as "just now".
 const justReleased = new Map();   // submission id -> { at, nextId }
-const unsaved = new Map();        // submission id -> { score, feedback }
+const unsaved = new Map();        // submission id -> { result, feedback, dueDate }
 const carets = new Map();         // submission id -> { field, start, end }
 const editOpen = new Set();       // submission ids whose "Edit or unrelease" is open
 
@@ -77,7 +78,7 @@ function pager(nb, filter) {
 function attemptRow(other, n, { filter, now }) {
   const g = one(other.grade);
   const status = submissionStatus(other, g, { audience: 'staff' });
-  const draft = g && !g.released_at && g.score !== null && g.score !== undefined ? draftChip(g.score) : null;
+  const draft = g && !g.released_at ? draftChip(g) : null;
   const when = stampLabel(other.created_at, now);
   return h('li', {}, h('a', {
     class: 'row',
@@ -168,6 +169,11 @@ export async function mount(ctx) {
   if (!taskSubs.some((s) => String(s.id) === String(sub.id))) taskSubs = [sub, ...taskSubs];
   const info = attemptInfo(sub, taskSubs);
   const late = Boolean(task?.due_at && Date.parse(sub.created_at) > Date.parse(task.due_at));
+  // The result of the newest earlier attempt that was released, if any
+  const earlier = [...taskSubs]
+    .filter((s) => String(s.id) !== String(sub.id) && Date.parse(s.created_at) <= Date.parse(sub.created_at) && one(s.grade)?.released_at)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at) || Number(b.id) - Number(a.id))[0];
+  const previous = earlier ? resultOf(earlier.grade) : null;
 
   // Queue position within the current filter
   const queue = ws ? queueOrder(ws.submissions, filter) : [];
@@ -282,8 +288,10 @@ export async function mount(ctx) {
     const reviewer = grade?.reviewed_by ? names.get(grade.reviewed_by) : null;
     const editor = gradeEditor(sub, grade, {
       now: ctx.now,
+      task: task ? { id: sub.task_id, due_at: task.due_at ?? null, extended_from: task.extended_from ?? null } : null,
       attempt: info,
       late,
+      previous,
       releasedBy: reviewer ? firstName(reviewer) : null,
       afterRelease: recent ? releasedPanel(jr.nextId) : null,
       initial: unsaved.get(key) ?? null,
@@ -296,10 +304,10 @@ export async function mount(ctx) {
         const problem = await startGrading(sub.id);
         if (!problem) {
           // The retry button may be gone from the next render (canRetry turns
-          // false), so hand focus to the score field first: the refresh swap
+          // false), so hand focus to the result first: the refresh swap
           // restores it by key and busy() leaves it alone
           if (ctx.alive() && side.contains(document.activeElement)) {
-            side.querySelector('[data-focus-key="rvw-score"]')?.focus({ preventScroll: true });
+            side.querySelector('[data-focus-key="rvw-result"]')?.focus({ preventScroll: true });
           }
           ctx.toast({ text: 'Grading started.' });
           ctx.store.invalidate(studentId);
@@ -325,7 +333,10 @@ export async function mount(ctx) {
         if (matches(NARROW)) {
           side.querySelector('.rvw-just-released')?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
         }
-        ctx.toast({ text: `Grade released. ${first}’s family can see it now.`, action: { label: 'Undo', run: undoRelease } });
+        const text = values.result === 'extended'
+          ? `Extended. It’s back in ${first}’s To do, and the family can see it now.`
+          : `Grade released. ${first}’s family can see it now.`;
+        ctx.toast({ text, action: { label: 'Undo', run: undoRelease } });
         ctx.store.invalidate(studentId);
       },
       onUnreleased: ({ previous }) => {
@@ -333,7 +344,7 @@ export async function mount(ctx) {
         editOpen.delete(key);
         grade = { ...(grade ?? {}), released_at: null };
         // Not "Release to family": a stray Enter must never re-release
-        renderEditor({ focus: '[data-focus-key="rvw-score"]' });
+        renderEditor({ focus: '[data-focus-key="rvw-result"]' });
         ctx.toast({
           text: `Grade unreleased. ${first}’s family can no longer see it.`,
           action: { label: 'Undo', run: () => undoUnrelease(previous) },

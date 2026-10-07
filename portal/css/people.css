@@ -13,7 +13,7 @@
            span.stu-who (avatar + span.stu-id > .stu-name + .stu-email)
            span.stu-tutors > span.stu-chip.tc-NAME (a tutor and the subject), under the name
            span.stu-cell.stu-review (> .stu-review-badge) | .is-empty
-           span.stu-cell.stu-session | .stu-next | .stu-last | .stu-avg > span.stu-label + span.stu-value
+           span.stu-cell.stu-session | .stu-next | .stu-last | .stu-done > span.stu-label + span.stu-value
            svg.stu-caret
      Stacked below 1024px (labels shown in each cell); a column grid with a
      header row at 1024px and up when the panel is at least 820px wide. The
@@ -175,7 +175,7 @@
   grid-template-areas:
     "who  who  who  review caret"
     ".    sess sess sess   caret"
-    ".    next last avg    caret";
+    ".    next last done   caret";
   align-items: center;
   gap: var(--s-3);
   margin: 0 var(--s-1);
@@ -218,7 +218,7 @@
 .stu-session { grid-area: sess; }
 .stu-next { grid-area: next; }
 .stu-last { grid-area: last; }
-.stu-avg { grid-area: avg; }
+.stu-done { grid-area: done; }
 
 .stu-label {
   font: var(--t-caption);
@@ -266,7 +266,7 @@
   text-overflow: ellipsis;
 }
 .stu-chip.is-more { background-color: var(--surface-2); color: var(--text-2); }
-.stu-avg-value {
+.stu-done-value {
   font: 500 14px/18px var(--font-mono);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
@@ -314,7 +314,7 @@
       "who  who  review caret"
       ".    sess sess   caret"
       ".    next next   caret"
-      ".    last avg    caret";
+      ".    last done   caret";
     row-gap: var(--s-3);
     padding-block: var(--s-4);
   }
@@ -330,7 +330,7 @@
       grid-template-columns:
         minmax(168px, 1.7fr) minmax(76px, .5fr) minmax(118px, 1.2fr) minmax(132px, 1.4fr)
         minmax(92px, .9fr) minmax(88px, .6fr) 16px;
-      grid-template-areas: "who review sess next last avg caret";
+      grid-template-areas: "who review sess next last done caret";
       column-gap: var(--s-3);
     }
     .stu-scroll {

@@ -239,22 +239,28 @@ describe('workItems', () => {
     });
   });
 
-  test('status words: in review, graded, archived, no due date', () => {
+  test('status words: in review, the result, extended, archived, no due date', () => {
     const inReview = task({ id: 1, title: 'A' });
     const graded = task({ id: 2, title: 'B' });
     const old = task({ id: 3, title: 'C', due_at: at('2026-08-01', '23:59') });
     const undated = task({ id: 4, title: 'D', due_at: null });
+    const missing = task({ id: 5, title: 'E' });
+    const extended = task({ id: 6, title: 'F', due_at: at('2026-10-20', '23:59'), extended_from: at('2026-10-10', '23:59') });
     const subs = [
       sub(1, { status: 'pending' }),
-      sub(2, { grade: { released_at: '2026-10-12T00:00:00Z', score: 90 } }),
+      sub(2, { grade: { released_at: '2026-10-12T00:00:00Z', result: 'completed' } }),
+      sub(5, { grade: { released_at: '2026-10-12T00:00:00Z', result: 'missing' } }),
+      sub(6, { grade: { released_at: '2026-10-12T00:00:00Z', result: 'extended' } }),
     ];
-    const items = build([inReview, graded, old, undated], subs);
+    const items = build([inReview, graded, old, undated, missing, extended], subs);
     const meta = Object.fromEntries(items.map((i) => [i.title, i.meta]));
     expect(meta).toEqual({
       A: 'Maya Chen, Assignment, in review',
-      B: 'Maya Chen, Assignment, graded',
+      B: 'Maya Chen, Assignment, completed',
       C: 'Maya Chen, Assignment, archived',
       D: 'Maya Chen, Assignment, no due date',
+      E: 'Maya Chen, Assignment, missing',
+      F: 'Maya Chen, Assignment, extended to Oct 20',
     });
   });
 
@@ -277,7 +283,7 @@ describe('workItems', () => {
       task({ id: 2, title: 'later', due_at: at('2026-10-30', '23:59') }),
       task({ id: 3, title: 'graded' }),
       task({ id: 4, title: 'soon', due_at: at('2026-10-15', '23:59') }),
-    ], [sub(3, { grade: { released_at: '2026-10-12T00:00:00Z', score: 90 } })]);
+    ], [sub(3, { grade: { released_at: '2026-10-12T00:00:00Z', result: 'completed' } })]);
     expect(titles(items)).toEqual(['soon', 'later', 'graded', 'archived']);
     expect(items.map((i) => i.weight)).toEqual([1, 1, 0, 0]);
   });
@@ -422,7 +428,7 @@ describe('familyDataItems', () => {
 
   test('a family never sees an unreleased grade as graded', () => {
     const t = task({ id: 1 });
-    const data = { tasks: [t], submissions: [sub(1, { grade: { released_at: null, score: 80 } })] };
+    const data = { tasks: [t], submissions: [sub(1, { grade: { released_at: null, result: 'completed' } })] };
     expect(familyDataItems({ data, sessions: [], now: NOW })[0].meta).toBe('Assignment, in review');
   });
 

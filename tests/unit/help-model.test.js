@@ -98,9 +98,14 @@ describe('families', () => {
     for (const role of ['student', 'parent']) {
       const text = textsOf(helpSections(role).find((s) => s.id === 'homework')).join('\n');
       expect(text).toContain(`up to ${MAX_SUBMISSIONS} times`);
-      expect(text).toMatch(/AI assistant drafts a grade/);
+      expect(text).toMatch(/AI assistant drafts a result and feedback/);
       expect(text).toMatch(/tutor checks every grade/);
       expect(text).toContain('Graded');
+      // the three results, explained, and no score anywhere
+      expect(text).toMatch(/Completed: the work was done/);
+      expect(text).toMatch(/Missing: nothing usable was handed in/);
+      expect(text).toMatch(/Extended: more time, so the assignment goes back to To do with a new due date/);
+      expect(text).not.toMatch(/score/i);
       expect(text).toContain('20 MB');
     }
   });
@@ -144,6 +149,10 @@ describe('staff', () => {
     expect(text('notes')).toMatch(/family reads your notes/);
     expect(text('grading')).toContain('Release to family');
     expect(text('grading')).toMatch(/see nothing until you release/);
+    expect(text('grading')).toMatch(/Choose Completed when the work was done, Missing when nothing usable came in, or Extended/);
+    expect(text('grading')).toMatch(/pick the new due date/);
+    expect(text('grading')).toContain('use Extend');
+    expect(text('grading')).not.toMatch(/score/i);
     expect(text('google')).toContain('VP Education sessions');
     expect(text('google')).toContain('Reconnect Google Calendar');
     expect(text('keyboard')).toContain('Page Up and Page Down');

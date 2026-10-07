@@ -28,7 +28,7 @@ const summary = (name, extra = {}) => {
     next: null,
     nextSession: null,
     tutors: [],
-    avg: null,
+    completion: null,
     ...extra,
   };
 };
@@ -272,16 +272,17 @@ describe('sorting', () => {
     expect(names(sortSummaries(list, 'due'))).toEqual(['Cy', 'Ed', 'Bo', 'Di', 'Al']);
   });
 
-  test('recent average: lowest first, no grades last, ties by name', () => {
+  test('completion: lowest rate first, no results last, ties by name', () => {
+    const done = (rate) => ({ completion: { completed: 0, missing: 0, total: rate === null ? 0 : 10, rate, extended: 0 } });
     const list = [
-      summary('Bo', { avg: 90 }),
+      summary('Bo', done(0.9)),
       summary('Al'),
-      summary('Cy', { avg: 62 }),
-      summary('Di', { avg: 90 }),
-      summary('Ed', { avg: 0 }),
-      summary('Fy', { avg: null }),
+      summary('Cy', done(0.6)),
+      summary('Di', done(0.9)),
+      summary('Ed', done(0)),
+      summary('Fy', done(null)),
     ];
-    expect(names(sortSummaries(list, 'average'))).toEqual(['Ed', 'Cy', 'Bo', 'Di', 'Al', 'Fy']);
+    expect(names(sortSummaries(list, 'completion'))).toEqual(['Ed', 'Cy', 'Bo', 'Di', 'Al', 'Fy']);
   });
 
   test('sorting returns a new array and leaves the input alone', () => {
@@ -295,9 +296,9 @@ describe('sorting', () => {
 
 describe('visibleStudents', () => {
   const list = [
-    summary('Maya Lin', { review: 2, overdue: 1, tutors: [tutor('t1', 'Daniel')], avg: 91, nextSession: session('2026-10-15') }),
-    summary('Leo Park', { review: 0, overdue: 2, tutors: [tutor('t1', 'Daniel')], avg: 74, next: due('2026-10-10') }),
-    summary('Ava Chen', { review: 1, tutors: [tutor('t2', 'Priya')], avg: 82, nextSession: session('2026-10-16') }),
+    summary('Maya Lin', { review: 2, overdue: 1, tutors: [tutor('t1', 'Daniel')], completion: { rate: 0.9 }, nextSession: session('2026-10-15') }),
+    summary('Leo Park', { review: 0, overdue: 2, tutors: [tutor('t1', 'Daniel')], completion: { rate: 0.5 }, next: due('2026-10-10') }),
+    summary('Ava Chen', { review: 1, tutors: [tutor('t2', 'Priya')], completion: { rate: 0.75 }, nextSession: session('2026-10-16') }),
     summary('Mateo Diaz', { tutors: [tutor('t2', 'Priya')], overdue: 1 }),
   ];
   const view = (extra = {}) => ({ ...DEFAULT_VIEW, ...extra });
@@ -316,7 +317,7 @@ describe('visibleStudents', () => {
     expect(names(visibleStudents(list, view({ tutor: 't2' }), { now: NOW }))).toEqual(['Ava Chen', 'Mateo Diaz']);
     expect(names(visibleStudents(list, view({ tutor: 't2', filter: 'overdue' }), { now: NOW }))).toEqual(['Mateo Diaz']);
     expect(names(visibleStudents(list, view({ filter: 'overdue' }), { now: NOW, term: 'ma' }))).toEqual(['Mateo Diaz', 'Maya Lin']);
-    expect(names(visibleStudents(list, view({ filter: 'overdue', sort: 'average' }), { now: NOW }))).toEqual(['Leo Park', 'Maya Lin', 'Mateo Diaz']);
+    expect(names(visibleStudents(list, view({ filter: 'overdue', sort: 'completion' }), { now: NOW }))).toEqual(['Leo Park', 'Maya Lin', 'Mateo Diaz']);
     expect(names(visibleStudents(list, view({ tutor: 't1', filter: 'review', sort: 'due' }), { now: NOW, term: 'lin' }))).toEqual(['Maya Lin']);
   });
 
@@ -327,7 +328,7 @@ describe('visibleStudents', () => {
   test('sort picks the order after filtering', () => {
     expect(names(visibleStudents(list, view({ sort: 'review' }), { now: NOW }))).toEqual(['Maya Lin', 'Ava Chen', 'Leo Park', 'Mateo Diaz']);
     expect(names(visibleStudents(list, view({ sort: 'lesson' }), { now: NOW }))).toEqual(['Maya Lin', 'Ava Chen', 'Leo Park', 'Mateo Diaz']);
-    expect(names(visibleStudents(list, view({ sort: 'average' }), { now: NOW }))).toEqual(['Leo Park', 'Ava Chen', 'Maya Lin', 'Mateo Diaz']);
+    expect(names(visibleStudents(list, view({ sort: 'completion' }), { now: NOW }))).toEqual(['Leo Park', 'Ava Chen', 'Maya Lin', 'Mateo Diaz']);
   });
 
   test('a junk view falls back to the default instead of throwing', () => {
@@ -337,7 +338,7 @@ describe('visibleStudents', () => {
 
   test('does not change the input', () => {
     const before = names(list);
-    visibleStudents(list, view({ sort: 'average' }), { now: NOW });
+    visibleStudents(list, view({ sort: 'completion' }), { now: NOW });
     expect(names(list)).toEqual(before);
   });
 });
@@ -349,7 +350,7 @@ describe('what narrows the list', () => {
     expect(narrowing(DEFAULT_VIEW, 'ma')).toMatchObject({ search: true, any: true });
     expect(narrowing({ ...DEFAULT_VIEW, filter: 'review' })).toMatchObject({ filter: true, tutor: false, any: true });
     expect(narrowing({ ...DEFAULT_VIEW, tutor: 't1' })).toMatchObject({ filter: false, tutor: true, any: true });
-    expect(narrowing({ ...DEFAULT_VIEW, sort: 'average' }).any).toBe(false);
+    expect(narrowing({ ...DEFAULT_VIEW, sort: 'completion' }).any).toBe(false);
   });
 
   test('the empty result words follow the cause', () => {
@@ -362,7 +363,7 @@ describe('what narrows the list', () => {
   });
 
   test('clearing resets the filter and tutor and keeps the sort', () => {
-    expect(clearedView({ filter: 'review', tutor: 't1', sort: 'average' })).toEqual({ filter: 'all', tutor: 'all', sort: 'average' });
+    expect(clearedView({ filter: 'review', tutor: 't1', sort: 'completion' })).toEqual({ filter: 'all', tutor: 'all', sort: 'completion' });
     expect(clearedView(null)).toEqual(DEFAULT_VIEW);
   });
 
@@ -381,7 +382,11 @@ describe('normalizeView', () => {
   });
 
   test('a stored JSON string is read', () => {
-    expect(normalizeView('{"filter":"review","tutor":"all","sort":"average"}')).toEqual({ filter: 'review', tutor: 'all', sort: 'average' });
+    expect(normalizeView('{"filter":"review","tutor":"all","sort":"completion"}')).toEqual({ filter: 'review', tutor: 'all', sort: 'completion' });
+  });
+
+  test('the old sort by average score becomes the sort by completion', () => {
+    expect(normalizeView('{"filter":"all","tutor":"all","sort":"average"}')).toEqual({ filter: 'all', tutor: 'all', sort: 'completion' });
   });
 
   test('junk gives the default view', () => {
@@ -441,7 +446,7 @@ describe('keeping the view per user', () => {
 
   test('saves and loads a view', () => {
     const storage = store();
-    const view = { filter: 'review', tutor: 't1', sort: 'average' };
+    const view = { filter: 'review', tutor: 't1', sort: 'completion' };
     expect(saveView('u1', view, storage)).toBe(true);
     expect(JSON.parse(storage.data['vb-students-view-u1'])).toEqual(view);
     expect(loadView('u1', storage)).toEqual(view);
@@ -525,6 +530,21 @@ describe('studentSummaries feeds the filters', () => {
     expect(maya.overdue).toBe(2);
     expect(leo.overdue).toBe(0);
     expect(ava.overdue).toBe(0);
+  });
+
+  test('30-day completion: released results and work never handed in, from the same helper as the Overview', () => {
+    const [maya, leo, ava] = studentSummaries(ws, NOW);
+    // Maya's late essay was never handed in: missing. Tasks never count.
+    expect(maya.completion).toEqual({ completed: 0, missing: 1, total: 1, rate: 0, extended: 0 });
+    expect(leo.completion).toMatchObject({ total: 0, rate: null });
+    // Ava's work waits for review: nothing decided yet
+    expect(ava.completion).toMatchObject({ total: 0, rate: null });
+    const graded = {
+      ...ws,
+      submissions: [{ ...ws.submissions[0], grade: { result: 'completed', released_at: '2026-10-13T00:00:00Z' } }],
+    };
+    expect(studentSummaries(graded, NOW)[2].completion).toMatchObject({ completed: 1, total: 1, rate: 1 });
+    expect(names(sortSummaries(studentSummaries(graded, NOW), 'completion'))).toEqual(['Maya Lin', 'Ava Ruiz', 'Leo Park']);
   });
 
   test('the filters read those summaries', () => {

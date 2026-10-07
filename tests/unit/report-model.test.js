@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { zonedIso } from '../../portal/js/dates.js';
 import {
   PERIODS, DEFAULT_PERIOD, normalizePeriod, schoolYearStart, dayText, rangeText, reportPeriod, inPeriod,
-  sessionSummary, homeworkOutcome, homeworkSummary, scoreTrend, trendText, trendDetail, gradeSummary,
+  sessionSummary, homeworkOutcome, homeworkSummary, resultSummary,
   unreleasedCount, reportPeople, sessionNotes, buildReport,
 } from '../../portal/js/report-model.js';
 
@@ -24,7 +24,7 @@ const task = (extra = {}) => ({
 const sub = (taskId, extra = {}) => ({
   id: ++seq, task_id: taskId, student_id: 's1', created_at: at('2026-09-19', '18:00'), grade: null, ...extra,
 });
-const grade = (score, releasedDay, extra = {}) => ({ score, released_at: releasedDay ? at(releasedDay, '12:00') : null, ...extra });
+const grade = (result, releasedDay, extra = {}) => ({ result, released_at: releasedDay ? at(releasedDay, '12:00') : null, ...extra });
 
 describe('periods', () => {
   test('three choices, 30 days by default', () => {
@@ -306,156 +306,72 @@ describe('homeworkSummary', () => {
   });
 });
 
-describe('scoreTrend', () => {
-  const series = (...scores) => scores.map((score, i) => ({ date: `2026-09-${10 + i}T12:00:00Z`, score }));
-
-  test('needs two scores', () => {
-    expect(scoreTrend([])).toBeNull();
-    expect(scoreTrend(series(80))).toBeNull();
-    expect(scoreTrend(null)).toBeNull();
+describe('resultSummary', () => {
+  test('completed over completed plus missing, by the latest released result', () => {
+    const tasks = [task(), task(), task(), task()];
+    const subs = [
+      sub(tasks[0].id, { grade: grade('completed', '2026-09-21') }),
+      sub(tasks[1].id, { grade: grade('missing', '2026-09-22') }),
+      sub(tasks[2].id, { grade: grade('completed', null) }),                     // a draft: not released
+      sub(tasks[3].id, { created_at: at('2026-09-12'), grade: grade('missing', '2026-09-13') }),
+      sub(tasks[3].id, { created_at: at('2026-09-20'), grade: grade('completed', '2026-09-23') }),  // redone
+    ];
+    expect(resultSummary(tasks, subs, P30, NOW)).toEqual({ completed: 2, missing: 1, total: 3, rate: 2 / 3, extended: 0 });
   });
 
-  test('two scores: first against latest', () => {
-    expect(scoreTrend(series(70, 85))).toEqual({ size: 1, first: 70, latest: 85, delta: 15, direction: 'up' });
-    expect(scoreTrend(series(90, 80))).toEqual({ size: 1, first: 90, latest: 80, delta: -10, direction: 'down' });
-    expect(scoreTrend(series(80, 80))).toMatchObject({ delta: 0, direction: 'flat' });
+  test('work never handed in counts as missing once past due, in the period it was due', () => {
+    const late = task({ due_at: at('2026-09-20') });
+    const early = task({ due_at: at('2026-08-20') });
+    const ahead = task({ due_at: at('2026-10-20') });
+    expect(resultSummary([late, early, ahead], [], P30, NOW)).toMatchObject({ completed: 0, missing: 1, total: 1, rate: 0 });
+    expect(resultSummary([late, early, ahead], [], reportPeriod('90d', NOW), NOW)).toMatchObject({ missing: 2 });
   });
 
-  test('three scores leave the middle one out', () => {
-    expect(scoreTrend(series(60, 99, 80))).toMatchObject({ size: 1, first: 60, latest: 80, delta: 20 });
+  test('results released outside the period are left out', () => {
+    const tasks = [task(), task()];
+    const subs = [
+      sub(tasks[0].id, { grade: grade('completed', '2026-09-06') }),
+      sub(tasks[1].id, { grade: grade('completed', '2026-09-07') }),
+    ];
+    expect(resultSummary(tasks, subs, P30, NOW)).toMatchObject({ completed: 1, total: 1 });
+    expect(resultSummary(tasks, subs, reportPeriod('90d', NOW), NOW)).toMatchObject({ completed: 2 });
   });
 
-  test('four and five scores compare the first two against the last two', () => {
-    expect(scoreTrend(series(70, 80, 90, 100))).toMatchObject({ size: 2, first: 75, latest: 95, delta: 20 });
-    expect(scoreTrend(series(70, 80, 10, 90, 100))).toMatchObject({ size: 2, first: 75, latest: 95, delta: 20 });
+  test('extended work is counted apart until its new due date passes', () => {
+    const open = task({ due_at: at('2026-10-09'), extended_from: at('2026-09-30') });
+    const ranOut = task({ due_at: at('2026-10-02'), extended_from: at('2026-09-25') });
+    const subs = [
+      sub(open.id, { grade: grade('extended', '2026-10-01') }),
+      sub(ranOut.id, { grade: grade('extended', '2026-09-26') }),
+    ];
+    expect(resultSummary([open, ranOut], subs, P30, NOW)).toEqual({ completed: 0, missing: 1, total: 1, rate: 0, extended: 1 });
   });
 
-  test('averages are rounded before they are compared, so the numbers shown subtract', () => {
-    // first 2: (70 + 71) / 2 = 70.5 -> 71; last 2: (72 + 73) / 2 = 72.5 -> 73
-    const t = scoreTrend(series(70, 71, 72, 73));
-    expect(t).toMatchObject({ first: 71, latest: 73, delta: 2 });
-    expect(t.latest - t.first).toBe(t.delta);
-  });
-
-  test('wording', () => {
-    expect(trendText(scoreTrend(series(70, 85)))).toBe('Up 15 points');
-    expect(trendText(scoreTrend(series(80, 79)))).toBe('Down 1 point');
-    expect(trendText(scoreTrend(series(80, 81)))).toBe('Up 1 point');
-    expect(trendText(scoreTrend(series(80, 80)))).toBe('No change');
-    expect(trendText(null)).toBe('');
-    expect(trendDetail(scoreTrend(series(70, 85)))).toBe('First score 70, latest 85');
-    expect(trendDetail(scoreTrend(series(70, 80, 90, 100)))).toBe('First 2 scores averaged 75, latest 2 averaged 95');
-    expect(trendDetail(null)).toBe('');
-  });
-});
-
-describe('gradeSummary', () => {
-  test('only released grades count', () => {
+  test('a grade row that comes back as an array still works; tasks never count', () => {
     const a = task();
-    const b = task();
-    const c = task();
-    const subs = [
-      sub(a.id, { grade: grade(90, '2026-09-20') }),
-      sub(b.id, { grade: grade(70, null) }),                      // a draft: not released
-      sub(c.id, { grade: null }),
-    ];
-    const g = gradeSummary(subs, P30);
-    expect(g.count).toBe(1);
-    expect(g.average).toBe(90);
-    expect(g.series).toEqual([{ date: at('2026-09-20', '12:00'), score: 90 }]);
-    expect(g.trend).toBeNull();
+    const chore = task({ kind: 'task', due_at: at('2026-09-20') });
+    expect(resultSummary([a, chore], [sub(a.id, { grade: [grade('completed', '2026-09-20')] })], P30, NOW))
+      .toMatchObject({ completed: 1, missing: 0, total: 1, rate: 1 });
   });
 
-  test('average rounds to a whole number and the series is oldest first', () => {
-    const tasks = [task(), task(), task()];
-    const subs = [
-      sub(tasks[0].id, { grade: grade(91, '2026-09-30') }),
-      sub(tasks[1].id, { grade: grade(80, '2026-09-12') }),
-      sub(tasks[2].id, { grade: grade(86, '2026-09-21') }),
-    ];
-    const g = gradeSummary(subs, P30);
-    expect(g.count).toBe(3);
-    expect(g.series.map((p) => p.score)).toEqual([80, 86, 91]);
-    expect(g.average).toBe(86);   // 257 / 3 = 85.67
-  });
-
-  test('a resubmitted assignment counts once, with its latest released score', () => {
-    const a = task();
-    const subs = [
-      sub(a.id, { created_at: at('2026-09-12'), grade: grade(60, '2026-09-13') }),
-      sub(a.id, { created_at: at('2026-09-20'), grade: grade(90, '2026-09-22') }),
-    ];
-    const g = gradeSummary(subs, P30);
-    expect(g.count).toBe(1);
-    expect(g.series.map((p) => p.score)).toEqual([90]);
-  });
-
-  test('an unreleased newer attempt leaves the released earlier one as the score', () => {
-    const a = task();
-    const subs = [
-      sub(a.id, { created_at: at('2026-09-12'), grade: grade(60, '2026-09-13') }),
-      sub(a.id, { created_at: at('2026-09-20'), grade: grade(95, null) }),
-    ];
-    expect(gradeSummary(subs, P30).series.map((p) => p.score)).toEqual([60]);
-  });
-
-  test('grades released outside the period are left out', () => {
-    const tasks = [task(), task(), task()];
-    const subs = [
-      sub(tasks[0].id, { grade: grade(50, '2026-09-06') }),
-      sub(tasks[1].id, { grade: grade(80, '2026-09-07') }),
-      sub(tasks[2].id, { grade: grade(90, '2026-10-06') }),
-    ];
-    const g = gradeSummary(subs, P30);
-    expect(g.series.map((p) => p.score)).toEqual([80, 90]);
-    expect(gradeSummary(subs, reportPeriod('90d', NOW)).count).toBe(3);
-  });
-
-  test('a grade row that comes back as an array still works, and a null score is skipped', () => {
-    const a = task();
-    const b = task();
-    const subs = [
-      sub(a.id, { grade: [grade(88, '2026-09-20')] }),
-      sub(b.id, { grade: grade(null, '2026-09-20') }),
-    ];
-    expect(gradeSummary(subs, P30).count).toBe(1);
-  });
-
-  test('a score of zero counts', () => {
-    const a = task();
-    const g = gradeSummary([sub(a.id, { grade: grade(0, '2026-09-20') })], P30);
-    expect(g.count).toBe(1);
-    expect(g.average).toBe(0);
-  });
-
-  test('trend compares the first scores with the latest', () => {
-    const tasks = Array.from({ length: 4 }, () => task());
-    const days = ['2026-09-10', '2026-09-15', '2026-09-20', '2026-09-25'];
-    const scores = [70, 80, 90, 100];
-    const subs = tasks.map((t, i) => sub(t.id, { grade: grade(scores[i], days[i]) }));
-    const g = gradeSummary(subs, P30);
-    expect(g.trend).toMatchObject({ first: 75, latest: 95, delta: 20, direction: 'up' });
-    expect(g.average).toBe(85);
-  });
-
-  test('nothing graded', () => {
-    expect(gradeSummary([], P30)).toEqual({ count: 0, average: null, series: [], trend: null });
-    expect(gradeSummary(null, P30).count).toBe(0);
+  test('nothing decided', () => {
+    expect(resultSummary([], [], P30, NOW)).toEqual({ completed: 0, missing: 0, total: 0, rate: null, extended: 0 });
+    expect(resultSummary(null, null, P30, NOW).total).toBe(0);
   });
 });
 
 describe('unreleasedCount', () => {
-  test('counts assignments whose latest attempt has a score that is not released', () => {
+  test('counts assignments whose latest attempt has a result that is not released', () => {
     const a = task();
     const b = task();
     const c = task();
     const d = task();
     const subs = [
-      sub(a.id, { grade: grade(80, null) }),                       // draft
-      sub(b.id, { grade: grade(80, '2026-09-20') }),               // released
-      sub(c.id, { grade: grade(null, null) }),                     // not graded yet
-      sub(d.id, { created_at: at('2026-09-10'), grade: grade(70, '2026-09-11') }),
-      sub(d.id, { created_at: at('2026-09-20'), grade: grade(95, null) }),   // newer draft
+      sub(a.id, { grade: grade('completed', null) }),                       // draft
+      sub(b.id, { grade: grade('completed', '2026-09-20') }),               // released
+      sub(c.id, { grade: grade(null, null) }),                              // not graded yet
+      sub(d.id, { created_at: at('2026-09-10'), grade: grade('missing', '2026-09-11') }),
+      sub(d.id, { created_at: at('2026-09-20'), grade: grade('extended', null) }),   // newer draft
     ];
     expect(unreleasedCount([a, b, c, d], subs, P30)).toBe(2);
     expect(unreleasedCount([], [], P30)).toBe(0);
@@ -467,9 +383,9 @@ describe('unreleasedCount', () => {
     const spring = task({ due_at: at('2026-04-10') });
     const later = task({ due_at: at('2026-10-20') });
     const subs = [
-      sub(inside.id, { grade: grade(80, null) }),
-      sub(spring.id, { grade: grade(80, null) }),
-      sub(later.id, { grade: grade(80, null) }),
+      sub(inside.id, { grade: grade('completed', null) }),
+      sub(spring.id, { grade: grade('completed', null) }),
+      sub(later.id, { grade: grade('completed', null) }),
     ];
     expect(unreleasedCount([inside, spring, later], subs, P30)).toBe(1);
     // the same drafts, seen from other days: April's draft is counted in a period that covers April
@@ -483,7 +399,7 @@ describe('unreleasedCount', () => {
   test('undated work counts by the day it was created', () => {
     const fresh = task({ due_at: null, created_at: at('2026-09-15') });
     const stale = task({ due_at: null, created_at: at('2026-03-15') });
-    const subs = [sub(fresh.id, { grade: grade(80, null) }), sub(stale.id, { grade: grade(80, null) })];
+    const subs = [sub(fresh.id, { grade: grade('missing', null) }), sub(stale.id, { grade: grade('missing', null) })];
     expect(unreleasedCount([fresh, stale], subs, P30)).toBe(1);
   });
 
@@ -594,7 +510,7 @@ describe('buildReport', () => {
       session('2026-09-15', { attendance: 'absent' }),
       session('2026-09-22', { status: 'cancelled', attendance: null }),
     ];
-    const submissions = [sub(hw.id, { created_at: at('2026-09-19'), grade: grade(88, '2026-09-21') })];
+    const submissions = [sub(hw.id, { created_at: at('2026-09-19'), grade: grade('completed', '2026-09-21') })];
     const r = buildReport({
       studentName: ' Maya Lin ',
       sessions,
@@ -610,7 +526,7 @@ describe('buildReport', () => {
     expect(r.people).toEqual({ tutors: ['Daniel Ortiz'], subjects: ['Algebra'] });
     expect(r.sessions).toMatchObject({ held: 2, attended: 1, absent: 1, cancelled: 1, hours: 1 });
     expect(r.homework).toMatchObject({ assigned: 1, onTime: 1 });
-    expect(r.grades).toMatchObject({ count: 1, average: 88 });
+    expect(r.results).toEqual({ completed: 1, missing: 0, total: 1, rate: 1, extended: 0 });
     expect(r.notes).toHaveLength(1);
     expect(r.unreleased).toBe(0);
   });
@@ -619,7 +535,7 @@ describe('buildReport', () => {
     const r = buildReport({ studentName: 'New Student', now: NOW });
     expect(r.sessions.total).toBe(0);
     expect(r.homework.assigned).toBe(0);
-    expect(r.grades.count).toBe(0);
+    expect(r.results.total).toBe(0);
     expect(r.notes).toEqual([]);
     expect(r.people).toEqual({ tutors: [], subjects: [] });
     expect(r.period.key).toBe('30d');
@@ -633,16 +549,16 @@ describe('buildReport', () => {
     expect(buildReport({ sessions, periodKey: 'junk', now: NOW }).period.key).toBe('30d');
   });
 
-  test('staff see drafts counted apart, never in the grades', () => {
+  test('staff see drafts counted apart, never in the results', () => {
     const a = task();
-    const r = buildReport({ tasks: [a], submissions: [sub(a.id, { grade: grade(77, null) })], now: NOW });
-    expect(r.grades.count).toBe(0);
+    const r = buildReport({ tasks: [a], submissions: [sub(a.id, { grade: grade('completed', null) })], now: NOW });
+    expect(r.results.total).toBe(0);
     expect(r.unreleased).toBe(1);
   });
 
   test('drafts from before the period are not mentioned', () => {
     const old = task({ due_at: at('2026-04-10') });
-    const r = buildReport({ tasks: [old], submissions: [sub(old.id, { grade: grade(77, null) })], periodKey: '30d', now: NOW });
+    const r = buildReport({ tasks: [old], submissions: [sub(old.id, { grade: grade('completed', null) })], periodKey: '30d', now: NOW });
     expect(r.unreleased).toBe(0);
   });
 });

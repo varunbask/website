@@ -1,19 +1,19 @@
 // Progress report view, #/report. One student, one period (Last 30 days, Last
 // 90 days or This school year): sessions and attendance, homework, released
-// grades with a score chart, and the session notes. Families and staff see the
-// same report, built only from what the portal already loads; grades count only
-// once released. "Print or save as PDF" prints just the report (report.css
-// @media print). The numbers come from report-model.js.
+// results (Completed, Missing, Extended), and the session notes. Families and
+// staff see the same report, built only from what the portal already loads;
+// results count only once released. "Print or save as PDF" prints just the
+// report (report.css @media print). The numbers come from report-model.js.
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import { button, segmented, emptyState, errorCallout, skeletonRows } from '../ui.js';
 import { staffNames } from '../updates-feed.js';
-import { scoreChart } from '../progress-panel.js';
 import { displayName, firstName } from '../format.js';
 import { SITE } from '../app-model.js';
+import { rateText } from '../results.js';
 import {
-  PERIODS, DEFAULT_PERIOD, normalizePeriod, buildReport, trendText, trendDetail,
+  PERIODS, DEFAULT_PERIOD, normalizePeriod, buildReport,
 } from '../report-model.js';
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -79,40 +79,33 @@ function sessionsSection(r) {
     lines.map(foot));
 }
 
+// Handed in (or ticked) by the due date or after it; the tutor's verdict on
+// the work is in Results, so these say "Done" rather than "Completed"
 function homeworkSection(r) {
   const w = r.homework;
   if (!w.assigned) return section('Homework', empty('No homework was due in this period.'));
   return section('Homework',
     stats(
       stat('Assigned', w.assigned),
-      stat('Completed on time', w.onTime),
-      stat('Completed late', w.late, { tone: w.late ? 'warn' : null }),
-      stat('Missing', w.missing, { tone: w.missing ? 'bad' : null })),
+      stat('Done on time', w.onTime),
+      stat('Done late', w.late, { tone: w.late ? 'warn' : null }),
+      stat('Not done', w.missing, { tone: w.missing ? 'bad' : null })),
     w.open ? foot(`${w.open} still open, not due yet.`) : null,
     foot('Homework is counted in the period it was due.'));
 }
 
-function gradesSection(r, ctx) {
-  const g = r.grades;
-  if (!g.count) return section('Grades', empty('No graded work in this period.'));
-  const trend = g.trend;
-  const trendStat = trend
-    ? stat('Trend', trendText(trend), {
-      tone: trend.direction === 'up' ? 'good' : trend.direction === 'down' ? 'warn' : null,
-      glyph: trend.direction === 'flat' ? null : icon(trend.direction === 'up' ? 'trend-up' : 'trend-down'),
-      note: trendDetail(trend),
-      text: true,
-    })
-    : stat('Trend', 'Not yet', { note: 'Needs two graded assignments', text: true });
-  return section('Grades',
+function resultsSection(r) {
+  const c = r.results;
+  if (!c.total && !c.extended) return section('Results', empty('No results in this period.'));
+  return section('Results',
     stats(
-      stat('Graded', g.count, { note: g.count === 1 ? 'assignment' : 'assignments' }),
-      stat('Average score', g.average, { note: 'out of 100, latest score on each assignment' }),
-      trendStat),
-    h('div', { class: 'rpt-chart' },
-      h('p', { class: 'rpt-chart-title' }, 'Score history'),
-      scoreChart(g.series, { name: firstName(r.studentName), now: ctx.now })),
-    foot('Only grades released by the tutor are counted. The average and the chart use the latest score on each assignment, so an assignment that was redone counts once.'));
+      stat('Completed', c.completed, { note: `of ${plural(c.total, 'assignment', 'assignments')}` }),
+      stat('Missing', c.missing, { tone: c.missing ? 'bad' : null }),
+      c.rate === null
+        ? stat('Completion rate', 'Not yet', { text: true, note: 'Needs a released result' })
+        : stat('Completion rate', rateText(c.rate), { tone: c.rate >= 0.8 ? 'good' : null }),
+      stat('Extended', c.extended, { note: c.extended ? 'more time, not counted yet' : null })),
+    foot('Each assignment counts once, by the latest result the tutor released. Work never handed in counts as missing once it is past due, and extended work once its new due date has passed.'));
 }
 
 function notesSection(r) {
@@ -127,13 +120,13 @@ function notesSection(r) {
 }
 
 // The printable sheet for one report
-function sheet(r, ctx) {
+function sheet(r) {
   const top = head(r);
   return h('article', { class: 'rpt-sheet', 'aria-labelledby': top.id },
     top.node,
     sessionsSection(r),
     homeworkSection(r),
-    gradesSection(r, ctx),
+    resultsSection(r),
     notesSection(r));
 }
 
@@ -151,7 +144,7 @@ export async function mount(ctx) {
   const whose = ctx.role === 'student' ? 'Your' : `${student ? firstName(displayName(student)) : 'The student'}’s`;
   ctx.setHeader({
     title,
-    lede: `${whose} sessions, homework, grades and session notes. Print it or save it as a PDF to share.`,
+    lede: `${whose} sessions, homework, results and session notes. Print it or save it as a PDF to share.`,
     actions: printButton,
   });
 
@@ -211,7 +204,7 @@ export async function mount(ctx) {
   let report = build();
   function paint() {
     report = build();
-    sheetHost.replaceChildren(sheet(report, ctx));
+    sheetHost.replaceChildren(sheet(report));
   }
 
   const control = segmented({
@@ -233,7 +226,7 @@ export async function mount(ctx) {
     const n = report.unreleased;
     notes.unshift(h('p', { class: 'field-hint rpt-draft-note' },
       icon('info'),
-      h('span', {}, `${plural(n, 'graded assignment is', 'graded assignments are')} not released yet, so ${n === 1 ? 'it is' : 'they are'} left out of this report.`)));
+      h('span', {}, `${plural(n, 'graded assignment is', 'graded assignments are')} not released yet, so ${n === 1 ? 'its result is' : 'their results are'} left out of this report.`)));
   }
 
   paint();

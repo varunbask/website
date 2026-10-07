@@ -2,6 +2,11 @@
 // student's upload, submission history, and for staff create, edit, mark done
 // and delete. The drawer host (drawer.js) owns the dialog; this file fills it.
 //
+// Staff can also Extend an assignment still waiting on the student (To do,
+// Missing, or archived as missing): a new due date, checked like the review
+// page's Extended (results.js), that keeps the first original due date in
+// tasks.extended_from. Families never see it.
+//
 // renderItemDrawer(dctx)
 //   dctx.taskId 'new'  the create form (staff only; params kind and due)
 //   dctx.taskId <id>   the item. Staff whose scope does not hold the task (Today,
@@ -15,9 +20,10 @@
 
 import { h } from './dom.js';
 import { icon } from './icons.js';
-import { pill, draftChip, emptyState, errorCallout, button, visuallyHidden, timeEl, drawerHref } from './ui.js';
+import { pill, draftChip, emptyState, errorCallout, button, busy, timeEl, drawerHref, field, setFieldError } from './ui.js';
 import { menu } from './overlays.js';
-import { itemStatus, submissionStatus } from './status.js';
+import { itemStatus, submissionStatus, resultStatus } from './status.js';
+import { resultOf, checkExtension, extensionChanges, extensionTimeText } from './results.js';
 import { dueLabel, dayKey, parseKey, todayKey, relativeTime } from './dates.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
 import { SUPPORT_EMAIL, supportMailto } from './help-model.js';
@@ -230,7 +236,7 @@ async function locate(dctx, now) {
 // The grade to show: families the newest released one; staff the latest in any
 // state, else the newest released one. previous: it belongs to an older attempt.
 function gradeToShow(item, audience) {
-  const hasContent = (g) => g && (!blank(g.score) || !blank(g.feedback));
+  const hasContent = (g) => g && (resultOf(g) || !blank(g.feedback));
   if (audience === 'staff' && hasContent(item.grade)) return { sub: item.latest, grade: item.grade, previous: false };
   const sub = item.subs.find((s) => s.grade?.released_at && hasContent(s.grade));
   if (!sub) return null;
@@ -294,7 +300,7 @@ function renderItem(dctx) {
     // submission just landed, so the chosen file and typed note survive
     const keepSubmit = refresh && !flash ? dctx.body.querySelector('.asg-submit') : null;
 
-    const view = buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, actions: { enterEdit, toggleDone, remove, removeFollowing, submitted } });
+    const view = buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, actions: { enterEdit, toggleDone, remove, removeFollowing, submitted, extend } });
     dctx.header.replaceChildren(...view.status);
     dctx.headerActions.replaceChildren(...view.actions);
     dctx.setFooter(null);
@@ -484,6 +490,27 @@ function renderItem(dctx) {
     dctx.toast({ text: `Deleted ${removed.length} ${itemNoun(kind, removed.length)}.` });
   }
 
+  // A new due date for an assignment still waiting on the student. The row
+  // must still have the due date this drawer showed, so a stale drawer cannot
+  // undo someone else's change. Returns an error message, or null when done.
+  async function extend(dateKey) {
+    const found = state.found;
+    if (!found) return GONE;
+    const { task } = found;
+    const check = checkExtension(dateKey, task.due_at, new Date());
+    if (!check.ok) return check.error;
+    let query = sb.from('tasks').update(extensionChanges(task, check.dueAt)).eq('id', task.id);
+    query = task.due_at ? query.eq('due_at', task.due_at) : query.is('due_at', null);
+    const result = await query.select('id');
+    if (result.error || !result.data?.length) {
+      if (result.error) console.error(result.error);
+      return result.error ? 'We couldn’t extend this. Try again.' : GONE;
+    }
+    dctx.store.invalidate(found.studentId);
+    dctx.toast({ text: `Extended to ${shortDate(check.dueAt, new Date())}.` });
+    return null;
+  }
+
   // Called by the upload once the submission exists: redraw, then say so
   function submitted(studentId) {
     state.flash = true;
@@ -519,10 +546,11 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
   const isTask = task.kind === 'task';
   const status = itemStatus(item, { audience });
 
-  // Bar: pill (and the draft score for staff); staff menu
+  // Bar: pill (and the drafted result for staff); staff menu
   const statusNodes = [pill(status)];
-  if (staff && item.bucket === 'in-review' && item.grade && !item.grade.released_at && !blank(item.grade.score)) {
-    statusNodes.push(draftChip(item.grade.score));
+  if (staff && item.bucket === 'in-review' && item.grade && !item.grade.released_at) {
+    const draft = draftChip(item.grade);
+    if (draft) statusNodes.push(draft);
   }
   const actionNodes = [];
   const following = staff ? followingInTaskSeries(found.data?.tasks, task) : [];
@@ -593,7 +621,11 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
   }
 
   // 2. Grade
-  if (shown) nodes.push(gradeSection(shown, { staff, names, now }));
+  if (shown) nodes.push(gradeSection(shown, { staff, names, now, task }));
+
+  // Staff: more time for work still waiting on the student
+  const waiting = item.bucket === 'todo' || (item.bucket === 'archived' && item.archiveReason === 'missed');
+  if (staff && !dctx.readOnly && waiting && task.due_at) nodes.push(extendSection(task, { now, onExtend: actions.extend }));
 
   // 3. Submit (students). A section already on screen is kept while it still
   // fits this item, and always while its upload is running.
@@ -656,6 +688,7 @@ function headBlock(dctx, found, status, { now, showStudent, student }) {
   } else {
     fact('Due', h('span', { class: 'asg-muted' }, 'No due date'));
   }
+  if (task.kind !== 'task' && task.extended_from) fact('Originally due', shortDate(task.extended_from, now));
   const position = seriesPosition(found.data?.tasks, task);
   if (position) fact('Repeats', seriesText(position));
   if (showStudent && student) fact('Student', displayName(student));
@@ -673,8 +706,9 @@ function headBlock(dctx, found, status, { now, showStudent, student }) {
     facts);
 }
 
-// The grade well: score, feedback, who graded it and when
-function gradeSection({ sub, grade, previous }, { staff, names, now }) {
+// The grade well: the result, feedback, who graded it and when. A released
+// Extended names its new due date.
+function gradeSection({ sub, grade, previous }, { staff, names, now, task }) {
   const released = Boolean(grade.released_at);
   const by = grade.reviewed_by ? names?.get?.(grade.reviewed_by) : null;
   let foot;
@@ -686,11 +720,14 @@ function gradeSection({ sub, grade, previous }, { staff, names, now }) {
   }
 
   const top = h('div', { class: 'asg-grade-top' });
-  if (!blank(grade.score)) {
-    top.append(h('p', { class: 'asg-score' },
-      h('span', { class: 'asg-score-value', 'aria-hidden': 'true' }, String(grade.score)),
-      h('span', { class: 'asg-score-max', 'aria-hidden': 'true' }, '/100'),
-      visuallyHidden(`Score ${grade.score} out of 100`)));
+  const result = resultOf(grade);
+  if (released) {
+    const shownResult = resultStatus(result, { audience: staff ? 'staff' : 'family' });
+    if (result === 'extended' && !previous && task?.due_at) shownResult.label = `Extended to ${shortDate(task.due_at, now)}`;
+    top.append(h('p', { class: 'asg-result' }, pill(shownResult)));
+  } else if (staff) {
+    const draft = draftChip(grade);
+    if (draft) top.append(draft);
   }
   if (staff) top.append(pill(submissionStatus(sub, grade, { audience: 'staff' })));
 
@@ -708,6 +745,47 @@ function gradeSection({ sub, grade, previous }, { staff, names, now }) {
   return section(previous ? 'Previous grade' : 'Grade', well);
 }
 
+// Staff: a new due date for work still waiting on the student. onExtend(day)
+// resolves to an error message, or null once the store refresh is on its way.
+function extendSection(task, { now, onExtend }) {
+  const input = h('input', {
+    type: 'date',
+    class: 'input asg-date',
+    name: 'extend',
+    min: todayKey(now),
+    dataset: { focusKey: 'asg-extend-date' },
+  });
+  const dateField = field({
+    label: 'New due date',
+    hint: `Due at ${extensionTimeText(task.due_at)} Pacific time on this date. The student sees it as extended.`,
+    control: input,
+  });
+  const submit = button({ label: 'Extend', type: 'submit', size: 'sm', icon: 'clock', focusKey: 'asg-extend' });
+  const form = h('form', { class: 'asg-extend', novalidate: true }, dateField, h('div', { class: 'asg-extend-actions' }, submit));
+  let working = false;
+  input.addEventListener('input', () => {
+    if (input.getAttribute('aria-invalid') === 'true') setFieldError(dateField, '');
+  });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (working) return;
+    working = true;
+    try {
+      const problem = await busy(submit, 'Extending…', () => onExtend(input.value));
+      if (problem && form.isConnected) {
+        setFieldError(dateField, problem);
+        input.focus();
+      }
+    } catch (error) {
+      console.error(error);
+      if (form.isConnected) setFieldError(dateField, 'Check your connection and try again.');
+    } finally {
+      working = false;
+    }
+  });
+  return section('Extend', form);
+}
+
 // Submission history, newest first
 function historySection(item, { staff, isStudent, now, live }) {
   const total = item.subs.length;
@@ -718,7 +796,7 @@ function historySection(item, { staff, isStudent, now, live }) {
     const n = total - i;
     const status = submissionStatus(sub, sub.grade, { audience });
     const kind = workLabel(sub);
-    const draft = staff && sub.grade && !sub.grade.released_at && !blank(sub.grade.score) ? draftChip(sub.grade.score) : null;
+    const draft = staff && sub.grade && !sub.grade.released_at ? draftChip(sub.grade) : null;
 
     const inner = [
       h('span', { class: 'asg-sub-icon', 'aria-hidden': 'true' }, icon(workIcon(sub))),

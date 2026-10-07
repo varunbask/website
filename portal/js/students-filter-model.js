@@ -2,10 +2,10 @@
 //
 // It works on the page's student summaries (studentSummaries in
 // views/students.js): { student, name, email, review, overdue, next,
-// nextSession, tutors, avg, ... }. A view is { filter, tutor, sort }:
+// nextSession, tutors, completion, ... }. A view is { filter, tutor, sort }:
 //   filter  'all' | 'review' | 'overdue' | 'nolesson'   one quick filter at a time
 //   tutor   'all' or a tutor's id (the admin's Tutor select)
-//   sort    'name' | 'review' | 'lesson' | 'due' | 'average'
+//   sort    'name' | 'review' | 'lesson' | 'due' | 'completion'
 // Search text is separate: it is never stored. Search, filter, tutor and sort
 // all combine in visibleStudents(). "The next 14 days" is read on the Pacific
 // calendar (dates.js), the way every other day count in the portal is.
@@ -22,13 +22,13 @@ export const FILTER_LABELS = Object.freeze({
   overdue: 'Overdue work',
   nolesson: 'No lesson booked',
 });
-export const SORTS = Object.freeze(['name', 'review', 'lesson', 'due', 'average']);
+export const SORTS = Object.freeze(['name', 'review', 'lesson', 'due', 'completion']);
 export const SORT_LABELS = Object.freeze({
   name: 'Name (A to Z)',
   review: 'Needs review first',
   lesson: 'Next lesson soonest',
   due: 'Next due soonest',
-  average: 'Recent average (low to high)',
+  completion: 'Completion (low to high)',
 });
 export const DEFAULT_VIEW = Object.freeze({ filter: ALL, tutor: ALL, sort: 'name' });
 export const STORAGE_PREFIX = 'vb-students-view-';
@@ -152,8 +152,9 @@ const COMPARATORS = {
   lesson: (a, b) => ascending(time(a.nextSession?.starts_at), time(b.nextSession?.starts_at)) || byName(a, b),
   // overdue work leads (it is the earliest), nothing due last
   due: (a, b) => ascending(time(a.next?.task?.due_at), time(b.next?.task?.due_at)) || byName(a, b),
-  // lowest average first, so students who need help come first; no grades last
-  average: (a, b) => ascending(number(a.avg), number(b.avg)) || byName(a, b),
+  // lowest 30-day completion rate first, so students who need help come
+  // first; no results last
+  completion: (a, b) => ascending(number(a.completion?.rate), number(b.completion?.rate)) || byName(a, b),
 };
 
 export function comparator(sort) {
@@ -222,7 +223,9 @@ export function normalizeView(raw, { filters = QUICK_FILTERS, tutorIds = null } 
   if (!data || typeof data !== 'object' || Array.isArray(data)) return { ...DEFAULT_VIEW };
 
   const filter = filters.includes(data.filter) ? data.filter : ALL;
-  const sort = SORTS.includes(data.sort) ? data.sort : DEFAULT_VIEW.sort;
+  // 'average' was the old sort by score; completion took its place
+  const asked = data.sort === 'average' ? 'completion' : data.sort;
+  const sort = SORTS.includes(asked) ? asked : DEFAULT_VIEW.sort;
   let tutor = typeof data.tutor === 'string' || typeof data.tutor === 'number' ? String(data.tutor).trim() : ALL;
   if (!tutor || tutor.length > TUTOR_ID_MAX) tutor = ALL;
   if (tutorIds && tutor !== ALL && !tutorIds.some((id) => String(id) === tutor)) tutor = ALL;

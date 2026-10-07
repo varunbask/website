@@ -3,7 +3,9 @@ import {
   FILTERS, FILTER_LABELS, normalizeFilter, needsReview, reviewGroupOf, queueGroups, queueOrder,
   filterCounts, stillGrading, waitingLabel, attemptInfo, neighbors, recentlyReleased, todayLede,
   pendingLabel, dueThisWeek, stampLabel, dateLabel, reviewHref, subsByTask, validateGrade,
+  RESULT_ERROR, EMPTY_DRAFT_ERROR,
 } from '../../portal/js/review-model.js';
+import { EXTEND_DATE_ERROR, EXTEND_PAST_ERROR } from '../../portal/js/results.js';
 import { needsReview as appNeedsReview } from '../../portal/js/app-model.js';
 import { deriveItems, MAX_SUBMISSIONS } from '../../portal/js/buckets.js';
 
@@ -19,8 +21,8 @@ const sub = (id, extra = {}) => ({
   id, task_id: id, student_id: 's1', status: 'ai_graded', error: null,
   created_at: ago(DAY), status_changed_at: ago(DAY), grade: null, ...extra,
 });
-const grade = ({ reviewed = false, released = false, score = 84 } = {}) => ({
-  score, feedback: 'ok', reviewed_at: reviewed ? ago(HOUR) : null, released_at: released ? ago(HOUR) : null,
+const grade = ({ reviewed = false, released = false, result = 'completed' } = {}) => ({
+  result, feedback: 'ok', reviewed_at: reviewed ? ago(HOUR) : null, released_at: released ? ago(HOUR) : null,
 });
 
 const STATUSES = ['pending', 'grading', 'ai_graded', 'failed'];
@@ -265,7 +267,7 @@ describe('neighbors', () => {
 });
 
 describe('recentlyReleased', () => {
-  const rel = (id, at) => sub(id, { grade: { score: 90, released_at: at, reviewed_at: at } });
+  const rel = (id, at) => sub(id, { grade: { result: 'completed', released_at: at, reviewed_at: at } });
   test('within 14 days, newest release first, at most 5', () => {
     const subs = [
       rel(1, ago(DAY)),
@@ -338,39 +340,69 @@ describe('subsByTask', () => {
 });
 
 describe('validateGrade', () => {
-  test('draft: score optional but in range, feedback optional', () => {
-    expect(validateGrade({ score: '', feedback: 'x' }, { release: false })).toEqual({ ok: true, values: { score: null, feedback: 'x' }, errors: {} });
-    expect(validateGrade({ score: '70', feedback: '' }, { release: false })).toEqual({ ok: true, values: { score: 70, feedback: null }, errors: {} });
-    expect(validateGrade({ score: ' 86.5 ', feedback: ' Nice ' }, { release: false }).values).toEqual({ score: 86.5, feedback: 'Nice' });
-    expect(validateGrade({ score: '101', feedback: '' }, { release: false }).errors).toEqual({ score: 'Enter a score from 0 to 100.' });
-    expect(validateGrade({ score: 'abc', feedback: '' }, { release: false }).ok).toBe(false);
-    expect(validateGrade({ score: '-1', feedback: '' }, { release: false }).ok).toBe(false);
+  const opts = (extra = {}) => ({ now: NOW, ...extra });
+
+  test('draft: a result, feedback, or both; feedback is trimmed', () => {
+    expect(validateGrade({ result: '', feedback: 'x' }, opts({ release: false })))
+      .toEqual({ ok: true, values: { result: null, feedback: 'x' }, dueAt: null, errors: {} });
+    expect(validateGrade({ result: 'missing', feedback: '' }, opts({ release: false })))
+      .toEqual({ ok: true, values: { result: 'missing', feedback: null }, dueAt: null, errors: {} });
+    expect(validateGrade({ result: 'completed', feedback: ' Nice ' }, opts()).values).toEqual({ result: 'completed', feedback: 'Nice' });
   });
 
-  test('a score is a plain decimal with at most two places', () => {
-    for (const score of ['1e1', '0x10', '85.555', '+5', '.5', '5.', '1,5']) {
-      expect(validateGrade({ score, feedback: 'x' }, { release: false }).errors, score).toEqual({ score: 'Enter a score from 0 to 100.' });
-    }
-    for (const [score, value] of [['0', 0], ['100', 100], ['85.5', 85.5], ['85.55', 85.55], ['007', 7]]) {
-      expect(validateGrade({ score, feedback: 'x' }, { release: false }).values.score, score).toBe(value);
-    }
-  });
-
-  test('draft: a blank score and blank feedback do not save', () => {
-    expect(validateGrade({ score: '', feedback: '' }, { release: false })).toEqual({
-      ok: false, values: { score: null, feedback: null }, errors: { score: 'Enter a score or feedback before you save.' },
+  test('draft: no result and no feedback do not save', () => {
+    expect(validateGrade({ result: null, feedback: '' }, opts({ release: false }))).toEqual({
+      ok: false, values: { result: null, feedback: null }, dueAt: null, errors: { result: EMPTY_DRAFT_ERROR },
     });
-    expect(validateGrade({ score: ' ', feedback: '  ' }, { release: false }).ok).toBe(false);
+    expect(validateGrade({ result: '', feedback: '  ' }, opts()).ok).toBe(false);
   });
 
-  test('release: score 0 to 100 and feedback required', () => {
-    expect(validateGrade({ score: '', feedback: 'x' }, { release: true }).errors).toEqual({ score: 'Enter a score from 0 to 100.' });
-    expect(validateGrade({ score: '90', feedback: '  ' }, { release: true }).errors).toEqual({ feedback: 'Write feedback before releasing.' });
-    expect(validateGrade({ score: '', feedback: '' }, { release: true }).errors).toEqual({
-      score: 'Enter a score from 0 to 100.', feedback: 'Write feedback before releasing.',
-    });
-    expect(validateGrade({ score: '0', feedback: 'x' }, { release: true }).ok).toBe(true);
-    expect(validateGrade({ score: '100', feedback: 'x' }, { release: true }).ok).toBe(true);
+  test('a draft Extended needs no date yet: the date is only written on release', () => {
+    expect(validateGrade({ result: 'extended', feedback: '', dueDate: '' }, opts({ release: false })))
+      .toEqual({ ok: true, values: { result: 'extended', feedback: null }, dueAt: null, errors: {} });
+  });
+
+  test('only the three results', () => {
+    for (const result of ['Completed', 'excellent', '90', 90, 'extended ']) {
+      expect(validateGrade({ result, feedback: 'x' }, opts({ release: false })).values.result, String(result)).toBeNull();
+      expect(validateGrade({ result, feedback: 'x' }, opts({ release: true })).errors, String(result)).toEqual({ result: RESULT_ERROR });
+    }
+  });
+
+  test('release: a result is required; feedback is optional', () => {
+    expect(validateGrade({ result: '', feedback: 'x' }, opts({ release: true })).errors).toEqual({ result: RESULT_ERROR });
+    expect(validateGrade({ result: 'completed', feedback: '  ' }, opts({ release: true })))
+      .toEqual({ ok: true, values: { result: 'completed', feedback: null }, dueAt: null, errors: {} });
+    expect(validateGrade({ result: 'missing', feedback: '' }, opts({ release: true })).ok).toBe(true);
+  });
+
+  test('release Extended: a new due date still ahead, keeping the due time of day', () => {
+    const due = '2026-10-15T00:00:00Z';   // 5:00 pm Pacific on Oct 14
+    expect(validateGrade({ result: 'extended', dueDate: '' }, opts({ release: true, dueAt: due })).errors)
+      .toEqual({ dueDate: EXTEND_DATE_ERROR });
+    expect(validateGrade({ result: 'extended', dueDate: '2026-10-13' }, opts({ release: true, dueAt: due })).errors)
+      .toEqual({ dueDate: EXTEND_PAST_ERROR });
+    expect(validateGrade({ result: 'extended', feedback: 'Two more days', dueDate: '2026-10-16' }, opts({ release: true, dueAt: due })))
+      .toEqual({ ok: true, values: { result: 'extended', feedback: 'Two more days' }, dueAt: '2026-10-17T00:00:00.000Z', errors: {} });
+    // without a due time, 11:59 pm Pacific
+    expect(validateGrade({ result: 'extended', dueDate: '2026-10-16' }, opts({ release: true })).dueAt).toBe('2026-10-17T06:59:00.000Z');
+    // both problems at once
+    expect(validateGrade({ result: '', dueDate: '' }, opts({ release: true })).errors).toEqual({ result: RESULT_ERROR });
+  });
+
+  test('a released Extended keeps its date when the day is not changed, even once it passed', () => {
+    const due = ago(HOUR);
+    const day = '2026-10-14';
+    expect(validateGrade({ result: 'extended', dueDate: day }, opts({ release: true, dueAt: due, keepDate: true })))
+      .toMatchObject({ ok: true, dueAt: null });
+    expect(validateGrade({ result: 'extended', dueDate: day }, opts({ release: true, dueAt: due })).errors)
+      .toEqual({ dueDate: EXTEND_PAST_ERROR });
+    expect(validateGrade({ result: 'extended', dueDate: '2026-10-20' }, opts({ release: true, dueAt: due, keepDate: true })).dueAt)
+      .toBe('2026-10-20T18:00:00.000Z');
+  });
+
+  test('the messages have no em or en dashes', () => {
+    expect(RESULT_ERROR + EMPTY_DRAFT_ERROR).not.toMatch(/[\u2013\u2014]/);
   });
 });
 
