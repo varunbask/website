@@ -38,7 +38,7 @@ import { ATTENDANCE, addMinutesToTime, followingInSeries, sessionTitle } from '.
 import { rememberDraft, recallDraft, forgetDraft } from './notes-draft.js';
 import {
   QUICK_DURATIONS, DEFAULT_START, DEFAULT_MINUTES, MIN_REPEAT_COUNT, MAX_REPEAT_COUNT, MAX_RECAP_LENGTH, GONE,
-  createDefaults, editDefaults, minutesBetween, tutorChoices, subjectsFor, defaultSubject,
+  createDefaults, editDefaults, minutesBetween, tutorChoices, subjectChoices, subjectRateHint, defaultSubject,
   checkSessionForm, plannedTimes, buildInsertRow, buildSeriesRow, buildUpdates, changedUpdates, followingChange,
   mergeSessions, scheduleLabel, repeatChoices, repeatSummary, clashReport, clashCheckIsPartial, saveErrorText, whenText,
 } from './session-form-model.js';
@@ -157,9 +157,37 @@ export function sessionForm(dctx, {
   });
   const subjectList = h('datalist', { id: subjectListId });
   const subjectField = field({ label: 'Subject', optional: true, control: subjectInput });
-  const fillSubjects = () => subjectList.replaceChildren(...subjectsFor(links, currentStudentId()).map((s) => h('option', { value: s })));
+
+  // Money: only the admin may read rates, so only the admin's form asks for them.
+  // The student's rated subjects then lead the suggestions (a lesson named for one
+  // is billed at its rate), and a subject that would price at $0 gets a quiet note.
+  // A tutor's form never loads them: the suggestions stay the link subjects.
+  let rates = null;
+  const rateHint = h('p', { class: 'field-hint ses-rate-hint', id: `${subjectInput.id}-hint`, role: 'status' });
+  subjectField.append(rateHint);
+  subjectInput.setAttribute('aria-describedby', rateHint.id);
+  const fillSubjects = () => subjectList.replaceChildren(...subjectChoices({
+    links, studentId: currentStudentId(), rates, tutorId: currentTutorId(), day: dateInput.value,
+  }).map((s) => h('option', { value: s })));
+  let rateHintTimer = null;
+  function showRateHint() {
+    clearTimeout(rateHintTimer);
+    const text = subjectRateHint({
+      subject: subjectInput.value, rates, studentId: currentStudentId(), tutorId: currentTutorId(), day: dateInput.value, links,
+    });
+    rateHint.textContent = text ?? '';
+  }
+  // While typing it waits for a pause, so it never flashes "No rate for M" mid-word
+  const showRateHintSoon = () => {
+    clearTimeout(rateHintTimer);
+    rateHintTimer = setTimeout(showRateHint, 400);
+  };
   let subjectDirty = editing;
-  subjectInput.addEventListener('input', () => { subjectDirty = true; });
+  subjectInput.addEventListener('input', () => {
+    subjectDirty = true;
+    showRateHintSoon();
+  });
+  subjectInput.addEventListener('change', showRateHint);
   function applyDefaultSubject() {
     if (editing || subjectDirty) return;
     subjectInput.value = defaultSubject(links, currentTutorId(), currentStudentId());
@@ -470,8 +498,14 @@ export function sessionForm(dctx, {
     duration = minutesBetween(startInput.value, endInput.value) ?? duration;
     onTimesChanged();
   });
-  dateInput.addEventListener('input', onTimesChanged);
-  dateInput.addEventListener('change', onTimesChanged);
+  // The day decides which rates are in force
+  const onDateChanged = () => {
+    onTimesChanged();
+    fillSubjects();
+    showRateHint();
+  };
+  dateInput.addEventListener('input', onDateChanged);
+  dateInput.addEventListener('change', onDateChanged);
   for (const el of [subjectInput, locationInput, urlInput, notesInput]) el.addEventListener('input', clearFixedErrors);
   repeatSelect?.addEventListener('change', () => {
     showEnds();
@@ -484,13 +518,16 @@ export function sessionForm(dctx, {
   studentSelect?.addEventListener('change', () => {
     setFieldError(studentField, '');
     fillTutors();
-    fillSubjects();
     applyDefaultSubject();
+    fillSubjects();
+    showRateHint();
     refreshClash();
   });
   tutorSelect?.addEventListener('change', () => {
     setFieldError(tutorField, '');
     applyDefaultSubject();
+    fillSubjects();
+    showRateHint();
     refreshClash();
   });
 
@@ -503,6 +540,17 @@ export function sessionForm(dctx, {
   refreshClash();
   syncLength();
   updateScheduleLabel();
+
+  // The admin's rates arrive when the billing data does (often already cached);
+  // if they cannot be read there are simply no money hints
+  if (isAdmin && typeof dctx.store?.getBilling === 'function') {
+    Promise.resolve(dctx.store.getBilling()).then((data) => {
+      if (!dctx.alive() || !Array.isArray(data?.billing?.familyRates)) return;
+      rates = data.billing.familyRates;
+      fillSubjects();
+      showRateHint();
+    }, () => {});
+  }
 
   // Save -----------------------------------------------------------------
 
