@@ -13,7 +13,7 @@ test('every app page loads palette.css after app.css', () => {
   for (const name of APP_PAGES) {
     const html = read(name);
     const app = html.indexOf('/portal/css/app.css');
-    const palette = html.indexOf('<link rel="stylesheet" href="/portal/css/palette.css?v=1">');
+    const palette = html.indexOf('<link rel="stylesheet" href="/portal/css/palette.css?v=2">');
     expect(app, name).toBeGreaterThan(-1);
     expect(palette, name).toBeGreaterThan(app);
   }
