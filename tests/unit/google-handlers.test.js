@@ -1,7 +1,7 @@
 import { describe, test, expect, vi, afterEach } from 'vitest';
 import { createHash, randomBytes } from 'node:crypto';
 import {
-  handleStart, handleCallback, handleSettings, handleDisconnect, handleSync, handlePersonal, handleNotify,
+  handleStart, handleCallback, handleSettings, handleDisconnect, disconnectUser, handleSync, handlePersonal, handleNotify,
   maintainAll, mergeReturn, isSafeReturnTo, statusOf,
 } from '../../api/_lib/google/handlers.js';
 import { googleEndpoint } from '../../api/_lib/google/endpoint.js';
@@ -966,6 +966,55 @@ describe('handleDisconnect', () => {
       expect(res.status).toBe(200);
       expect(await res.json()).toEqual({ connected: false });
     });
+  });
+});
+
+// A person's account is being deleted (api/_lib/people-delete.js): the same
+// clean-up as a tutor's own Disconnect, with nothing left behind
+describe('disconnectUser', () => {
+  const run = async ({ connections = [], userId = TUTOR, config = CONFIG, fetch = fakeFetch() } = {}) => {
+    const repo = fakeRepo({ connections });
+    const result = await disconnectUser(userId, { repo, config, fetchImpl: fetch });
+    return { result, repo, fetch };
+  };
+
+  test('a person with no connection: nothing happens', async () => {
+    const { result, repo, fetch } = await run();
+    expect(result).toBe(false);
+    expect(repo.deleteConnection).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  test('a tutor: the channel is stopped, the grant revoked and the row deleted', async () => {
+    const { result, repo, fetch } = await run({ connections: [tutorConn({ channel_id: 'chan-1', channel_resource_id: 'res-9', channel_token: 'secret' })] });
+    expect(result).toBe(true);
+    expect(fetch.api().find((c) => c.url.pathname === '/calendar/v3/channels/stop').body).toEqual({ id: 'chan-1', resourceId: 'res-9' });
+    expect(fetch.revokes()).toEqual(['refresh-tutor']);
+    expect(repo.conns.has(TUTOR)).toBe(false);
+    expect(repo.markUpcomingPending).not.toHaveBeenCalled(); // their lessons go with them: nothing to push
+  });
+
+  test('a tutor whose Google cannot be reached still loses the row', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { result, repo } = await run({ connections: [tutorConn()], fetch: fakeFetch({ refresh: 'fail' }) });
+    expect(result).toBe(true);
+    expect(repo.conns.has(TUTOR)).toBe(false);
+  });
+
+  test('a student: only the row, nothing sent to Google and no push', async () => {
+    const { result, repo, fetch } = await run({ userId: STUDENT, connections: [studentConn(), tutorConn()] });
+    expect(result).toBe(true);
+    expect(repo.conns.has(STUDENT)).toBe(false);
+    expect(repo.conns.has(TUTOR)).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(repo.markUpcomingPending).not.toHaveBeenCalled();
+  });
+
+  test('without Google settings no token can be read, so the row goes without a call', async () => {
+    const { result, repo, fetch } = await run({ connections: [tutorConn()], config: null });
+    expect(result).toBe(true);
+    expect(repo.conns.has(TUTOR)).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

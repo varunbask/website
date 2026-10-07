@@ -349,9 +349,34 @@ export async function handleSettings(request, deps) {
 
 // ---------------------------------------------------------------- disconnect
 
+// A tutor's connection: stops the change channel, revokes the grant at Google
+// and deletes the row. Each Google step is best effort: the connection goes
+// whatever Google says.
+async function dropTutorConnection(conn, deps) {
+  const { repo, config, fetchImpl } = deps;
+  if (conn.channel_id) await attempt('stop channel', () => withGoogle(conn, ctxOf(deps), (google) => stopSync(conn, google, repo)));
+  await attempt('revoke', async () => revoke(decrypt(conn.refresh_token_enc, config.tokenKey), { fetchImpl }));
+  await repo.deleteConnection(conn.user_id);
+}
+
+// A person's Google connection removed for good, because their account is being
+// deleted (api/_lib/people-delete.js): a tutor's grant is revoked as in
+// handleDisconnect so no token is left behind; a student's connection is only an
+// address, so its row just goes. Needs { repo, config, fetchImpl }; without
+// config (Google not set up) no token can be read, so only the row is removed.
+// -> whether there was a connection
+export async function disconnectUser(userId, deps) {
+  const { repo, config } = deps;
+  const conn = await repo.getConnection(userId);
+  if (!conn) return false;
+  if (conn.purpose === 'tutor' && config) await dropTutorConnection(conn, deps);
+  else await repo.deleteConnection(userId);
+  return true;
+}
+
 // POST (tutor or student) -> { connected: false }
 export async function handleDisconnect(request, deps) {
-  const { repo, config, now, fetchImpl } = deps;
+  const { repo, now } = deps;
   const caller = await deps.verify(request);
   if (!caller) return json(401, { error: SIGN_IN });
 
@@ -359,10 +384,7 @@ export async function handleDisconnect(request, deps) {
   if (!conn) return json(200, { connected: false });
 
   if (conn.purpose === 'tutor') {
-    // Each step is best effort: the connection goes whatever Google says
-    if (conn.channel_id) await attempt('stop channel', () => withGoogle(conn, ctxOf(deps), (google) => stopSync(conn, google, repo)));
-    await attempt('revoke', async () => revoke(decrypt(conn.refresh_token_enc, config.tokenKey), { fetchImpl }));
-    await repo.deleteConnection(caller.id);
+    await dropTutorConnection(conn, deps);
   } else {
     // Deleted first, so the push that follows leaves their address off the invites
     await repo.deleteConnection(caller.id);
