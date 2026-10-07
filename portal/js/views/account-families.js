@@ -1,10 +1,13 @@
 // Account > Families (account.html, admin). Monthly billing: one row per paying
 // parent with the month's sessions, adjustments and payments, a running
 // balance, Record payment (blocked while the month has open items), the
-// statement, Copy as text and Mark sent.
+// statement, Copy as text and Release. A parent sees nothing about a month until
+// it is released: Release bills at the top does every ready family at once, and
+// each family has its own Release (and Release again) too.
 
 import { sb } from '../supabase.js';
 import { h } from '../dom.js';
+import { isPlaceholderEmail } from '../format.js';
 import { icon } from '../icons.js';
 import { button, pill, segmented, select, emptyState, busy, drawerHref } from '../ui.js';
 import { todayKey } from '../dates.js';
@@ -13,10 +16,12 @@ import {
   money, signedMoney, hoursText, parseMoney, monthName, familyRows, familyBlockers, familyBalanceBefore, familySnapshot,
   dueDate, billDate, dayText, shortDate, statementNumber, ATTENTION,
 } from '../billing-model.js';
-import { statementText, statementSnapshot, sendAction, sendColumns, familiesCsv, labelText, methodText, stateText, METHODS, LABELS } from '../billing-text.js';
+import { statementText, sendAction, familiesCsv, labelText, methodText, stateText, METHODS, LABELS } from '../billing-text.js';
+import { releasePlan, releaseDoneText, releaseLabel } from '../billing-release.js';
 import {
   setHeader, monthFrom, monthPicker, loadPriced, table, cents, csvButton, act, saveSessionBilling, clientKey, note, tabHref, askReason,
 } from './account-shared.js';
+import { releaseBar, releaseDialog, statementColumns, writeStatement } from './account-release.js';
 
 const FAMILY_METHODS = ['zelle', 'venmo', 'check', 'cash', 'card', 'other'];
 const FAMILY_LABELS = ['late_fee', 'discount', 'credit', 'other'];
@@ -35,9 +40,13 @@ export function mount(ctx) {
   return (async () => {
     const loaded = await loadPriced(ctx, root);
     if (!loaded || !ctx.alive()) return;
-    const { b } = loaded;
+    const { b, data } = loaded;
     const today = todayKey(ctx.now);
     const all = familyRows(b, month);
+    // People added without a login: their bill is released like the others and
+    // reaches them as copied text or a printout
+    const noLogin = new Set((data.people ?? []).filter((p) => isPlaceholderEmail(p.email)).map((p) => String(p.id)));
+    const plan = releasePlan(b, month, today, { families: all, noLogin });
     const paidCount = all.filter((f) => f.status.key === 'paid' || f.status.key === 'credit').length;
     const owedThisMonth = all.reduce((s, f) => s + Math.max(0, f.dueCents), 0);
     setHeader(ctx, 'families', {
@@ -128,39 +137,40 @@ export function mount(ctx) {
             sentControls(f, previous, gate))));
     }
 
-    // Marking a statement sent saves what it said, so the paying parent can
-    // read it under Billing in the portal. A month whose charges or brought
-    // forward changed after it was sent can be sent again (the parent then sees
-    // the new version); a payment recorded later is no change. Like Record
-    // payment, it waits for the month's open items to be resolved.
+    // Releasing a month's bill saves what the statement says, and only then can
+    // the paying parent read it under Billing in the portal. A month whose
+    // charges or brought forward changed after it was released can be released
+    // again (the parent then sees the new version); a payment recorded later is
+    // no change. Like Record payment, it waits for the month's open items to be
+    // resolved.
     function sentControls(f, previous, gate) {
       const sent = b.statements.find((x) => String(x.parent_id) === f.parentId && x.period === month);
       const action = sendAction(sent, f, previous, gate, today);
-      const write = ({ label, icon: iconName, done }) => {
+      const hasLogin = !noLogin.has(f.parentId);
+      const write = ({ label, icon: iconName, again = false }) => {
         const btn = button({ label, size: 'sm', variant: 'ghost', icon: iconName, disabled: action.blocked, onClick: () => {
-          const snap = statementSnapshot(b, f, { previousCents: previous, sentOn: action.sentOn });
-          const columns = sendColumns(action, snap, today);
-          return act(ctx, () => (action.kind === 'mark'
-            ? sb.from('statements').insert({ parent_id: f.parentId, period: month, ...columns })
-            : sb.from('statements').update(columns).eq('parent_id', f.parentId).eq('period', month)).select('parent_id'),
-          { done: done(snap) });
+          const { snap, columns } = statementColumns(b, today, { f, previous, action });
+          return act(ctx, () => writeStatement(month, action.kind, f.parentId, columns),
+            { done: releaseDoneText({ name: f.name, noLogin: !hasLogin, dueDay: dayText(snap.due_date), again }) });
         } });
         if (action.blocked) btn.title = blockedTitle(gate);
         return btn;
       };
       if (action.kind === 'mark') {
-        return write({ label: 'Mark sent', icon: 'envelope-simple', done: () => `Statement marked sent. ${f.name} can read it under Billing in the portal. Due ${dayText(dueDate(b, month, today))}.` });
+        return h('span', { class: 'acct-release-row' },
+          h('span', { class: 'card-meta' }, releaseLabel(null, today)),
+          write({ label: 'Release', icon: 'envelope-simple' }));
       }
-      const label = h('span', { class: 'card-meta' }, `Sent ${shortDate(sent.sent_on, today)} (${statementNumber(f.parentId, month)})`);
+      const number = statementNumber(f.parentId, month);
+      if (action.kind === 'save') {
+        // sent before the portal kept copies: the family has it, the portal does not
+        return h('span', { class: 'acct-release-row' },
+          h('span', { class: 'card-meta' }, `Sent ${shortDate(sent.sent_on, today)} (${number}), not in the portal yet`),
+          write({ label: 'Release to the portal', icon: 'repeat' }));
+      }
+      const label = h('span', { class: 'card-meta' }, `${releaseLabel(sent, today)} (${number})${action.kind ? ', changed since' : ''}`);
       if (!action.kind) return label;
-      return h('span', { class: 'acct-sent-again' }, label,
-        write({
-          label: action.kind === 'save' ? 'Save for the portal' : 'Changed since sent: send again',
-          icon: 'repeat',
-          done: (snap) => (action.kind === 'save'
-            ? `Statement saved. ${f.name} can read it under Billing in the portal, due ${dayText(snap.due_date)}.`
-            : `Statement updated. ${f.name} now sees ${money(snap.due_cents)} due.`),
-        }));
+      return h('span', { class: 'acct-release-row' }, label, write({ label: 'Release again', icon: 'repeat', again: true }));
     }
 
     function lineRow(l) {
@@ -228,7 +238,7 @@ export function mount(ctx) {
       }
     }
 
-    const blockedTitle = (gate) => `Resolve ${gate.items.length} ${gate.items.length === 1 ? 'item' : 'items'} before recording a payment or sending the statement`;
+    const blockedTitle = (gate) => `Resolve ${gate.items.length} ${gate.items.length === 1 ? 'item' : 'items'} before recording a payment or releasing the bill`;
 
     function blocked(gate) {
       const kinds = [...new Set(gate.items.map((it) => ATTENTION[it.kind].title))];
@@ -349,9 +359,11 @@ export function mount(ctx) {
       value: filter,
       onChange: (v) => ctx.setParams({ filter: v === 'all' ? null : v }, { replace: true }),
     });
-    root.replaceChildren(
+    root.replaceChildren(...[
       monthPicker(ctx, month),
+      all.length ? releaseBar(plan, { onOpen: () => releaseDialog({ ctx, b, plan, month, today }) }) : null,
       h('div', { class: 'acct-toolbar' }, filterGroup, search, csvButton(ctx, `families-${month.slice(0, 7)}.csv`, () => familiesCsv(all))),
-      list);
+      list,
+    ].filter(Boolean));
   })();
 }
