@@ -282,6 +282,22 @@ export function overlaps(a, b) {
 // Scheduled sessions that overlap a candidate for the same tutor or the same
 // student: [{ session, who: 'tutor' | 'student' | 'both' }]. The candidate may
 // be a new session (no id) or an edit (its own ids are ignored).
+// student_busy() rows as stand-ins for sessions in a clash check. A tutor reads
+// only their own sessions, so when a student has a lesson with another tutor
+// all the tutor learns is that the student is busy then: no tutor, no subject.
+export function busyBlocks(studentId, rows) {
+  return (rows ?? []).map((r) => ({
+    id: `busy-${studentId}-${r.starts_at}-${r.ends_at}`,
+    student_id: studentId,
+    tutor_id: null,
+    subject: null,
+    starts_at: r.starts_at,
+    ends_at: r.ends_at,
+    status: 'scheduled',
+    busy: true,
+  }));
+}
+
 export function findClashes(candidate, list, { ignoreIds = [] } = {}) {
   const ignore = new Set(ignoreIds.map(String));
   if (candidate.id !== undefined && candidate.id !== null) ignore.add(String(candidate.id));

@@ -380,6 +380,11 @@ export function sessionForm(dctx, {
 
   const studentLists = new Map();   // student id -> every session of that student
   const loading = new Set();
+  // A tutor reads only their own sessions: when the student has a lesson with
+  // another tutor they learn only that the student is busy then
+  const busyLists = new Map();      // student id -> busy blocks (tutors only)
+  const busyLoading = new Set();
+  const wantsBusy = me?.role === 'tutor' && typeof dctx.store?.getStudentBusy === 'function';
   if (editing) studentLists.set(String(session.student_id), siblings);
   let clashKey = null;
 
@@ -421,18 +426,31 @@ export function sessionForm(dctx, {
       });
   }
 
+  function ensureBusy(id) {
+    if (!wantsBusy || !id || busyLists.has(id) || busyLoading.has(id)) return;
+    busyLoading.add(id);
+    Promise.resolve(dctx.store.getStudentBusy(id))
+      .then((list) => { busyLists.set(id, list ?? []); }, () => { busyLists.set(id, []); })
+      .finally(() => {
+        busyLoading.delete(id);
+        if (dctx.alive() && id === currentStudentId()) refreshClash();
+      });
+  }
+
   function refreshClash() {
     const sid = currentStudentId();
     const tid = currentTutorId();
     let report = null;
     if (sid && tid) {
       ensureStudentSessions(sid);
+      ensureBusy(sid);
       const check = checkSessionForm(read(), { creating: !editing });
       if (!check.errors.date && !check.errors.start && !check.errors.end) {
         const planned = plannedTimes(check.values, { session });
         const list = mergeSessions(
           studentLists.get(sid) ?? [],
           (ws?.sessions ?? []).filter((s) => sameId(s.tutor_id, tid)),
+          busyLists.get(sid) ?? [],
         );
         report = clashReport({
           planned,

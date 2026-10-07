@@ -15,6 +15,7 @@ import { deriveItems } from './buckets.js';
 import { loadUpdates } from './updates-feed.js';
 import { colorMap, setTutorColors, tutorColors } from './tutor-colors-model.js';
 import { zonedIso } from './dates.js';
+import { busyBlocks } from './sessions-model.js';
 import { STALE_MS, isStale, oldestStamp } from './freshness.js';
 
 const students = new Map();   // studentId -> Promise<StudentData>
@@ -117,6 +118,22 @@ async function loadSessions(studentId) {
 // Every session of one student, all of their tutors included, oldest first
 export function getSessions(studentId) {
   return remember(sessions, String(studentId), () => loadSessions(studentId));
+}
+
+// When a student has lessons with other tutors, as times only (student_busy):
+// a tutor reads only their own sessions, so their clash checks ask for these.
+// From 30 days back to a year ahead (the function allows 400 days); not cached,
+// because another tutor's changes never reach this tutor's live updates.
+export async function getStudentBusy(studentId) {
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  const { data, error } = await sb.rpc('student_busy', {
+    p_student: studentId,
+    p_from: new Date(now - 30 * day).toISOString(),
+    p_to: new Date(now + 365 * day).toISOString(),
+  });
+  if (error) throw error;
+  return busyBlocks(String(studentId), data);
 }
 
 async function loadTutors(studentId) {
