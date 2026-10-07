@@ -5,6 +5,9 @@
 // so the next call tries again. invalidate() clears a student's data (and the
 // staff workspace, which summarizes every student), then emits one `change`;
 // the app listens and refreshes the nav counts and the current view.
+// Changes other people make arrive through live.js, which invalidates inside
+// asLive(): the change event then says { live: true } and the app waits for a
+// person who is typing before it redraws the page.
 
 import { sb } from './supabase.js';
 import { one, displayName } from './format.js';
@@ -28,6 +31,8 @@ let tutorColorsLoad = null;   // Promise<Map<tutor id, color name>> | null (the 
 
 const listeners = new Set();
 let queued = null;            // ids changed since the last emit ('*' for everything)
+let queuedLive = true;        // false once a change that is not live joins the batch
+let liveDepth = 0;            // above 0 while live.js is invalidating
 
 const bornAt = new WeakMap();   // cached promise -> when it resolved (unset while it loads)
 
@@ -385,12 +390,15 @@ export function invalidateBilling() {
 // ---------------------------------------------------------------------------
 // Invalidation and change events
 
-// Several invalidations in one task emit a single change
+// Several invalidations in one task emit a single change. The change is live
+// only when every invalidation in it came from live.js: one made by the person
+// at the keyboard (a save, a delete) always redraws at once.
 function emit(ids) {
   if (!queued) {
     queued = new Set();
+    queuedLive = true;
     queueMicrotask(() => {
-      const detail = { ids: [...queued] };
+      const detail = { ids: [...queued], live: queuedLive };
       queued = null;
       for (const fn of [...listeners]) {
         try {
@@ -401,7 +409,19 @@ function emit(ids) {
       }
     });
   }
+  if (!liveDepth) queuedLive = false;
   for (const id of ids) queued.add(id);
+}
+
+// Runs fn (a set of invalidations) as one live change: another person's edit
+// reaching this page, not something this person did
+export function asLive(fn) {
+  liveDepth += 1;
+  try {
+    fn();
+  } finally {
+    liveDepth -= 1;
+  }
 }
 
 function dropStudent(studentId) {
@@ -438,6 +458,18 @@ export function invalidate(studentId) {
   // Sessions changed: their money did too
   billing = null;
   emit([studentId === null || studentId === undefined ? '*' : String(studentId)]);
+}
+
+// People, roles or links changed somewhere else: the lists built from them
+// (the workspace's students, a parent's children, each student's tutors, the
+// pending count, the billing roster) load again. Students' own work stays cached.
+export function invalidatePeople() {
+  children.clear();
+  tutors.clear();
+  workspace = null;
+  pending = null;
+  billing = null;
+  emit(['people']);
 }
 
 // Drops only the cached pending-approval count, without a change event, so a

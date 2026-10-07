@@ -43,6 +43,8 @@
 
 import { h } from './dom.js';
 import * as store from './store.js';
+import { sb } from './supabase.js';
+import { startLive, watchTyping } from './live.js';
 import { startRouter, sameView, buildHash, withParams } from './router.js';
 import { mountShell } from './shell.js';
 import { mountPalette } from './palette.js';
@@ -80,6 +82,8 @@ export function startApp(config) {
   const shell = mountShell({ me, page });
   const root = shell.viewRoot;
   const announcer = document.getElementById('route-announcer');
+  // Text a person is writing in the page (live redraws wait for them)
+  const typing = watchTyping(root);
 
   let router = null;
   let scope = null;          // the loadScope result in use
@@ -390,6 +394,7 @@ export function startApp(config) {
   function mountView({ isRefresh = false, focus = false } = {}) {
     const entry = table[route.view];
     if (!entry) return;
+    stopWaiting();
     if (pending) {
       pending.controller.abort();
       pending.host.remove();
@@ -510,6 +515,55 @@ export function startApp(config) {
     }
     mountView({ isRefresh: true });
     if (drawerOpen()) syncDrawer({ isRefresh: true });
+  }
+
+  // A change another person made (live.js) redraws the page unless someone is
+  // typing in it: an open form is never repainted. The change is already in the
+  // store, so the page catches up the moment they stop. The drawer keeps its own
+  // forms through a refresh (dctx.onRefresh), so it follows at once.
+  const LIVE_RECHECK_MS = 1000;
+  let liveTimer = null;
+
+  function stopWaiting() {
+    clearTimeout(liveTimer);
+    liveTimer = null;
+  }
+
+  function refreshLive() {
+    stopWaiting();
+    if (!route || !view || !scopeLoaded) return;
+    if (typing.busy()) {
+      if (drawerOpen()) syncDrawer({ isRefresh: true });
+      liveTimer = setTimeout(refreshLive, LIVE_RECHECK_MS);
+      return;
+    }
+    refreshView();
+  }
+
+  // A person or a link changed elsewhere: the switcher's list (a parent's
+  // children, a tutor's students) and the person on screen are read again. One
+  // who is gone or no longer linked is sent where a fresh load would send them.
+  async function refreshScope() {
+    if (!scopeLoaded || !route) return;
+    const my = seq;
+    let result;
+    try {
+      result = await loadScope({ search: new URLSearchParams(location.search), store, me });
+    } catch {
+      return;
+    }
+    if (my !== seq || !scopeLoaded || !result) return;
+    if (result.search !== undefined || result.hash !== undefined) {
+      const url = `${location.pathname}${result.search ?? location.search}${result.hash ?? location.hash}`;
+      router.go(url, { replace: true });
+      if (result.message) toast({ text: result.message });
+      return;
+    }
+    if ((result.student?.id ?? null) !== (scope?.student?.id ?? null)) return;
+    const signature = (s) => JSON.stringify([s?.student?.id ?? null, displayName(s?.student ?? {}), (s?.options ?? []).map((o) => [o.id, displayName(o)])]);
+    const changed = signature(result) !== signature(scope);
+    scope = result;
+    if (changed) publishScope();
   }
 
   function makeCtx({ target, isRefresh, now }) {
@@ -723,9 +777,11 @@ export function startApp(config) {
   // -------------------------------------------------------------------------
   // Store changes and returning to the tab (spec 4.4)
 
-  store.onChange(() => {
+  store.onChange(({ ids = [], live = false } = {}) => {
     updateNav();
-    refreshView();
+    if (live && (ids.includes('people') || ids.includes('*'))) refreshScope();
+    if (live) refreshLive();
+    else refreshView();
   });
 
   // Whether the person on screen (?student= or ?child=) is still in the lists
@@ -807,6 +863,9 @@ export function startApp(config) {
     e.preventDefault();
     router.go(`${url.pathname}${url.search}${url.hash}`);
   });
+
+  // Realtime: pages follow changes other people make (no reload). Never throws.
+  startLive({ me, client: sb, store });
 
   router = startRouter({ table, onSync });
   return {
