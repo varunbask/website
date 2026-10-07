@@ -1,19 +1,21 @@
 // Pure calendar logic (spec 5.10): the 42-cell month matrix, day keys for
 // items, keyboard movement, chip capacity, chip and dot kinds, spoken day
 // labels, the agenda groups and the view state read from the hash. Tutoring
-// sessions join the same views: the week grid helpers, the tutor filter, the
-// month chips and the agenda days all live here too.
+// sessions join the same views: the week grid helpers, the Day view's column
+// and title, the tutor filter, the month chips and the agenda days all live
+// here too.
 // No DOM. Days are 'YYYY-MM-DD' keys in the business zone (dates.js) and are
 // stepped with UTC calendar math only.
 
-import { WEEK_START, dayKey, parseKey, addDays, weekday, longDate, businessTime } from './dates.js';
+import { WEEK_START, dayKey, parseKey, addDays, weekday, longDate, monthTitle, businessTime } from './dates.js';
 import { itemStatus } from './status.js';
 import { byDue } from './format.js';
 import {
-  weekStartKey, sessionAria, sortSessions, isCancelled, canEditSession,
+  weekStartKey, sessionAria, sortSessions, isCancelled, canEditSession, weekTitle,
 } from './sessions-model.js';
+import { parseHash, buildHash, DRAWER_PARAMS } from './router.js';
 
-export const CAL_VIEWS = Object.freeze(['week', 'month', 'list']);
+export const CAL_VIEWS = Object.freeze(['day', 'week', 'month', 'list']);
 export const AGENDA_DAYS = 30;   // list view range, extended 30 days at a time
 export const PANEL_DAYS = 7;     // day panel with no selected day
 export const MAX_DOTS = 3;       // phone month cells
@@ -406,20 +408,22 @@ export function monthOfWeek(week) {
   return monthOf(addDays(week, 3));
 }
 
-// The seven day columns: [{ key, short, long, num, isToday, isWeekend }]
+// One day column of a time grid: { key, short, long, num, isToday, isWeekend }
+export function dayColumn(key, today) {
+  const wd = weekday(key);
+  return {
+    key,
+    short: WEEKDAYS[wd].slice(0, 3),
+    long: WEEKDAYS[wd],
+    num: parseKey(key).d,
+    isToday: key === today,
+    isWeekend: wd === 0 || wd === 6,
+  };
+}
+
+// The seven day columns of a week
 export function weekDays(week, today) {
-  return Array.from({ length: 7 }, (_, i) => {
-    const key = addDays(week, i);
-    const wd = weekday(key);
-    return {
-      key,
-      short: WEEKDAYS[wd].slice(0, 3),
-      long: WEEKDAYS[wd],
-      num: parseKey(key).d,
-      isToday: key === today,
-      isWeekend: wd === 0 || wd === 6,
-    };
-  });
+  return Array.from({ length: 7 }, (_, i) => dayColumn(addDays(week, i), today));
 }
 
 // "4 pm", "12 pm", "12 am": the hour labels down the week grid's side
@@ -457,15 +461,63 @@ export function sessionsInRange(sessions, startKey, endKey) {
   });
 }
 
-// The day keys a view covers, for the legend and the announcement: a week, the
-// month grid's 42 days, or the list's days from today
-export function viewRange(view, { week, month, range = AGENDA_DAYS }, today) {
+// The day keys a view covers, for the legend and the announcement: one day, a
+// week, the month grid's 42 days, or the list's days from today
+export function viewRange(view, { day, week, month, range = AGENDA_DAYS }, today) {
+  if (view === 'day') return { start: day ?? today, end: day ?? today };
   if (view === 'week') return { start: week, end: addDays(week, 6) };
   if (view === 'month') {
     const cells = monthMatrix(month);
     return { start: cells[0].key, end: cells[cells.length - 1].key };
   }
   return { start: today, end: addDays(today, range - 1) };
+}
+
+// ---------------------------------------------------------------------------
+// Day view
+
+// "Tuesday, October 6, 2026": the Day view's title, always with the year
+export function dayTitle(key) {
+  return `${longDate(key)}, ${parseKey(key).y}`;
+}
+
+// The day the Day view opens on when someone switches to it. `day` is the hash's
+// own `date`; otherwise it follows what the view they left was showing: its
+// selected day, today when today is in the week or month on screen, or that
+// span's first day. Pass `week` or `month` only for the view being left.
+export function deriveDay({ day = null, selected = null, week = null, month = null, today }) {
+  if (isDayKey(day)) return day;
+  if (isDayKey(selected)) return selected;
+  if (isDayKey(week)) return today >= week && today <= addDays(week, 6) ? today : week;
+  if (isMonthKey(month)) return monthOf(today) === month ? today : `${month}-01`;
+  return today;
+}
+
+// The previous and next buttons' accessible names for the view on screen. The
+// Day, Week and Month views name the span they would show.
+export function navLabels(view, { day, week, month }) {
+  if (view === 'day') {
+    return { prev: `Previous day, ${dayTitle(addDays(day, -1))}`, next: `Next day, ${dayTitle(addDays(day, 1))}` };
+  }
+  if (view === 'week') {
+    return { prev: `Previous week, ${weekTitle(addDays(week, -7))}`, next: `Next week, ${weekTitle(addDays(week, 7))}` };
+  }
+  return { prev: `Previous month, ${monthTitle(shiftMonth(month, -1))}`, next: `Next month, ${monthTitle(shiftMonth(month, 1))}` };
+}
+
+// The params that say where a view is; a link to a day replaces them
+const PLACE_PARAMS = ['view', 'date', 'w', 'm', 'd'];
+
+// A link to one day's Day view from the current hash: the calendar's own
+// params (scope, who, tutor) stay, the view's place is replaced and any open
+// drawer is left behind. '#/calendar?scope=all&open=12' -> '#/calendar?date=2026-10-06&scope=all&view=day'
+export function dayHref(hash, key) {
+  const route = parseHash(hash);
+  const params = {};
+  for (const [k, v] of Object.entries(route.params)) {
+    if (!DRAWER_PARAMS.includes(k) && !PLACE_PARAMS.includes(k)) params[k] = v;
+  }
+  return buildHash({ view: route.view ?? 'calendar', sub: route.sub, id: route.id, params: { ...params, view: 'day', date: key } });
 }
 
 // ---------------------------------------------------------------------------
@@ -522,14 +574,21 @@ export function sessionWho(session, {
 // ---------------------------------------------------------------------------
 // View state from the hash
 
-// { view, month, selected, week } from the calendar params (view, m, d, w). The
-// stored view (localStorage) counts only when the hash has none; then the width
-// decides: Week at 768px and up (wide), List below. w is any day of the week;
-// it is read as that week's Sunday.
+// { view, month, selected, week, day } from the calendar params (view, m, d, w,
+// date). The stored view (localStorage) counts only when the hash has none;
+// then the width decides: Week at 768px and up (wide), List below. w is any day
+// of the week; it is read as that week's Sunday. The Day view shows `date`
+// (today when it is missing or not a real day) and takes its week and month
+// from it. In the other views `date` is ignored and `day` is where the Day view
+// would open from them (deriveDay).
 export function resolveState(params = {}, { today, wide = true, stored = null } = {}) {
   let view = wide ? 'week' : 'list';
   if (CAL_VIEWS.includes(params.view)) view = params.view;
   else if (CAL_VIEWS.includes(stored)) view = stored;
+  if (view === 'day') {
+    const day = isDayKey(params.date) ? params.date : today;
+    return { view, month: monthOf(day), selected: null, week: weekStartKey(day), day };
+  }
   let selected = isDayKey(params.d) ? params.d : null;
   const weekParam = isDayKey(params.w) ? weekStartKey(params.w) : null;
   let month = monthOf(today);
@@ -539,5 +598,6 @@ export function resolveState(params = {}, { today, wide = true, stored = null } 
   // A day outside the visible grid is dropped, so the panel never describes a
   // day the grid does not show
   if (selected && !inGrid(month, selected)) selected = null;
-  return { view, month, selected, week: deriveWeek({ week: weekParam, selected, month, today }) };
+  const week = deriveWeek({ week: weekParam, selected, month, today });
+  return { view, month, selected, week, day: deriveDay({ selected, week: view === 'week' ? week : null, month, today }) };
 }
