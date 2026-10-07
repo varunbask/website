@@ -248,7 +248,7 @@ export function mount(ctx) {
         body: [
           h('div', { class: 'acct-settings' },
             field({ label: 'Business name', control: name, hint: 'Printed on statements and pay summaries.' }),
-            h('p', { class: 'card-meta' }, `Tutor pay periods run the 1st to the 15th and the 16th to the end of the month: ${periods.map((p) => periodText(p)).join('; ')}.`),
+            h('p', { class: 'card-meta' }, `Tutor pay periods run the 1st to the 15th (paid the 15th) and the 16th to the end of the month (paid the 1st of the next month): ${periods.map((p) => periodText(p)).join('; ')}.`),
             field({ label: 'Family bills due on day', control: due, hint: `Bills are dated the 1st of the next month (${monthName(month)} is billed ${dayText(billDate(month))}).` }),
             field({ label: 'How to pay', control: payNote, optional: true, hint: 'Printed at the bottom of every statement, like your Zelle email.' }),
             h('p', { class: 'card-meta' }, `Billing starts ${shortDate(s.ledger_start, today)}; sessions before it are left out.`)),
@@ -284,11 +284,11 @@ export function mount(ctx) {
           h('div', { class: 'acct-settings' },
             field({ label: 'No-show: family pays (percent)', control: fam }),
             field({ label: 'No-show: tutor is paid (percent)', control: tut }),
-            h('label', { class: 'check' }, unconf, h('span', {}, 'Count sessions without attendance as attended on screen')),
+            h('label', { class: 'check' }, unconf, h('span', {}, 'Count lessons without attendance as held')),
             field({ label: 'Applies from', control: from, hint: 'Earlier months keep the policy they had.' })),
           save,
           history.length > 1 ? h('details', { class: 'acct-history' }, h('summary', {}, `${history.length} policies`),
-            h('ul', {}, history.map((p) => h('li', {}, `From ${shortDate(p.effective_from, today)}: no-show ${p.absent_family_pct}% family, ${p.absent_tutor_pct}% tutor; unconfirmed ${p.count_unconfirmed ? 'counted' : 'not counted'}`)))) : null,
+            h('ul', {}, history.map((p) => h('li', {}, `From ${shortDate(p.effective_from, today)}: no-show ${p.absent_family_pct}% family, ${p.absent_tutor_pct}% tutor; no attendance ${p.count_unconfirmed ? 'counted as held' : 'not counted'}`)))) : null,
         ],
       });
     }
