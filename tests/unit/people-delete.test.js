@@ -566,7 +566,11 @@ function fakeSupabase(tables, objects = {}) {
       return this;
     }
     contains(c, v) {
-      this.filters.push((r) => (r[c] ?? []).some((line) => Object.entries(v[0]).every(([k, x]) => line[k] === x)));
+      // Like supabase-js + PostgREST on a jsonb column: an array becomes a Postgres
+      // array literal ({...}) and is refused; the value must go as JSON text
+      if (typeof v !== 'string') { this.bad = 'invalid input syntax for type json'; return this; }
+      const want = JSON.parse(v);
+      this.filters.push((r) => (r[c] ?? []).some((line) => Object.entries(want[0]).every(([k, x]) => line[k] === x)));
       return this;
     }
     order() { return this; }
@@ -574,6 +578,7 @@ function fakeSupabase(tables, objects = {}) {
     maybeSingle() { this.single = true; return this; }
     run() {
       calls.push(`${this.op} ${this.table}`);
+      if (this.bad) return { data: null, error: { code: '22P02', message: this.bad } };
       if (!tables[this.table]) return { data: null, error: { code: '42P01', message: `relation "${this.table}" does not exist` } };
       const rows = rowsOf(this.table).filter((r) => this.filters.every((f) => f(r)));
       if (this.op === 'update') { rows.forEach((r) => Object.assign(r, this.patch)); return { data: null, error: null }; }

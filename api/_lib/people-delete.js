@@ -402,9 +402,11 @@ export function createDeleteRepo(db) {
       }, { payerOf: {}, payments: [], payouts: [], anchor: '2026-11-01' });
     },
 
-    // Payments that are not voided with a line for this student
+    // Payments that are not voided with a line for this student. supabase-js turns
+    // a JS array into a Postgres array literal ({...}), which a jsonb column refuses,
+    // so the jsonb value goes as JSON text (lines @> '[{"student_id": ...}]')
     async paymentsNaming(studentId) {
-      return count('payments', (q) => q.is('voided_at', null).contains('lines', [{ student_id: studentId }]), 'paymentsNaming');
+      return count('payments', (q) => q.is('voided_at', null).contains('lines', JSON.stringify([{ student_id: studentId }])), 'paymentsNaming');
     },
 
     // Every file the delete would leave behind: homework answers, and materials on
