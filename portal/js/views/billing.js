@@ -2,8 +2,9 @@
 // this parent, newest first, from my_statements() (billing tables stay
 // admin-only). A month appears here only once the admin releases it, so nothing
 // about an unreleased month is on any family page. Each row opens the statement
-// as it was released, laid out for printing. Bills go to the paying parent, so
-// another parent sees an explanation.
+// as it was released, laid out for printing. Bills go to the paying parent; the
+// other parent of the same children (mom and dad) sees the same statements,
+// marked with who pays them, and a parent with no statements sees an explanation.
 
 import { sb } from '../supabase.js';
 import { h } from '../dom.js';
@@ -17,6 +18,8 @@ const timeRange = (a, b) => `${TIME.format(new Date(a)).toLowerCase()} to ${TIME
 
 export function mount(ctx) {
   const period = /^\d{4}-\d{2}$/.test(ctx.route.params?.month ?? '') ? `${ctx.route.params.month}-01` : null;
+  // Which paying parent's statement, when a parent sees two for one month
+  const from = /^[0-9a-f-]{36}$/i.test(ctx.route.params?.from ?? '') ? ctx.route.params.from.toLowerCase() : null;
   ctx.setHeader({ title: period ? 'Statement' : 'Billing' });
   const root = h('div', { class: 'bill-root' });
   ctx.host.append(root);
@@ -34,7 +37,9 @@ export function mount(ctx) {
     // Only the newest statement is live; each older one was settled by the next
     const statuses = statementStatuses(rows, today);
     if (period) {
-      const at = rows.findIndex((r) => String(r.period).slice(0, 10) === period);
+      const inMonth = (r) => String(r.period).slice(0, 10) === period;
+      const found = rows.findIndex((r) => inMonth(r) && from !== null && String(r.payer_id ?? '').toLowerCase() === from);
+      const at = found >= 0 ? found : rows.findIndex(inMonth);
       root.replaceChildren(at >= 0 ? statement(rows[at], statuses[at], today) : emptyState({ icon: 'receipt', text: 'This statement isn’t available.', action: { label: 'All statements', href: '#/billing' } }));
       return;
     }
@@ -45,20 +50,39 @@ export function mount(ctx) {
       return;
     }
     root.replaceChildren(
-      h('p', { class: 'bill-intro' }, 'Your monthly statements, as we released them. Each month is billed on the 1st of the next month, and a new one appears here when we release it. Open one to see every lesson or to print it.'),
+      h('p', { class: 'bill-intro' }, introText(rows)),
       h('ul', { class: 'bill-list', 'aria-label': 'Statements' }, rows.map((r, i) => {
         const snap = r.snapshot ?? {};
         const status = statuses[i];
         const month = String(r.period).slice(0, 7);
         return h('li', {},
-          h('a', { class: 'bill-row', href: `#/billing?month=${month}` },
+          h('a', { class: 'bill-row', href: `#/billing?month=${month}${r.own === false && r.payer_id ? `&from=${r.payer_id}` : ''}` },
             h('span', {},
               h('span', { class: 'bill-month' }, monthName(`${month}-01`)),
-              h('span', { class: 'bill-date' }, `Dated ${dayText(snap.bill_date ?? `${month}-01`)}${snap.number ? `, statement ${snap.number}` : ''}`)),
+              h('span', { class: 'bill-date' }, `Dated ${dayText(snap.bill_date ?? `${month}-01`)}${snap.number ? `, statement ${snap.number}` : ''}${paidByText(r)}`)),
             h('span', { class: 'bill-amount num' }, money(Math.max(0, r.due_cents ?? snap.due_cents ?? 0))),
             pill({ label: status.label, tone: status.tone })));
       })));
   })();
+}
+
+// Who pays a statement another parent sent to: ", billed to Grace Lin"
+function paidByText(r) {
+  const name = String(r.payer_name ?? '').trim();
+  return r.own === false && name ? `, billed to ${name}` : '';
+}
+
+// The line above the list. When every statement is billed to someone else
+// (the other parent pays), say so; when some are, the rows say whose.
+export function introText(rows) {
+  const base = 'Each month is billed on the 1st of the next month, and a new one appears here when we release it. Open one to see every lesson or to print it.';
+  const shared = rows.filter((r) => r.own === false);
+  const payers = [...new Set(shared.map((r) => String(r.payer_name ?? '').trim()).filter(Boolean))];
+  if (shared.length && shared.length === rows.length && payers.length === 1) {
+    return `Your family’s monthly statements, as we released them. ${payers[0]} gets the bill and pays it; you see the same statements here. ${base}`;
+  }
+  if (shared.length) return `Your family’s monthly statements, as we released them, including ones billed to another parent of your children. ${base}`;
+  return `Your monthly statements, as we released them. ${base}`;
 }
 
 // The statement exactly as saved when it was released
