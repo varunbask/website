@@ -1,7 +1,9 @@
-// Billing (parent.html, #/billing): the statements the business sent this
-// parent, newest first, from my_statements() (billing tables stay admin-only).
-// Each row opens the statement as it was sent, laid out for printing.
-// Bills go to the paying parent, so another parent sees an explanation.
+// Billing (parent.html, #/billing): the statements the business has released to
+// this parent, newest first, from my_statements() (billing tables stay
+// admin-only). A month appears here only once the admin releases it, so nothing
+// about an unreleased month is on any family page. Each row opens the statement
+// as it was released, laid out for printing. Bills go to the paying parent, so
+// another parent sees an explanation.
 
 import { sb } from '../supabase.js';
 import { h } from '../dom.js';
@@ -38,12 +40,12 @@ export function mount(ctx) {
     }
     if (!rows.length) {
       root.replaceChildren(
-        h('p', { class: 'bill-intro' }, 'Monthly statements appear here once they are sent. Each month is billed on the 1st of the next month.'),
-        emptyState({ icon: 'receipt', text: 'No statements yet. Bills go to the parent who pays; if that is someone else in your family, they will see them here.' }));
+        h('p', { class: 'bill-intro' }, 'Bills go to the parent who pays. If that is someone else in your family, they will see them here.'),
+        emptyState({ icon: 'receipt', text: 'Your bill for a month appears here once we release it, usually on the 1st of the next month.' }));
       return;
     }
     root.replaceChildren(
-      h('p', { class: 'bill-intro' }, 'Your monthly statements, as they were sent. Each month is billed on the 1st of the next month. Open one to see every lesson or to print it.'),
+      h('p', { class: 'bill-intro' }, 'Your monthly statements, as we released them. Each month is billed on the 1st of the next month, and a new one appears here when we release it. Open one to see every lesson or to print it.'),
       h('ul', { class: 'bill-list', 'aria-label': 'Statements' }, rows.map((r, i) => {
         const snap = r.snapshot ?? {};
         const status = statuses[i];
@@ -59,7 +61,7 @@ export function mount(ctx) {
   })();
 }
 
-// The statement exactly as saved when it was sent
+// The statement exactly as saved when it was released
 function statement(row, status, today) {
   const s = row.snapshot ?? {};
   const lines = s.lines ?? [];

@@ -25,7 +25,7 @@ export function policyText(policy, settings) {
     'Cancelled sessions are not billed and not paid. There is no cancellation policy: families cancel or reschedule whenever they need to.',
     noShow,
     unconfirmed,
-    `Families are billed by calendar month, with the bill dated the 1st of the next month and due on the ${ordinal(settings.due_day)}. Tutor pay is counted twice a month, the 1st to the 15th and the 16th to the end of the month, for payroll.`,
+    `Families are billed by calendar month, with the bill dated the 1st of the next month and due on the ${ordinal(settings.due_day)}. A parent sees a month's bill in the portal only after you release it, usually on the 1st (Families, Release bills). Tutor pay is counted twice a month, the 1st to the 15th and the 16th to the end of the month, for payroll.`,
   ].join(' ');
 }
 
@@ -81,11 +81,11 @@ function noteFor(l) {
   return '';
 }
 
-// What a sent statement said, saved with it (statements.snapshot) so the
-// paying parent can read it in the portal exactly as it was sent: family
-// amounts only, never tutor pay or admin notes. sentOn is the day it went out
-// (it sets the due date), and paid_total_cents is every payment from this
-// parent as of now, so the portal can tell what was paid after sending. A tutor
+// What a released statement said, saved with it (statements.snapshot) so the
+// paying parent can read it in the portal exactly as it was released: family
+// amounts only, never tutor pay or admin notes. sentOn is the day it was
+// released (it sets the due date), and paid_total_cents is every payment from
+// this parent as of now, so the portal can tell what was paid after release. A tutor
 // or student with no full name reads "your tutor" / "your student" here, never
 // the email nameOf falls back to.
 export function statementSnapshot(ctx, f, { previousCents = 0, sentOn } = {}) {
@@ -128,18 +128,18 @@ export function statementSnapshot(ctx, f, { previousCents = 0, sentOn } = {}) {
 }
 
 // What Families offers for a family's month, and how it is written:
-//   kind     'mark'  not sent yet
-//            'save'  sent before the portal kept snapshots (no snapshot yet)
-//            'again' sent, and the month's charges or the balance brought forward
-//                    changed since (a payment recorded later is no change: the
-//                    parent's status follows payments by itself)
+//   kind     'mark'  not released yet (the control reads Release)
+//            'save'  marked sent before the portal kept snapshots (no snapshot yet)
+//            'again' released, and the month's charges or the balance brought
+//                    forward changed since (a payment recorded later is no change:
+//                    the parent's status follows payments by itself)
 //            null    nothing to do
 //   blocked  the month still has open items (unpriced or unconfirmed sessions),
 //            the same gate as Record payment; the buttons stay off until they are
 //            resolved so a parent never sees $0.00 lines or "Paid in full" early
 //   sentOn   the day that goes into the snapshot: a statement sent before
 //            snapshots keeps the day it really went out (its due date must not
-//            slide forward), a deliberate send again counts from today
+//            slide forward), a deliberate Release again counts from today
 // sent is the row from the page's ledger: { sent_on, month_cents, previous_cents }
 // (the last two lifted from the snapshot, null without one).
 export function sendAction(sent, f, previousCents, gate, today) {
@@ -151,18 +151,18 @@ export function sendAction(sent, f, previousCents, gate, today) {
   return { kind, blocked: kind !== null && !gate.ok, sentOn: kind === 'save' ? sent.sent_on : today };
 }
 
-// The statements columns to write for a snapshot. Only a deliberate send again
-// moves sent_on; saving a legacy statement leaves it alone.
+// The statements columns to write for a snapshot. Only a deliberate Release
+// again moves sent_on; saving a legacy statement leaves it alone.
 export function sendColumns(action, snap, today) {
   const columns = { snapshot: snap, due_cents: snap.due_cents };
   if (action.kind === 'again') columns.sent_on = today;
   return columns;
 }
 
-// Where a sent statement stands for the parent. A row is from my_statements():
+// Where a released statement stands for the parent. A row is from my_statements():
 // { period, due_cents, paid_total_cents (all the parent's payments to date), snapshot }.
 //
-// Only the newest sent statement is live: what has been paid since it was sent
+// Only the newest released statement is live: what has been paid since it was released
 // is the parent's payments now less the total saved in its snapshot (negative
 // after a void, so a voided payment reopens it), which also covers a balance
 // carried into a later month and paid there, and loose payments.
@@ -264,10 +264,15 @@ export function csvText(header, rows) {
 
 const dollars = (cents) => (Math.round(cents) / 100).toFixed(2);
 
+// Status here is about payment (a bill waiting for release or for payment is
+// Unpaid); Released is the day the bill went to the parent, blank before that
+const UNPAID_KEYS = new Set(['unpaid', 'released', 'sent']);
+
 export function familiesCsv(rows) {
   return csvText(
-    ['Family', 'Students', 'Hours', 'Owed', 'Paid', 'Balance', 'Status'],
-    rows.map((f) => [f.name, f.studentNames ?? f.students.length, hoursText(f.minutes), dollars(f.owedCents), dollars(f.paidCents), dollars(f.balanceCents ?? f.dueCents), f.status?.label ?? '']),
+    ['Family', 'Students', 'Hours', 'Owed', 'Paid', 'Balance', 'Status', 'Released'],
+    rows.map((f) => [f.name, f.studentNames ?? f.students.length, hoursText(f.minutes), dollars(f.owedCents), dollars(f.paidCents), dollars(f.balanceCents ?? f.dueCents),
+      UNPAID_KEYS.has(f.status?.key) ? 'Unpaid' : (f.status?.label ?? ''), f.released ? f.sentOn : '']),
   );
 }
 
