@@ -46,10 +46,17 @@ function settleConfirm(value) {
   resolve(value);
 }
 
-// confirmDialog({ title, body, confirmLabel, tone = 'danger' }) -> Promise<boolean>.
+// confirmDialog({ title, body, details, requireText, confirmLabel, cancelLabel, tone = 'danger' }) -> Promise<boolean>.
 // Cancel is focused first. Only the action resolves true; Cancel, Escape and a
 // backdrop click resolve false. Focus returns to the control that opened it.
-export function confirmDialog({ title, body, confirmLabel = 'Confirm', cancelLabel = 'Cancel', tone = 'danger' } = {}) {
+// Optional extras, for a decision that cannot be undone:
+//   details       lines listed under the body (what would be lost)
+//   requireText   { label, match(typed) }: the action stays off until the typed
+//                 text matches (the person's name); the field is focused first
+//   confirmLabel: null   no action at all, only a Close button (the reason it cannot be done)
+export function confirmDialog({
+  title, body, details = [], requireText = null, confirmLabel = 'Confirm', cancelLabel, tone = 'danger',
+} = {}) {
   let dialog = document.getElementById('confirm');
   if (!dialog) {
     dialog = h('dialog', { class: 'confirm', id: 'confirm' });
@@ -66,22 +73,55 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', cancelLab
     settleConfirm(value);
     restoreFocus(opener);
   };
-  const cancel = button({ label: cancelLabel, variant: 'secondary', onClick: () => finish(false) });
+  const decides = confirmLabel !== null;
+  const cancel = button({ label: cancelLabel ?? (decides ? 'Cancel' : 'Close'), variant: 'secondary', onClick: () => finish(false) });
   cancel.autofocus = true;
-  const ok = button({
-    label: confirmLabel,
-    variant: tone === 'danger' ? 'danger' : 'primary',
-    onClick: () => finish(true),
-  });
+  const ok = decides
+    ? button({
+      label: confirmLabel,
+      variant: tone === 'danger' ? 'danger' : 'primary',
+      onClick: () => finish(true),
+      disabled: Boolean(requireText),
+    })
+    : null;
+
+  // Typing the name: the action wakes up when it matches (Enter then confirms)
+  let typed = null;
+  let typedField = null;
+  if (requireText && ok) {
+    const fieldId = uid('confirm-type');
+    typedField = h('input', {
+      class: 'input confirm-input', id: fieldId, type: 'text', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false',
+    });
+    typedField.addEventListener('input', () => { ok.disabled = !requireText.match(typedField.value); });
+    typedField.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (!ok.disabled) finish(true);
+    });
+    typed = h('div', { class: 'confirm-type' }, h('label', { class: 'confirm-type-label', for: fieldId }, requireText.label), typedField);
+  }
+
+  // A list under the body wraps both, so one description names them together
+  const lines = (details ?? []).filter(Boolean);
+  let described = null;
+  if (lines.length) {
+    described = h('div', { class: 'confirm-text', id: bodyId },
+      body ? h('p', { class: 'confirm-body' }, body) : null,
+      h('ul', { class: 'confirm-details' }, lines.map((line) => h('li', {}, line))));
+  } else if (body) {
+    described = h('p', { class: 'confirm-body', id: bodyId }, body);
+  }
 
   dialog.replaceChildren(h('div', { class: 'confirm-inner' },
     h('h2', { class: 'confirm-title', id: titleId }, title),
-    body ? h('p', { class: 'confirm-body', id: bodyId }, body) : null,
+    described,
+    typed,
     h('div', { class: 'confirm-actions' }, cancel, ok)));
   prepareToastHost(dialog);
   dialog.setAttribute('role', 'alertdialog');
   dialog.setAttribute('aria-labelledby', titleId);
-  if (body) dialog.setAttribute('aria-describedby', bodyId);
+  if (described) dialog.setAttribute('aria-describedby', bodyId);
   else dialog.removeAttribute('aria-describedby');
 
   return new Promise((resolve) => {
@@ -105,7 +145,7 @@ export function confirmDialog({ title, body, confirmLabel = 'Confirm', cancelLab
       },
     };
     if (!dialog.open) dialog.showModal();
-    cancel.focus();
+    (typedField ?? cancel).focus();
   });
 }
 

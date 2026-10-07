@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hashToken } from './testimonials.js';
 import { sendMail, escapeHtml, siteOf, DEFAULT_TO } from './referral-mail.js';
+import { handleDelete, createDeleteRepo } from './people-delete.js';
 
 // People without a sign-in, and the personal links that let them claim their
 // account (supabase/migrations/20261012120000_portal_invites.sql).
@@ -17,6 +18,9 @@ import { sendMail, escapeHtml, siteOf, DEFAULT_TO } from './referral-mail.js';
 //                                                admin: someone signed up who was already added without
 //                                                a login; remove the sign-up and email them a link to
 //                                                that account instead
+//   { action: 'delete_preview', id }             admin: what deleting a person would remove, and what
+//                                                refuses it (api/_lib/people-delete.js)
+//   { action: 'delete_person', id, confirm_name } admin: delete them for good, with everything of theirs
 //
 // The admin's browser makes the link (random token, SHA-256 stored in
 // portal_invites, the link shown once), as with review links. Joining moves
@@ -151,6 +155,7 @@ function emailTaken(error) {
 
 export async function handlePeople(request, {
   repo, auth, verifyAdmin, env = process.env, now = () => Date.now(), fetchImpl = fetch, send = sendMail,
+  disconnectGoogle, log, warn,
 }) {
   const lookup = async (token) => {
     if (!tokenShape(token)) return json(404, { error: 'invalid' });
@@ -235,6 +240,12 @@ export async function handlePeople(request, {
     return json(200, { ok: true, to });
   }
 
+  if (data.action === 'delete_preview' || data.action === 'delete_person') {
+    const caller = await verifyAdmin(request);
+    if (!caller) return json(401, { error: 'unauthorized' });
+    return handleDelete(data.action, data, caller, { repo, auth, now, disconnectGoogle, log, warn });
+  }
+
   if (data.action === 'join') {
     if (!tokenShape(data.t)) return json(404, { error: 'invalid' });
     const invite = await repo.findInvite(hashToken(data.t));
@@ -270,6 +281,7 @@ export function createPeopleRepo(db) {
     return data;
   };
   return {
+    ...createDeleteRepo(db),
     async findInvite(tokenHash) {
       // portal_invites points at profiles twice (profile_id, created_by): name the one to embed
       return check(await db.from('portal_invites')
@@ -304,7 +316,7 @@ export function createPeopleRepo(db) {
     },
     async getProfile(id) {
       if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) return null;
-      return check(await db.from('profiles').select('id, full_name, role, requested_role, no_login').eq('id', id).maybeSingle(), 'getProfile');
+      return check(await db.from('profiles').select('id, full_name, email, role, requested_role, no_login').eq('id', id).maybeSingle(), 'getProfile');
     },
     // Any tutor or parent link or session on this account (id is a checked uuid)
     async hasLinks(id) {

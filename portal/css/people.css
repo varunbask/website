@@ -35,7 +35,7 @@
          div.ppl-everyone > section.ppl-group > (.group-header) + ul.ppl-list > li.ppl-person
            div.ppl-person-head (avatar, .ppl-id > .ppl-name > .ppl-name-text + .ppl-you + .ppl-name-edit
              (editing: .ppl-name.is-editing > input.ppl-name-input + Save + Cancel),
-             .ppl-controls > .ppl-open + .ppl-role)
+             .ppl-controls > .ppl-open + .ppl-role + .ppl-delete (not on an admin's row))
              (a tutor or admin also has, under the name: div.ppl-color > span.ppl-color-label
               + span.ppl-color-pick > span.ppl-color-swatch.tc-NAME + .select.is-sm
               + p.ppl-color-error)
@@ -612,6 +612,8 @@
   text-align: end;
 }
 .ppl-open > .icon { color: var(--text-3); }
+/* Delete (everyone but an admin): quiet until hovered, at the end of the row's controls */
+.ppl-delete { flex: none; }
 
 /* A tutor's or admin's calendar color: the swatch wears the tone (app.css .tc-NAME)
    of the chosen color, or of the automatic one while the select says Automatic */

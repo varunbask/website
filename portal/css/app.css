@@ -185,6 +185,8 @@
            p.drawer-kind, h2.drawer-title[tabindex="-1"], section.drawer-section > h3 ...
        + div.drawer-footer (optional, pinned; create/edit form buttons)
      dialog.confirm > div.confirm-inner > h2.confirm-title + p.confirm-body + div.confirm-actions
+       (a destructive confirm: div.confirm-text > p.confirm-body + ul.confirm-details in place of the p,
+        and div.confirm-type > label.confirm-type-label + input.input before the actions)
      dialog.sheet > div.sheet-inner > div.sheet-head (+ h2.sheet-title) + content
        768px and up: left overlay (the full sidebar); below 768px: bottom sheet (More)
      dialog.switcher, dialog.popover   anchored popovers: set dialog.style.top/left from JS
@@ -2309,6 +2311,21 @@ dialog::backdrop { background-color: transparent; }
 .confirm-warning > svg { flex: none; margin-top: 1px; }
 .confirm-warning-title { font-weight: 600; }
 .confirm-warning-lines { margin: var(--s-1) 0 0; padding-left: 1.1em; list-style: disc; }
+/* A destructive confirm lists what would be lost, and asks for the name typed back */
+.confirm-text { display: flex; flex-direction: column; gap: var(--s-2); }
+.confirm-details {
+  max-height: min(32vh, 240px);
+  margin: 0;
+  padding-left: 1.1em;
+  overflow-y: auto;
+  list-style: disc;
+  font: 400 13px/18px var(--font-ui);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.confirm-details > li + li { margin-top: var(--s-1); }
+.confirm-type { display: flex; flex-direction: column; gap: var(--s-1); margin-top: var(--s-3); }
+.confirm-type-label { font: 500 13px/18px var(--font-ui); color: var(--text); overflow-wrap: anywhere; }
 @media (max-width: 767.98px) {
   .confirm {
     --enter-from: translateY(100%);
