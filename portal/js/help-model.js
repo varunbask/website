@@ -19,8 +19,6 @@ import { MAX_UPLOAD_BYTES } from './upload.js';
 
 export const SUPPORT_EMAIL = 'vbmgroupsllc@gmail.com';
 export const PRIVACY_PATH = '/privacy.html';
-// Families are asked to give lessons this much notice (see the schedule answer)
-export const NOTICE_HOURS = 24;
 
 // mailto:vbmgroupsllc@gmail.com, or with a subject line
 export function supportMailto(subject) {
@@ -79,8 +77,8 @@ function homework(role) {
 function schedule(role) {
   const parent = role === PARENT;
   const notice = parent
-    ? `To reschedule or cancel a lesson, tell your child’s tutor or email us at least ${NOTICE_HOURS} hours before it starts. Late cancellations may be charged.`
-    : `To reschedule or cancel a lesson, tell your tutor or email us at least ${NOTICE_HOURS} hours before it starts. Late cancellations may be charged.`;
+    ? 'Need to reschedule or cancel a lesson? Tell your child’s tutor or email us. There is no charge for cancelling.'
+    : 'Need to reschedule or cancel a lesson? Tell your tutor or email us. There is no charge for cancelling.';
   const items = [
     [parent ? 'Your child’s lessons are on the ' : 'Your lessons are on the ', link('Calendar', '#/calendar'), '. Open one for the time, the place or meeting link, and the tutor’s notes once the lesson has happened.'],
     'When a lesson moves or is cancelled, Calendar shows a New marker until you have looked.',
