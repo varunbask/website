@@ -153,7 +153,7 @@ const adminTips = {
     type: 'list',
     items: [
       'People is where you approve people waiting for access, change roles, and add students or parents who do not have an account yet.',
-      'Account shows billing and payroll, worked out from the sessions on the calendar.',
+      'Account shows billing and payroll, worked out from the sessions on the calendar. Parents see a month’s bill only after you release it: open Families and choose Release bills, usually on the 1st.',
     ],
   }],
 };

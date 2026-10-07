@@ -417,6 +417,7 @@ export function familyMonth(ctx, parentId, month) {
   const owedCents = realizedCents + adjustmentCents;
   const students = [...new Set(rows.map((r) => String(r.session.student_id)))];
   const minutes = sum(counted.filter((l) => l.familyRealized > 0 || l.familyExpected > 0), (l) => l.minutes);
+  const statement = ctx.statements.find((x) => same(x.parent_id, parentId) && x.period === month);
   const lastPayment = payments.reduce((best, p) => (!best || p.received_on > best.received_on ? p : best), null);
   const snapshot = payments.filter((p) => p.period === month).reduce((best, p) => (!best || p.created_at > best.created_at ? p : best), null);
   return {
@@ -439,7 +440,11 @@ export function familyMonth(ctx, parentId, month) {
     changedSincePayment: Boolean(snapshot) && snapshot.owed_cents !== owedCents,
     // Everything owed through this month, after every payment (loose ones too)
     balanceThrough: familyBalance(ctx, parentId, month),
-    sentOn: ctx.statements.find((s) => same(s.parent_id, parentId) && s.period === month)?.sent_on ?? null,
+    // The day the bill was released (statements.sent_on), and whether the portal
+    // keeps a copy a parent can read (month_cents is lifted from the snapshot,
+    // null for a statement marked sent before snapshots existed)
+    sentOn: statement?.sent_on ?? null,
+    released: Boolean(statement) && statement.month_cents !== null && statement.month_cents !== undefined,
     contact: ctx.contacts.get(String(parentId)) ?? null,
   };
 }
@@ -498,8 +503,12 @@ export function familyStatus(ctx, f) {
   if (f.owedCents <= 0 && f.expectedCents > 0) return { key: 'upcoming', label: 'Upcoming', tone: 'neutral' };
   if (f.owedCents <= 0) return { key: 'nothing', label: 'Nothing owed', tone: 'neutral' };
   if (f.month < monthOf(today) && today > dueDate(ctx, f.month, f.sentOn)) return { key: 'overdue', label: 'Overdue', tone: 'danger' };
+  // A parent sees nothing of a month until it is released, so an unpaid family
+  // is either waiting for the release or released and waiting for payment
+  if (f.released) return { key: 'released', label: `Released ${shortDate(f.sentOn, today)}`, tone: 'neutral' };
+  // marked sent before the portal kept copies: the family was told, the portal has nothing yet
   if (f.sentOn) return { key: 'sent', label: `Sent ${shortDate(f.sentOn, today)}`, tone: 'neutral' };
-  return { key: 'unpaid', label: 'Unpaid', tone: 'neutral' };
+  return { key: 'unpaid', label: 'Not released yet', tone: 'neutral' };
 }
 
 // Total owed by every family across all months (credits do not offset others' debts)
@@ -792,11 +801,13 @@ function group(items) {
 const FAMILY_BLOCKS = new Set(['unconfirmed', 'added_late', 'longer', 'altered', 'conflict', 'unpriced']);
 const TUTOR_BLOCKS = new Set(['unconfirmed', 'added_late', 'longer', 'altered', 'conflict', 'overlap']);
 
-// Whether Record payment may be used for a family's month: { ok, items }
-export function familyBlockers(ctx, parentId, month) {
+// Whether Record payment and Release may be used for a family's month: { ok, items }.
+// `attention` is needsAttention(ctx, month, monthEnd(month), { sessionsOnly: true }),
+// passed in when many families are checked in one go so it is worked out once.
+export function familyBlockers(ctx, parentId, month, { attention = null } = {}) {
   const f = familyMonth(ctx, parentId, month);
   const ids = new Set(f.lines.filter((l) => !l.paidBy).map((l) => l.id));
-  const { items } = needsAttention(ctx, month, monthEnd(month), { sessionsOnly: true });
+  const { items } = attention ?? needsAttention(ctx, month, monthEnd(month), { sessionsOnly: true });
   const blocking = items.filter((it) => FAMILY_BLOCKS.has(it.kind) && ids.has(it.rowId));
   return { ok: blocking.length === 0, items: blocking };
 }
