@@ -30,7 +30,7 @@ const item = (t, subs = [], audience = 'family') => items([t], subs, audience)[0
 
 describe('constants and key checks', () => {
   test('match the spec', () => {
-    expect(CAL_VIEWS).toEqual(['week', 'month', 'list']);
+    expect(CAL_VIEWS).toEqual(['day', 'week', 'month', 'list']);
     expect([AGENDA_DAYS, PANEL_DAYS, MAX_DOTS]).toEqual([30, 7, 3]);
   });
 
@@ -446,7 +446,7 @@ describe('resolveState', () => {
 
   test('drops a selected day the month grid does not show', () => {
     expect(resolveState({ view: 'month', m: '2026-11', d: '2026-10-14' }, { today: TODAY, wide: true }))
-      .toEqual({ view: 'month', month: '2026-11', selected: null, week: '2026-11-01' });
+      .toEqual({ view: 'month', month: '2026-11', selected: null, week: '2026-11-01', day: '2026-11-01' });
     // December 2026 starts on a Tuesday: Nov 29 and 30 lead the grid
     expect(resolveState({ m: '2026-12', d: '2026-11-30' }, { today: TODAY, wide: true }).selected)
       .toBe('2026-11-30');
@@ -454,19 +454,19 @@ describe('resolveState', () => {
 
   test('reads view, month and day from the hash params', () => {
     expect(resolveState({ view: 'list', m: '2026-12', d: '2026-12-03' }, { today: TODAY, wide: true }))
-      .toEqual({ view: 'list', month: '2026-12', selected: '2026-12-03', week: '2026-11-29' });
+      .toEqual({ view: 'list', month: '2026-12', selected: '2026-12-03', week: '2026-11-29', day: '2026-12-03' });
   });
 
   test('the month follows the selected day, then today', () => {
     expect(resolveState({ view: 'month', d: '2027-02-10' }, { today: TODAY, wide: true }))
-      .toEqual({ view: 'month', month: '2027-02', selected: '2027-02-10', week: '2027-02-07' });
+      .toEqual({ view: 'month', month: '2027-02', selected: '2027-02-10', week: '2027-02-07', day: '2027-02-10' });
     expect(resolveState({ view: 'month' }, { today: TODAY, wide: true }))
-      .toEqual({ view: 'month', month: '2026-10', selected: null, week: WEEK });
+      .toEqual({ view: 'month', month: '2026-10', selected: null, week: WEEK, day: TODAY });
   });
 
   test('wide screens open on Week, phones on List', () => {
     expect(resolveState({}, { today: TODAY, wide: true }))
-      .toEqual({ view: 'week', month: '2026-10', selected: null, week: WEEK });
+      .toEqual({ view: 'week', month: '2026-10', selected: null, week: WEEK, day: TODAY });
     expect(resolveState({}, { today: TODAY, wide: false }).view).toBe('list');
   });
 
@@ -497,7 +497,7 @@ describe('resolveState', () => {
 
   test('bad values fall back', () => {
     expect(resolveState({ view: 'weekly', m: '2026-13', d: '2026-02-30', w: '2026-02-30' }, { today: TODAY, wide: true }))
-      .toEqual({ view: 'week', month: '2026-10', selected: null, week: WEEK });
+      .toEqual({ view: 'week', month: '2026-10', selected: null, week: WEEK, day: TODAY });
   });
 });
 

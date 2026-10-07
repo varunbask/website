@@ -19,6 +19,7 @@
 
    Drawer forms (create, edit, session notes)
      div.ses-form-wrap > h2.drawer-title + p.ses-form-sub + form.ses-form > div.field ...
+       div.field (Subject: input, datalist and, for the admin, p.field-hint.ses-rate-hint[role=status])
        div.ses-times > two fields (Start, End) ; segmented.ses-durations (quick lengths)
        p.note.ses-series-note                edit of a repeating session
        div.ses-repeat > div.field (Repeat select) + div.ses-repeat-ends >
@@ -306,6 +307,8 @@ input[type="time"].input { font-variant-numeric: tabular-nums; }
 }
 .ses-repeat-ends[hidden] { display: none; }
 .ses-repeat-hint:empty { display: none; }
+/* The admin's note under Subject when it would price at $0; it only has text then */
+.ses-rate-hint:empty { display: none; }
 .ses-weeks-input { max-width: 120px; }
 .ses-series-note { margin: 0; }
 

@@ -5,6 +5,7 @@ import {
   buildInsertRow, buildSeriesRow, followingChange, repeatChoices, weekdayName, clashCheckIsPartial,
   buildUpdates, changedUpdates, mergeSessions, scheduleLabel, sessionsToast, repeatSummary,
   followingSummary, seriesLeftText, whenText, icsFileName, clashLine, clashReport, saveErrorText,
+  ratedSubjects, subjectChoices, subjectRateHint,
 } from '../../portal/js/session-form-model.js';
 import { zonedIso } from '../../portal/js/dates.js';
 
@@ -121,6 +122,154 @@ describe('who a tutor can book', () => {
     expect(defaultSubject(links, 't2', 's1')).toBe('SAT Reading');
     expect(defaultSubject(links, 't2', 's3')).toBe('');
     expect(defaultSubject(links, 't9', 's1')).toBe('');
+  });
+});
+
+describe('subjects the admin can price', () => {
+  let rateId = 1;
+  const rate = (extra = {}) => ({
+    id: rateId++, student_id: 's1', tutor_id: null, subject: 'Math', rate_cents: 6000, effective_from: '2026-01-01', voided_at: null, ...extra,
+  });
+  const links = [
+    { tutor_id: 't1', student_id: 's1', subject: 'Algebra' },
+    { tutor_id: 't2', student_id: 's1', subject: 'Science' },
+    { tutor_id: 't2', student_id: 's2', subject: 'Math' },
+  ];
+  const NO_RATE = (subject) => `No rate for ${subject} yet, so it will be priced at $0. Pick one of their subjects or add a rate on Account.`;
+  const NO_RATE_NONE = (subject) => `No rate for ${subject} yet, so it will be priced at $0. Add a rate on Account.`;
+
+  describe('ratedSubjects', () => {
+    test('a student\'s live rated subjects, once each, by name', () => {
+      const rates = [
+        rate({ subject: 'Science' }),
+        rate({ subject: 'Math' }),
+        rate({ subject: 'math', effective_from: '2025-06-01' }),
+        rate({ subject: ' MATH ' }),
+        rate({ subject: 'Reading', student_id: 's2' }),
+        rate({ subject: 'Essay', voided_at: '2026-03-01T00:00:00Z' }),
+        rate({ subject: null }),
+        rate({ subject: '   ' }),
+      ];
+      expect(ratedSubjects(rates, 's1')).toEqual(['Math', 'Science']);
+      expect(ratedSubjects(rates, 's2')).toEqual(['Reading']);
+      expect(ratedSubjects(rates, 's3')).toEqual([]);
+      expect(ratedSubjects(null, 's1')).toEqual([]);
+    });
+
+    test('the wording of the newest rate wins, with spaces collapsed', () => {
+      const rates = [
+        rate({ subject: 'sat  reading', effective_from: '2026-01-01' }),
+        rate({ subject: 'SAT Reading', effective_from: '2026-09-01' }),
+      ];
+      expect(ratedSubjects(rates, 's1')).toEqual(['SAT Reading']);
+    });
+
+    test('a rate for another tutor does not price this tutor', () => {
+      const rates = [rate({ subject: 'Math', tutor_id: 't2' }), rate({ subject: 'Science', tutor_id: 't1' }), rate({ subject: 'Reading' })];
+      expect(ratedSubjects(rates, 's1')).toEqual(['Math', 'Reading', 'Science']);
+      expect(ratedSubjects(rates, 's1', { tutorId: 't1' })).toEqual(['Reading', 'Science']);
+      expect(ratedSubjects(rates, 's1', { tutorId: 't2' })).toEqual(['Math', 'Reading']);
+    });
+
+    test('a rate that starts later does not price an earlier day', () => {
+      const rates = [rate({ subject: 'Math' }), rate({ subject: 'Physics', effective_from: '2026-11-01' })];
+      expect(ratedSubjects(rates, 's1', { day: '2026-10-31' })).toEqual(['Math']);
+      expect(ratedSubjects(rates, 's1', { day: '2026-11-01' })).toEqual(['Math', 'Physics']);
+    });
+  });
+
+  describe('subjectChoices', () => {
+    test('without rates (a tutor) it is the link subjects, as before', () => {
+      expect(subjectChoices({ links, studentId: 's1' })).toEqual(subjectsFor(links, 's1'));
+      expect(subjectChoices({ links, studentId: 's1', rates: null })).toEqual(['Algebra', 'Science']);
+      expect(subjectChoices({ links, studentId: 's3' })).toEqual([]);
+    });
+
+    test('with rates (the admin) the rated subjects come first, then the link subjects', () => {
+      const rates = [rate({ subject: 'Math' }), rate({ subject: 'SAT Reading' })];
+      expect(subjectChoices({ links, studentId: 's1', rates })).toEqual(['Math', 'SAT Reading', 'Algebra', 'Science']);
+    });
+
+    test('a link subject already rated is listed once, whatever its case', () => {
+      const rates = [rate({ subject: 'science' }), rate({ subject: 'Math' })];
+      expect(subjectChoices({ links, studentId: 's1', rates })).toEqual(['Math', 'science', 'Algebra']);
+    });
+
+    test('a student with no rates (an empty list) keeps the link subjects', () => {
+      expect(subjectChoices({ links, studentId: 's1', rates: [] })).toEqual(['Algebra', 'Science']);
+    });
+
+    test('only the chosen tutor\'s and the student\'s own rates count', () => {
+      const rates = [rate({ subject: 'Math', tutor_id: 't2' }), rate({ subject: 'Reading', student_id: 's2' }), rate({ subject: 'Writing' })];
+      expect(subjectChoices({ links, studentId: 's1', rates, tutorId: 't1' })).toEqual(['Writing', 'Algebra', 'Science']);
+      expect(subjectChoices({ links, studentId: 's1', rates, tutorId: 't2' })).toEqual(['Math', 'Writing', 'Algebra', 'Science']);
+    });
+  });
+
+  describe('subjectRateHint', () => {
+    const ask = (extra = {}) => subjectRateHint({
+      subject: 'Math', rates: [rate({ subject: 'Math' })], studentId: 's1', tutorId: 't1', day: '2026-10-20', links, ...extra,
+    });
+
+    test('a subject the student is priced for says nothing, whatever its case or spacing', () => {
+      expect(ask()).toBeNull();
+      expect(ask({ subject: 'math' })).toBeNull();
+      expect(ask({ subject: '  MATH ' })).toBeNull();
+    });
+
+    test('a subject with no rate says it will be priced at $0, in the spec wording', () => {
+      expect(ask({ subject: 'Math/English' })).toBe(NO_RATE('Math/English'));
+      expect(ask({ subject: ' Chemistry ' })).toBe(NO_RATE('Chemistry'));
+    });
+
+    test('with no rated subject to pick from it only says to add a rate', () => {
+      expect(ask({ subject: 'Chemistry', rates: [] })).toBe(NO_RATE_NONE('Chemistry'));
+    });
+
+    test('nothing is said until there is something to check', () => {
+      expect(ask({ subject: '' })).toBeNull();
+      expect(ask({ subject: '   ' })).toBeNull();
+      expect(ask({ subject: undefined })).toBeNull();
+      expect(ask({ subject: 'Chemistry', rates: null })).toBeNull();
+      expect(ask({ subject: 'Chemistry', studentId: '' })).toBeNull();
+      expect(ask({ subject: 'Chemistry', tutorId: '' })).toBeNull();
+    });
+
+    test('a rate with no subject prices every subject', () => {
+      expect(ask({ subject: 'Chemistry', rates: [rate({ subject: null })] })).toBeNull();
+    });
+
+    test('a rate for the chosen tutor prices their lessons, another tutor\'s does not', () => {
+      expect(ask({ subject: 'Chemistry', rates: [rate({ subject: null, tutor_id: 't1' })] })).toBeNull();
+      expect(ask({ subject: 'Chemistry', rates: [rate({ subject: 'Chemistry', tutor_id: 't1' })] })).toBeNull();
+      expect(ask({ subject: 'Chemistry', rates: [rate({ subject: null, tutor_id: 't2' })], tutorId: 't1' })).toBe(NO_RATE_NONE('Chemistry'));
+      expect(ask({ subject: 'Math', rates: [rate({ subject: 'Math', tutor_id: 't2' })], tutorId: 't1' })).toBe(NO_RATE_NONE('Math'));
+    });
+
+    test('a rate for another student does not price this one', () => {
+      expect(ask({ subject: 'Math', rates: [rate({ subject: 'Math', student_id: 's2' })] })).toBe(NO_RATE_NONE('Math'));
+    });
+
+    test('a voided rate is not a rate', () => {
+      expect(ask({ rates: [rate({ subject: 'Math', voided_at: '2026-09-01T00:00:00Z' })] })).toBe(NO_RATE_NONE('Math'));
+    });
+
+    test('a rate counts from the day it starts', () => {
+      const rates = [rate({ subject: 'Math', effective_from: '2026-11-01' })];
+      expect(ask({ rates, day: '2026-10-31' })).toBe(NO_RATE_NONE('Math'));
+      expect(ask({ rates, day: '2026-11-01' })).toBeNull();
+      // a missing or bad date is today
+      expect(ask({ rates, day: '', now: new Date('2026-12-01T20:00:00Z') })).toBeNull();
+      expect(ask({ rates, day: 'soon', now: new Date('2026-10-01T20:00:00Z') })).toContain('No rate for Math yet');
+    });
+
+    test('billing falls back to the tutor link\'s subject, so a lesson priced that way is quiet', () => {
+      // Math/English is not rated, but the link's subject (Algebra) is
+      const rates = [rate({ subject: 'Algebra' })];
+      expect(ask({ subject: 'Math/English', rates })).toBeNull();
+      // the other tutor's link says Science, which is not rated
+      expect(ask({ subject: 'Math/English', rates, tutorId: 't2' })).toBe(NO_RATE('Math/English'));
+    });
   });
 });
 

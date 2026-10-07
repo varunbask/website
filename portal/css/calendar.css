@@ -1,14 +1,14 @@
-/* U3. Calendar week grid, month grid, chips, day panel, agenda list. Prefix: cal-. Tokens and components come from app.css; no raw hex.
+/* U3. Calendar day and week grids, month grid, chips, day panel, agenda list. Prefix: cal-. Tokens and components come from app.css; no raw hex.
    Spec 5.10 and the tutoring schedules spec. Markup (views/calendar.js):
      div.cal-toolbar
        div.cal-toolbar-main > h2.cal-title[aria-live] + div.cal-nav > .btn.cal-today + div.cal-steps > .icon-btn x2
        div.cal-toolbar-controls > div.segmented.cal-seg (scope, staff) + div.cal-filter (tutor segmented or select)
-                                  + div.segmented.cal-seg (Week / Month / List) + .btn.cal-new (staff)
+                                  + div.segmented.cal-seg (Day / Week / Month / List) + .btn.cal-new (staff)
        ul.cal-legend > li.cal-legend-item.tc-NAME > span.cal-swatch + span (two or more tutors only)
      div.cal-body
        week:  div.cal-week-wrap > div.cal-week[--hours] (hour height --hour-h)
                 > div.cal-week-row.cal-week-head > div.cal-week-corner + div.cal-week-dayhead(.is-today .is-weekend) x7
-                    > span.cal-week-daylabel (span.cal-week-dow + span.cal-num) + button.icon-btn.cal-week-add (staff)
+                    > [a.cal-week-daylink >] span.cal-week-daylabel (span.cal-week-dow + span.cal-num) + button.icon-btn.cal-week-add (staff)
                 > div.cal-week-row.cal-week-dues > div.cal-week-duelabel + div.cal-week-due.cal-chips x7 > a.cal-chip.is-{kind}
                 > div.cal-week-row.cal-week-body > div.cal-week-hours > span.cal-week-hour[--i]
                     + div.cal-week-track x7 > button.cal-block.tc-NAME(.is-tiny .is-short .is-cancelled .is-moved .is-now)[--top --height --col --cols]
@@ -16,6 +16,9 @@
                           + span.cal-block-foot (span.cal-block-who + span.cal-block-tag)
                       and div.cal-now[--top] on today's column
               phones: div.cal-agenda.cal-week-list (group headers and rows, as the list view)
+       day:   p.cal-day-note (an empty day only) + the week markup above with one column: div.cal-week.is-day[--hours]
+                (--days 1; the day label is not a link; the same grid on phones). The host gets .cal-is-day.
+              Day headings in the list and the phone week hold a.cal-day-link; the month's day panel has .btn.cal-panel-dayview.
        month: div.cal-layout > div.cal-grid-wrap > table.cal-month.cap-{0..3}
                 td(.is-outside .is-weekend .is-today .is-past .is-selected) > button.cal-day
                   > span.cal-num(.is-label) + (span.cal-chips > span.cal-chip(.cal-chip-session.tc-NAME) ... + span.cal-more | span.cal-dots > span.cal-dot.is-{kind})
@@ -163,12 +166,18 @@
   --col-min: 84px;
   --hour-h: 48px;
   --today-tint: color-mix(in srgb, var(--accent-soft) 55%, var(--surface));
-  min-width: calc(var(--gutter) + 7 * var(--col-min));
+  --days: 7;
+  min-width: calc(var(--gutter) + var(--days) * var(--col-min));
+}
+/* The Day view: the same grid with one column, which has room to spare even on a phone */
+.cal-week.is-day {
+  --days: 1;
+  --col-min: 160px;
 }
 /* Head, due row and hours share one column template, so the days line up */
 .cal-week-row {
   display: grid;
-  grid-template-columns: var(--gutter) repeat(7, minmax(var(--col-min), 1fr));
+  grid-template-columns: var(--gutter) repeat(var(--days), minmax(var(--col-min), 1fr));
 }
 
 .cal-week-dayhead,
@@ -192,6 +201,12 @@
   z-index: 4;
   border-bottom: 1px solid var(--line-strong);
   background-color: var(--surface);
+}
+/* Below 1024px the frame scrolls sideways, which makes it the container the header
+   sticks in: it sticks to the frame's own top, since --sticky-top would push it
+   down over the Due row. */
+@media (max-width: 1023.98px) {
+  .cal-week-head { top: 0; }
 }
 .cal-week-corner {
   display: flex;
@@ -220,6 +235,22 @@
   font: var(--t-caption);
   color: var(--text-3);
 }
+/* A week's day label is a link to that day; it fills the label's side of the header */
+.cal-week-daylink {
+  display: flex;
+  align-items: center;
+  align-self: stretch;
+  min-width: 0;
+  border-radius: var(--r-xs);
+  color: inherit;
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .cal-week-daylink:hover .cal-week-dow { color: var(--text); }
+  .cal-week-daylink:hover .cal-num { background-color: var(--surface-2); }
+  .cal-week-dayhead.is-today .cal-week-daylink:hover .cal-num { background-color: var(--accent); }
+}
+.cal-week-daylink:focus-visible { outline-offset: -2px; }
 .cal-week-dayhead.is-today .cal-week-dow { color: var(--accent-text); }
 .cal-week-dayhead.is-today .cal-num {
   background-color: var(--accent);
@@ -390,6 +421,35 @@
 
 /* Phones: the week as a list of days */
 .cal-week-list { max-width: none; }
+
+/* The Day view's note on an empty day, a line above the grid */
+.cal-day-note {
+  margin: 0 0 var(--s-3);
+  font: var(--t-meta);
+  color: var(--text-3);
+}
+
+/* An agenda day's heading is a link to its Day view, with a small caret to show it */
+.cal-day-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  color: inherit;
+  text-decoration: none;
+}
+.cal-day-link .icon { flex: none; color: var(--text-3); }
+@media (hover: hover) {
+  .cal-day-link:hover { text-decoration: underline; text-underline-offset: 3px; }
+}
+
+/* A long day title ("Wednesday, September 30, 2026") has the phone's whole line */
+@media (max-width: 767.98px) {
+  .cal-is-day .cal-toolbar-main > .cal-title {
+    flex: 1 1 100%;
+    overflow: visible;
+    white-space: normal;
+  }
+}
 
 
 /* Month grid --------------------------------------------------------------- */
@@ -693,7 +753,8 @@ td.is-today .cal-num {
   font: var(--t-h3);
   letter-spacing: -0.005em;
 }
-.cal-panel-back { align-self: center; }
+.cal-panel-back,
+.cal-panel-dayview { align-self: center; }
 .cal-panel-meta {
   font: 400 13px/18px var(--font-ui);
   font-variant-numeric: tabular-nums;
