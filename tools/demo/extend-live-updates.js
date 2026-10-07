@@ -39,9 +39,6 @@
     tutor_students: ['tutor_id', 'student_id'],
     parent_students: ['parent_id', 'student_id'],
     grades: ['submission_id'],
-    session_billing: ['session_id'],
-    billing_contacts: ['parent_id'],
-    statements: ['parent_id', 'period'],
     student_profiles: ['student_id'],
   };
   const keyFields = (table) => KEYS[table] ?? ['id'];

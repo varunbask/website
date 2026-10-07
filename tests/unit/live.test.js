@@ -1,6 +1,6 @@
 import { test, expect, vi } from 'vitest';
 import { startLive, watchTyping } from '../../portal/js/live.js';
-import { liveTables, backoffMs, MAX_ATTEMPTS, AWAY_REFRESH_MS } from '../../portal/js/live-model.js';
+import { liveTables, backoffMs, MAX_ATTEMPTS, AWAY_REFRESH_MS, BILLING_TABLES } from '../../portal/js/live-model.js';
 import { fakeClock } from './fake-clock.js';
 
 // ---------------------------------------------------------------------------
@@ -58,7 +58,6 @@ function fakeStore() {
     invalidate: note('invalidate'),
     invalidateAll: note('invalidateAll'),
     invalidatePeople: note('invalidatePeople'),
-    invalidateBilling: note('invalidateBilling'),
     refreshTutorColors: async () => { calls.push(['colors']); },
   };
 }
@@ -147,20 +146,14 @@ test('a burst of session changes becomes one student invalidation, as a live cha
   expect(store.calls).toEqual([['invalidate', 'maya', 'live'], ['invalidate', 'sam', 'live']]);
 });
 
-test('a billing change drops the billing data alone', async () => {
+test('the admin does not listen to the billing tables, and a lesson change reaches money through the student', async () => {
   const { client, store, clock } = setup({ role: 'admin' });
-  client.live.send({ schema: 'public', table: 'payments', eventType: 'INSERT', new: { id: 3 }, old: {}, errors: null });
-  clock.advance(600);
-  await flushMicrotasks();
-  expect(store.calls).toEqual([['invalidateBilling', 'live']]);
-});
-
-test('a billing change next to a session change does not reload billing twice', async () => {
-  const { client, store, clock } = setup({ role: 'admin' });
-  client.live.send({ schema: 'public', table: 'payments', eventType: 'INSERT', new: { id: 3 }, old: {}, errors: null });
+  const tables = client.live.bindings.map((b) => b.filter.table);
+  for (const table of BILLING_TABLES) expect(tables, table).not.toContain(table);
   client.live.send(sessionRow());
   clock.advance(600);
   await flushMicrotasks();
+  // store.invalidate (not a separate billing call) drops the Account page's data too
   expect(store.calls).toEqual([['invalidate', 'maya', 'live']]);
 });
 

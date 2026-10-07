@@ -66,10 +66,9 @@ export function startLive({
           return;
         }
         if (plan.people) store.invalidatePeople();
+        // A student's invalidation and a people change also drop the Account
+        // page's billing data (store.js), so money follows lessons and people
         for (const id of plan.students) store.invalidate(id);
-        // Sessions and people already drop the billing data; a billing table on
-        // its own drops just that
-        if (plan.billing && !plan.people && plan.students.length === 0) store.invalidateBilling();
       });
     } catch (error) {
       console.warn('Live update skipped', error);

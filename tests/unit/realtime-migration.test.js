@@ -59,12 +59,17 @@ test('every published table has row level security on and a primary key', () => 
   }
 });
 
-test('the billing tables are admin only: a select policy for the admin and no other read', () => {
+test('the ten billing tables are left out of the publication and named as left out', () => {
+  expect(BILLING_TABLES).toHaveLength(10);
   for (const table of BILLING_TABLES) {
-    const reads = [...everything.matchAll(new RegExp(`create policy [^\\n]*on public\\.${table}\\s+for select[^;]*;`, 'g'))].map((m) => m[0]);
-    expect(reads.length, `${table} select policies`).toBe(1);
-    expect(reads[0], table).toContain('private.is_admin()');
+    expect(wanted, `${table} must not be published`).not.toContain(table);
+    // the comment explains why, so the next person does not add them back
+    expect(sql, `${table} is listed as left out`).toContain(table);
+    expect(NEVER_LIVE, table).toContain(table);
+    for (const role of ['student', 'parent', 'tutor', 'admin']) expect(liveTables(role), `${role} ${table}`).not.toContain(table);
   }
+  // no add statement for any of them, whatever the spelling
+  expect(code).not.toMatch(/billing_|family_rates|tutor_rates|session_billing|payments|payouts|statements/);
 });
 
 test('the portal subscribes to exactly the tables the migration publishes', () => {

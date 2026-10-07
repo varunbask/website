@@ -24,9 +24,9 @@ test('each role listens only to tables it can read', () => {
   expect(liveTables('parent')).toEqual([...FAMILY_TABLES, 'parent_students']);
   expect(liveTables('tutor')).toEqual([...FAMILY_TABLES, ...STAFF_TABLES]);
   const admin = liveTables('admin');
-  for (const table of [...FAMILY_TABLES, ...STAFF_TABLES, 'parent_students', ...BILLING_TABLES]) expect(admin).toContain(table);
-  // Families and tutors never ask for the admin's money tables or each other's private ones
-  for (const role of ['student', 'parent', 'tutor']) {
+  expect(admin).toEqual([...FAMILY_TABLES, ...STAFF_TABLES, 'parent_students']);
+  // Nobody, the admin included, asks for the money tables (see BILLING_TABLES)
+  for (const role of ['student', 'parent', 'tutor', 'admin']) {
     for (const table of BILLING_TABLES) expect(liveTables(role), `${role} ${table}`).not.toContain(table);
   }
   expect(liveTables('student')).not.toContain('student_notes');
@@ -42,6 +42,16 @@ test('no role ever listens to a table with secrets, invites, drafts or contact d
   for (const table of ['google_connections', 'google_oauth_states', 'portal_invites', 'review_invites', 'referrals', 'submission_drafts']) {
     expect(NEVER_LIVE).toContain(table);
   }
+});
+
+test('the ten billing tables are on the never-published list, and nothing listens to them', () => {
+  expect(BILLING_TABLES).toEqual([
+    'billing_settings', 'billing_policies', 'family_rates', 'tutor_rates', 'session_billing',
+    'payments', 'payouts', 'billing_adjustments', 'billing_contacts', 'statements',
+  ]);
+  for (const table of BILLING_TABLES) expect(NEVER_LIVE, table).toContain(table);
+  // a stray message from one of them is not narrowed to anything: it loads everything
+  for (const table of BILLING_TABLES) expect(classifyChange(change(table, 'DELETE', { id: 1 })), table).toEqual({ all: true });
 });
 
 test('a table is listed once per role', () => {
@@ -95,14 +105,6 @@ test('people and links drop the people lists, and the student when the row names
     .toEqual({ people: true, students: ['maya'], all: false });
 });
 
-test('every billing table drops only the Account page data', () => {
-  for (const table of BILLING_TABLES) {
-    for (const type of ['INSERT', 'UPDATE', 'DELETE']) {
-      expect(classifyChange(change(table, type, { id: 1 })), `${table} ${type}`).toEqual({ billing: true });
-    }
-  }
-});
-
 test('a message the server cut short, or an unknown table, refreshes everything', () => {
   expect(classifyChange({ schema: 'public', table: 'sessions', eventType: 'UPDATE', new: {}, old: {}, errors: ['Error 413: Payload too large'] }))
     .toEqual({ all: true });
@@ -116,10 +118,9 @@ test('a plan folds fragments together without repeats', () => {
   addChange(plan, change('sessions', 'UPDATE', { id: 1, student_id: 'maya' }));
   addChange(plan, change('tasks', 'INSERT', { id: 2, student_id: 'maya' }));
   addChange(plan, change('tasks', 'INSERT', { id: 3, student_id: 'sam' }));
-  expect(plan).toEqual({ all: false, people: false, billing: false, students: ['maya', 'sam'] });
-  mergePlan(plan, { billing: true });
+  expect(plan).toEqual({ all: false, people: false, students: ['maya', 'sam'] });
   mergePlan(plan, { people: true, students: ['maya'] });
-  expect(plan).toEqual({ all: false, people: true, billing: true, students: ['maya', 'sam'] });
+  expect(plan).toEqual({ all: false, people: true, students: ['maya', 'sam'] });
   mergePlan(plan, { all: true });
   expect(plan.all).toBe(true);
   expect(planIsEmpty(plan)).toBe(false);
@@ -167,9 +168,9 @@ test('changes in separate bursts are handed over separately', () => {
   const c = createCoalescer({ ...clock, onFlush: (plan) => flushed.push(plan) });
   c.add(change('sessions', 'UPDATE', { id: 1, student_id: 'maya' }));
   clock.advance(700);
-  c.add(change('payments', 'INSERT', { id: 1 }));
+  c.add(change('tasks', 'INSERT', { id: 1, student_id: 'sam' }));
   clock.advance(700);
-  expect(flushed.map((p) => [p.students, p.billing])).toEqual([[['maya'], false], [[], true]]);
+  expect(flushed.map((p) => p.students)).toEqual([['maya'], ['sam']]);
 });
 
 test('while the tab is hidden the plan waits, and flushNow hands it over', () => {
@@ -197,7 +198,7 @@ test('adding nothing does not start a timer, and cancel drops the plan', () => {
   c.add({});
   c.add(null);
   expect(clock.count()).toBe(0);
-  c.add({ billing: true });
+  c.add({ people: true });
   expect(clock.count()).toBe(1);
   c.cancel();
   clock.advance(5000);

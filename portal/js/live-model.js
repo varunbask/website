@@ -16,8 +16,12 @@
 // tables that are deliberately left out.
 export const FAMILY_TABLES = ['sessions', 'tasks', 'submissions', 'grades', 'updates', 'materials', 'profiles'];
 export const STAFF_TABLES = ['session_series', 'tutor_students', 'student_profiles', 'student_notes'];
-// session_edits is left out: it is only written when a session changes, and
-// that change already reaches the admin through sessions
+
+// The admin's money tables are not published. Only the admin reads or writes
+// them, and a DELETE reaches every subscriber of a table (RLS cannot filter a
+// row that is gone) with its primary key. The Account page already refreshes
+// after the admin's own writes, and a change to a session or a person drops
+// its billing data too (store.invalidate, store.invalidatePeople).
 export const BILLING_TABLES = [
   'billing_settings', 'billing_policies', 'family_rates', 'tutor_rates', 'session_billing',
   'payments', 'payouts', 'billing_adjustments', 'billing_contacts', 'statements',
@@ -29,6 +33,7 @@ export const BILLING_TABLES = [
 export const NEVER_LIVE = [
   'google_connections', 'google_oauth_states', 'google_deletions',
   'portal_invites', 'review_invites', 'site_reviews', 'referrals', 'submission_drafts', 'session_edits',
+  ...BILLING_TABLES,
 ];
 
 // The tables one role subscribes to. Fewer tables means fewer messages for
@@ -38,7 +43,7 @@ export function liveTables(role) {
     case 'student': return [...FAMILY_TABLES];
     case 'parent': return [...FAMILY_TABLES, 'parent_students'];
     case 'tutor': return [...FAMILY_TABLES, ...STAFF_TABLES];
-    case 'admin': return [...FAMILY_TABLES, ...STAFF_TABLES, 'parent_students', ...BILLING_TABLES];
+    case 'admin': return [...FAMILY_TABLES, ...STAFF_TABLES, 'parent_students'];
     default: return [];
   }
 }
@@ -49,25 +54,22 @@ const STUDENT_TABLES = new Set([
   'student_profiles', 'student_notes',
 ]);
 const LINK_TABLES = new Set(['tutor_students', 'parent_students']);
-const BILLING_SET = new Set(BILLING_TABLES);
 
 // What one refresh has to drop:
 //   all       everything (a person was deleted, a message was cut short, we were offline)
 //   people    the lists built from profiles and links
-//   billing   the admin's Account page data
 //   students  ids whose cached work, schedule and updates are stale
-export const emptyPlan = () => ({ all: false, people: false, billing: false, students: [] });
+export const emptyPlan = () => ({ all: false, people: false, students: [] });
 
 export function planIsEmpty(plan) {
-  return !plan.all && !plan.people && !plan.billing && plan.students.length === 0;
+  return !plan.all && !plan.people && plan.students.length === 0;
 }
 
-// Folds a plan fragment ({ all?, people?, billing?, students? }) into a plan
+// Folds a plan fragment ({ all?, people?, students? }) into a plan
 export function mergePlan(plan, fragment) {
   if (!fragment) return plan;
   if (fragment.all) plan.all = true;
   if (fragment.people) plan.people = true;
-  if (fragment.billing) plan.billing = true;
   for (const id of fragment.students ?? []) {
     const key = String(id);
     if (!plan.students.includes(key)) plan.students.push(key);
@@ -86,8 +88,6 @@ export function classifyChange(payload) {
   // A message the server had to cut (too large) carries no row at all
   const row = isDelete ? payload?.old : payload?.new;
   const usable = hasKeys(row) && !payload?.errors;
-
-  if (BILLING_SET.has(table)) return { billing: true };
 
   if (table === 'profiles') {
     // A deleted profile takes its sessions, work and billing with it
