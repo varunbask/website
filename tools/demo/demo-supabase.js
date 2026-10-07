@@ -613,7 +613,9 @@
         const studentsOf = (x) => (Array.isArray(x.snapshot.student_ids) && x.snapshot.student_ids.length
           ? x.snapshot.student_ids
           : db.parent_students.filter((l) => l.parent_id === x.parent_id && l.bills).map((l) => l.student_id));
-        const shared = (x) => ((ids) => ids.length > 0 && ids.every((sid) => mine.has(sid)))(studentsOf(x));
+        // ...and only when they share every child the paying parent pays for today
+        const family = (x) => db.parent_students.filter((l) => l.parent_id === x.parent_id && l.bills).map((l) => l.student_id);
+        const shared = (x) => ((ids) => ids.length > 0 && ids.every((sid) => mine.has(sid)))(studentsOf(x)) && family(x).every((sid) => mine.has(sid));
         const rows = db.statements.filter((x) => x.snapshot && (x.parent_id === meId || shared(x))).map((x) => ({
           period: x.period, sent_on: x.sent_on, due_cents: x.due_cents ?? x.snapshot.due_cents,
           // every payment of the paying parent to date, not voided: any month, or none

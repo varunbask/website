@@ -2,8 +2,8 @@
    Loaded by the local demo build right after demo-supabase.js. Adds David Lin,
    Maya's father, linked to Maya but not paying (Grace pays). demo-supabase.js
    my_statements() works like the real one: a parent sees their own statements,
-   and another parent's when they are linked to every student on it, so David
-   sees the statements Grace was sent.
+   and another parent's when they share every child that parent pays for, so
+   David sees the statements Grace was sent.
 
    Try it
      ?as=parent   Grace Lin: Billing lists her statements as her own

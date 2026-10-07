@@ -133,7 +133,7 @@ describe('Same family as (People)', () => {
   test('the toast says who still pays', () => {
     expect(familyJoinText('Dad Wang', 'Grace Wang', ['Kevin', 'Ava'], true))
       .toBe('Linked Dad Wang to Kevin and Ava. Grace Wang still gets the bill, and Dad Wang sees it under Billing too.');
-    expect(familyJoinText('Dad Wang', 'Grace Wang', ['Kevin'], false)).toContain('stays with the parent who pays');
+    expect(familyJoinText('Dad Wang', 'Grace Wang', ['Kevin'], false)).toBe('Linked Dad Wang to Kevin. Each child’s bill stays with the parent who pays.');
   });
 
   test('the parent row offers Same family as, and inserts every missing link in one write', () => {
@@ -141,6 +141,19 @@ describe('Same family as (People)', () => {
     expect(src).toContain("label: 'Same family as'");
     expect(src).toContain("sb.from('parent_students').insert(ids.map((id) => ({ parent_id: parent.id, student_id: id })))");
     expect(src).toContain('childGroup(person, students, parents)');
+  });
+});
+
+describe('the whole-family rule', () => {
+  const sql = read('supabase/migrations/20261022130000_co_parent_bills_whole_family.sql');
+
+  test('another parent also has to share every child the paying parent pays for', () => {
+    expect(sql).toContain('create or replace function public.my_statements()');
+    expect(sql).toContain('and c.family <@ me.students');
+    expect(sql).toContain('and c.students <@ me.students');
+    expect(sql).toMatch(/where ps\.parent_id = s\.parent_id and ps\.bills\),\s*'\{\}'::uuid\[\]\) as family/);
+    expect(sql).toContain('revoke execute on function public.my_statements() from public, anon');
+    expect(sql).not.toMatch(/[\u2013\u2014]/);
   });
 });
 

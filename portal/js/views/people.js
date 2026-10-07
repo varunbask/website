@@ -131,7 +131,7 @@ export function familyJoinText(parentName, otherName, childNames, otherPaysAll) 
   const linked = `Linked ${parentName} to ${andList(childNames)}.`;
   return otherPaysAll
     ? `${linked} ${otherName} still gets the bill, and ${parentName} sees it under Billing too.`
-    : `${linked} Each child’s bill stays with the parent who pays, and both parents see it under Billing.`;
+    : `${linked} Each child’s bill stays with the parent who pays.`;
 }
 
 // The Everyone list: people with a real role (not pending), filtered by role
@@ -1281,7 +1281,7 @@ export function mount(ctx) {
 
     // Two parents (mom and dad): say what each of them sees
     const note = !isTutor && linked.length > 1
-      ? h('p', { class: 'ppl-link-note' }, `Each parent here sees ${studentName}’s lessons, homework and bills. The bill goes to the parent marked Pays.`)
+      ? h('p', { class: 'ppl-link-note' }, `Each parent here sees ${studentName}’s lessons and homework. The parent marked Pays gets the bill; another parent sees it too when linked to all of that parent’s children.`)
       : null;
 
     return h('div', { class: 'ppl-link-group' },
