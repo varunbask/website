@@ -22,7 +22,7 @@ export function policyText(policy, settings) {
     ? 'A session that ended without attendance counts as attended on this page until someone records it, but no payment can be recorded for its month, and its tutor’s pay period shows Check first, until it is confirmed or accepted.'
     : 'A session that ended without attendance counts for nothing until someone records it; no payment can be recorded for its month, and its tutor’s pay period shows Check first, until it is confirmed or accepted.';
   return [
-    'Cancelled sessions are not billed and not paid, unless you set a percentage on that one session (for example a late cancellation charged at 50 percent).',
+    'Cancelled sessions are not billed and not paid. There is no cancellation policy: families cancel or reschedule whenever they need to.',
     noShow,
     unconfirmed,
     `Families are billed by calendar month, with the bill dated the 1st of the next month and due on the ${ordinal(settings.due_day)}. Tutor pay is counted twice a month, the 1st to the 15th and the 16th to the end of the month, for payroll.`,

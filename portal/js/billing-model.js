@@ -21,9 +21,7 @@ import { dayKey, addDays, parseKey, weekday } from './dates.js';
 import { durationMinutes } from './sessions-model.js';
 
 export const MINUTES_PER_HOUR = 60;
-export const SHORT_NOTICE_HOURS = 24;
 export const STATEMENT_GRACE_DAYS = 14;
-const HOUR_MS = 3_600_000;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -665,7 +663,6 @@ export const ATTENTION = Object.freeze({
   longer: { title: 'Longer than its series', blocks: true },
   altered: { title: 'Changed after it ended', blocks: true },
   conflict: { title: 'Cancelled after attendance was recorded', blocks: true },
-  short_notice: { title: 'Cancelled on short notice', blocks: true },
   overlap: { title: 'Same tutor, same time: group or clash?', blocks: true },
   unpriced: { title: 'No family rate', blocks: true },
   no_tutor_rate: { title: 'No tutor pay rate', blocks: true },
@@ -707,11 +704,8 @@ export function flagsFor(ctx, row) {
       // moved so that it had already ended when the change was made
       || (retimed(e) && e.new_ends_at && ms(e.new_ends_at) <= ms(e.at))));
   if (alteredLate) flags.push('altered');
-  if ((row.state === 'cancelled' || row.state === 'conflict') && s.cancelled_at
-    && ms(s.cancelled_at) > ms(s.starts_at) - SHORT_NOTICE_HOURS * HOUR_MS
-    && (row.exception?.charge_pct === null || row.exception?.charge_pct === undefined)) {
-    flags.push('short_notice');
-  }
+  // No cancellation policy: families cancel or reschedule whenever they need to,
+  // so a cancellation is never flagged or charged
   // a free lesson (a trial) needs no rate
   if (row.unpriced && row.exception?.charge_pct !== 0) flags.push('unpriced');
   return flags;
@@ -795,8 +789,8 @@ function group(items) {
   return { items, byKind };
 }
 
-const FAMILY_BLOCKS = new Set(['unconfirmed', 'added_late', 'longer', 'altered', 'conflict', 'short_notice', 'unpriced']);
-const TUTOR_BLOCKS = new Set(['unconfirmed', 'added_late', 'longer', 'altered', 'conflict', 'short_notice', 'overlap']);
+const FAMILY_BLOCKS = new Set(['unconfirmed', 'added_late', 'longer', 'altered', 'conflict', 'unpriced']);
+const TUTOR_BLOCKS = new Set(['unconfirmed', 'added_late', 'longer', 'altered', 'conflict', 'overlap']);
 
 // Whether Record payment may be used for a family's month: { ok, items }
 export function familyBlockers(ctx, parentId, month) {
