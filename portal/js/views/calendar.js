@@ -1,17 +1,22 @@
-// Calendar (spec 5.10): a week grid, a month grid with chips and a day panel,
-// or an agenda list, showing the family's or the staff's due dates and the
-// tutoring sessions together. One route serves families, staff with a selected
-// student and staff looking at every student (scope=all). View, week, month,
-// day and the tutor filter live in the hash and change with replaceState, so
-// this view re-renders itself in place; switching between one student and all
-// students pushes and remounts.
+// Calendar (spec 5.10): a day or week time grid, a month grid with chips and a
+// day panel, or an agenda list, showing the family's or the staff's due dates
+// and the tutoring sessions together. One route serves families, staff with a
+// selected student and staff looking at every student (scope=all). View, day,
+// week, month, selection and the tutor filter live in the hash and change with
+// replaceState, so this view re-renders itself in place; switching between one
+// student and all students pushes and remounts, as does a link to a day.
 //
 // All pure decisions (matrix, chips, keyboard, labels, agenda, week layout
 // inputs, filters) live in calendar-model.js and sessions-model.js. Everything
 // renders inside ctx.host.
 //
+// The Day view (view=day&date=YYYY-MM-DD) is the week grid with one column: the
+// same hours, blocks, Due row, clicks and drags (a block moves in time, and a
+// due chip has no other day to move to). The week's day headers, the list's day
+// headings and the month's day panel link to it.
+//
 // Google Calendar (google.js): a tutor with sync on sees a switch in the toolbar
-// and, in the Week grid, their own Google events beside the sessions, read-only
+// and, in the Week and Day grids, their own Google events beside the sessions, read-only
 // and drawn from nothing the portal stores. A student gets the invite button.
 // If the status or the events cannot be had, the calendar is exactly as before.
 
@@ -38,7 +43,7 @@ import { markSeen } from '../seen.js';
 import { staffNames } from '../updates-feed.js';
 import {
   clockText, timeRange, sessionTitle, sessionState, sessionAria, sessionsByDay, isCancelled,
-  tutorToneClass, tutorLegend, hourRange, layoutDay, weekTitle, durationMinutes, followingInSeries, timeInput,
+  tutorToneClass, tutorLegend, hourRange, layoutDay, weekTitle, weekStartKey, durationMinutes, followingInSeries, timeInput,
 } from '../sessions-model.js';
 import {
   announceGoogleReturn, tutorGoogleControl, studentInviteControl, syncNow, syncSoon, personalEvents, cachedPersonalEvents,
@@ -53,6 +58,7 @@ import {
   dayLabel, itemAria, dateWords, shortDay, agendaGroups, agendaWithSessions, needsNotes,
   resolveState, countInMonth, inGrid, dayEntries, dotsForDay,
   deriveWeek, monthOfWeek, weekDays, hourLabel, hourMarks, nowFraction, slotTime, sessionsInRange, viewRange,
+  dayColumn, dayTitle, deriveDay, navLabels, dayHref,
   resolveSessionFilter, filterSessions, tutorOptions, sessionWho,
 } from '../calendar-model.js';
 
@@ -133,9 +139,9 @@ export function mount(ctx) {
     tutorNames: new Map(),
     studentNames: new Map(),
     links: [],
-    hours: null,          // the week grid's { start, end } hours, for the now line
+    hours: null,          // the time grid's { start, end } hours, for the now line
     google: null,         // a tutor's Google status once read
-    personal: new Map(),  // week start key -> the tutor's Google events for that week, ready to draw
+    personal: new Map(),  // week start key -> the tutor's Google events for that week, ready to draw (the Day view reads its day's week)
     capacity: capacityForGrid(0, viewportWidth()),
     wide: matches('(min-width: 768px)'),
   };
@@ -175,7 +181,9 @@ export function mount(ctx) {
 
   const viewSeg = segmented({
     label: 'Calendar layout',
-    options: [{ value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }, { value: 'list', label: 'List' }],
+    options: [
+      { value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }, { value: 'list', label: 'List' },
+    ],
     value: state.view,
     onChange: setView,
     className: 'cal-seg',
@@ -239,9 +247,11 @@ export function mount(ctx) {
     ctx.setParams(params, { replace: true });
   }
 
-  // The day a toolbar "New session" starts on: the selected day in Month,
-  // today (or the first day of another week) in Week, otherwise today
+  // The day a toolbar "New session" starts on: the day on screen in Day, the
+  // selected day in Month, today (or the first day of another week) in Week,
+  // otherwise today
   function newSessionDay() {
+    if (state.view === 'day') return state.day;
     if (state.view === 'month' && state.selected) return state.selected;
     if (state.view === 'week') return weekDays(state.week, today).some((d) => d.isToday) ? today : state.week;
     return today;
@@ -251,23 +261,52 @@ export function mount(ctx) {
     const from = state.view;
     state.view = view;
     storeView(view);
-    if (view === 'week') {
+    if (view === 'day') {
+      // The day follows what was on screen: the selected day in Month, today
+      // (or the first day) of the week or month shown, otherwise today
+      state.day = deriveDay({
+        selected: from === 'month' ? state.selected : null,
+        week: from === 'week' ? state.week : null,
+        month: from === 'month' ? state.month : null,
+        today,
+      });
+      state.week = weekStartKey(state.day);
+      state.month = monthOf(state.day);
+      state.selected = null;
+      setParams({ view, date: state.day, w: null, m: null, d: null });
+    } else if (view === 'week') {
       // Coming from Month the week follows the selected day (or the month);
-      // from List it is the week last shown
+      // from Day it is the day's week; from List it is the week last shown
       if (from === 'month') state.week = deriveWeek({ selected: state.selected, month: state.month, today });
-      setParams({ view, w: state.week, m: state.month });
+      setParams({ view, w: state.week, m: state.month, date: null });
     } else if (view === 'month') {
-      setParams({ view, w: null, m: state.month });
+      // From Day the month opens on that day
+      if (from === 'day') {
+        state.selected = state.day;
+        state.focus = state.day;
+      }
+      setParams({ view, w: null, m: state.month, d: from === 'day' ? state.day : state.selected, date: null });
     } else {
-      setParams({ view });
+      setParams({ view, date: null });
     }
     render();
     if (view === 'month') syncLayout();
   }
 
   function step(n) {
-    if (state.view === 'week') goWeek(addDays(state.week, 7 * n));
+    if (state.view === 'day') goDay(addDays(state.day, n));
+    else if (state.view === 'week') goWeek(addDays(state.week, 7 * n));
     else goMonth(n);
+  }
+
+  // Moves the Day view to a day; its week and month follow, so a switch to
+  // another view lands where the day is
+  function goDay(key) {
+    state.day = key;
+    state.week = weekStartKey(key);
+    state.month = monthOf(key);
+    setParams({ view: 'day', date: key });
+    render();
   }
 
   // Moves the week grid. A selected day outside the new week is cleared.
@@ -294,6 +333,10 @@ export function mount(ctx) {
   }
 
   function goToday() {
+    if (state.view === 'day') {
+      goDay(today);
+      return;
+    }
     state.month = monthOf(today);
     if (state.view === 'week') {
       state.week = deriveWeek({ month: state.month, today });
@@ -423,12 +466,17 @@ export function mount(ctx) {
     return { timed, byDay: sessionsByDay(timed), allDay };
   };
 
+  // The Week grid (from 768px) and the Day grid draw the tutor's Google
+  // events; both read the week they are in, one fetch per week
+  const personalView = () => (state.view === 'day' || (state.view === 'week' && state.wide));
+  const shownWeek = () => (state.view === 'day' ? weekStartKey(state.day) : state.week);
+
   // Makes sure this week's events are on the way (or already here). Called
-  // before every render of the Week grid; a failure leaves the week without them.
+  // before every render of the Week or Day grid; a failure leaves the week without them.
   const personalPending = new Set();
   function ensurePersonal() {
-    if (state.view !== 'week' || !state.wide || !personalOn()) return;
-    const week = state.week;
+    if (!personalView() || !personalOn()) return;
+    const week = shownWeek();
     if (state.personal.has(week) || personalPending.has(week)) return;
     const { from, to } = weekRange(week);
     const cached = cachedPersonalEvents(from, to);
@@ -444,13 +492,13 @@ export function mount(ctx) {
       })
       .finally(() => {
         personalPending.delete(week);
-        if (ctx.alive() && state.status === 'ready' && state.view === 'week' && state.week === week) rerender();
+        if (ctx.alive() && state.status === 'ready' && personalView() && shownWeek() === week) rerender();
       });
   }
 
-  // The events to draw in the week on show, or null
-  const personalWeek = () => (state.view === 'week' && state.wide && state.status === 'ready' && personalOn()
-    ? state.personal.get(state.week) ?? null
+  // The events to draw in the week on show (the Day view's week too), or null
+  const personalWeek = () => (personalView() && state.status === 'ready' && personalOn()
+    ? state.personal.get(shownWeek()) ?? null
     : null);
 
   // Draws again and puts keyboard focus back where it was
@@ -523,6 +571,7 @@ export function mount(ctx) {
   // Rendering
 
   function heading() {
+    if (state.view === 'day') return dayTitle(state.day);
     if (state.view === 'week') return weekTitle(state.week);
     if (state.view === 'month') return monthTitle(state.month);
     return `Next ${state.range} days`;
@@ -544,14 +593,11 @@ export function mount(ctx) {
     const text = heading();
     if (title.textContent !== text) title.textContent = text;
     navGroup.hidden = state.view === 'list';
-    if (state.view === 'week') {
-      relabel(prevBtn, `Previous week, ${weekTitle(addDays(state.week, -7))}`);
-      relabel(nextBtn, `Next week, ${weekTitle(addDays(state.week, 7))}`);
-    } else {
-      relabel(prevBtn, `Previous month, ${monthTitle(shiftMonth(state.month, -1))}`);
-      relabel(nextBtn, `Next month, ${monthTitle(shiftMonth(state.month, 1))}`);
-    }
+    const labels = navLabels(state.view, state);
+    relabel(prevBtn, labels.prev);
+    relabel(nextBtn, labels.next);
     host.classList.toggle('cal-is-list', state.view === 'list');
+    host.classList.toggle('cal-is-day', state.view === 'day');
     ensurePersonal();
     renderLegend();
 
@@ -564,7 +610,8 @@ export function mount(ctx) {
       }));
       return;
     }
-    if (state.view === 'week') body.replaceChildren(state.wide ? weekGrid() : weekList());
+    if (state.view === 'day') body.replaceChildren(...[dayNote(), timeGrid()].filter(Boolean));
+    else if (state.view === 'week') body.replaceChildren(state.wide ? timeGrid() : weekList());
     else body.replaceChildren(state.view === 'month' ? monthLayout() : listLayout());
   }
 
@@ -634,17 +681,45 @@ export function mount(ctx) {
   // A day's rows: its sessions by time, then its due items
   const dayRows = (d) => [...d.sessions.map(sessionRow), ...d.items.map(row)];
 
+  // An agenda day's header. Its title opens that day in the Day view, which on
+  // a phone is the way from the list to the hours of one day.
+  function dayGroupHeader(key, label, count) {
+    const header = groupHeader({ label, count });
+    header.querySelector('.group-title').replaceChildren(h('a', {
+      class: 'cal-day-link',
+      href: dayHref(currentHash(), key),
+      'aria-label': `${label}, day view`,
+      dataset: { focusKey: `day-link-${key}` },
+    }, label, icon('caret-right', { size: 12 })));
+    return header;
+  }
+
   // ---- Week ---------------------------------------------------------------
 
   const dayWords = (day) => `${dateWords(day.key, today)}${day.isToday ? ', today' : ''}`;
 
-  function weekGrid() {
-    const days = weekDays(state.week, today);
-    const weekSessions = sessionsInRange(state.shown, state.week, addDays(state.week, 6));
-    // The tutor's Google events: the ones that start in this week widen the hours too
+  // The Day view's one-line note on a day with nothing in it, above the grid
+  function dayNote() {
+    if (state.status !== 'ready') return null;
     const personal = personalWeek();
-    const inWeek = new Set(days.map((d) => d.key));
-    const personalTimed = personal ? personal.timed.filter((e) => inWeek.has(dayKey(e.starts_at))) : [];
+    const empty = !(state.sessionDays.get(state.day) ?? []).length
+      && !(state.byDay.get(state.day) ?? []).length
+      && !(personal?.byDay.get(state.day) ?? []).length
+      && !(personal ? allDayOn(personal.allDay, state.day) : []).length;
+    return empty ? h('p', { class: 'cal-day-note' }, 'Nothing scheduled or due this day.') : null;
+  }
+
+  // The hour grid: seven day columns in the Week view, one in the Day view.
+  // Both are the same grid; the Day view only has fewer columns, no links on its
+  // header and nowhere else for a due chip to go.
+  function timeGrid() {
+    const single = state.view === 'day';
+    const days = single ? [dayColumn(state.day, today)] : weekDays(state.week, today);
+    const weekSessions = sessionsInRange(state.shown, days[0].key, days[days.length - 1].key);
+    // The tutor's Google events: the ones that start in these days widen the hours too
+    const personal = personalWeek();
+    const shownKeys = new Set(days.map((d) => d.key));
+    const personalTimed = personal ? personal.timed.filter((e) => shownKeys.has(dayKey(e.starts_at))) : [];
     const range = hourRange([...weekSessions, ...personalTimed]);
     state.hours = range;
     const hours = hourMarks(range);
@@ -660,12 +735,25 @@ export function mount(ctx) {
       ? null
       : h('span', { class: 'cal-week-zone' }, h('span', { 'aria-hidden': 'true' }, 'PT'), visuallyHidden('Times are shown in Pacific time'));
 
+    // A week's day label opens that day; the Day view's own label is plain
+    const headLabel = (day) => {
+      const label = h('span', { class: 'cal-week-daylabel', 'aria-hidden': 'true' },
+        h('span', { class: 'cal-week-dow' }, day.short),
+        h('span', { class: 'cal-num num' }, String(day.num)));
+      return single
+        ? label
+        : h('a', {
+          class: 'cal-week-daylink',
+          href: dayHref(currentHash(), day.key),
+          'aria-label': `Day view, ${dayWords(day)}`,
+          dataset: { focusKey: `day-link-${day.key}` },
+        }, label);
+    };
+
     const head = h('div', { class: 'cal-week-row cal-week-head' },
       h('div', { class: 'cal-week-corner' }, zone),
       days.map((day) => h('div', { class: cellClass(day, 'cal-week-dayhead') },
-        h('span', { class: 'cal-week-daylabel', 'aria-hidden': 'true' },
-          h('span', { class: 'cal-week-dow' }, day.short),
-          h('span', { class: 'cal-num num' }, String(day.num))),
+        headLabel(day),
         canCreate
           ? iconButton({
             icon: 'plus',
@@ -684,7 +772,7 @@ export function mount(ctx) {
           const list = dueOf(day.key);
           const allDay = allDayOf(day.key);
           const cell = h('div', { class: cellClass(day, 'cal-week-due cal-chips'), dataset: { date: day.key } },
-            list.map((item) => dueChip(item, { link: true })),
+            list.map((item) => dueChip(item, { link: true, drag: !single })),
             allDay.map(personalChip));
           if (list.length || allDay.length) {
             cell.setAttribute('role', 'group');
@@ -729,7 +817,7 @@ export function mount(ctx) {
     });
 
     const grid = h('div', {
-      class: ['cal-week', canCreate ? 'can-create' : null].filter(Boolean).join(' '),
+      class: ['cal-week', single ? 'is-day' : null, canCreate ? 'can-create' : null].filter(Boolean).join(' '),
       role: 'group',
       'aria-labelledby': titleId,
     }, head, dues, h('div', { class: 'cal-week-row cal-week-body' }, gutter, tracks));
@@ -1107,7 +1195,7 @@ export function mount(ctx) {
       const heading = dayHeading(day.key, today);
       const list = rowList(dayRows(d), { label: heading });
       list.dataset.day = day.key;
-      wrap.append(groupHeader({ label: heading, count: d.sessions.length + d.items.length }), list);
+      wrap.append(dayGroupHeader(day.key, heading, d.sessions.length + d.items.length), list);
     }
     if (!any) wrap.append(emptyState({ icon: 'calendar-blank', text: 'Nothing scheduled or due this week.' }));
     return wrap;
@@ -1212,7 +1300,7 @@ export function mount(ctx) {
 
   // A due item. In the month it is a span inside the day button; in the week
   // grid it is a link that opens the drawer.
-  function dueChip(item, { link = false } = {}) {
+  function dueChip(item, { link = false, drag = true } = {}) {
     const { kind, icon: iconName } = chipKind(item, audience);
     const name = item.task.title || 'Untitled';
     const score = item.grade?.score;
@@ -1233,7 +1321,7 @@ export function mount(ctx) {
         item.studentName ? h('span', { class: 'cal-chip-who' }, initials(item.studentName)) : null,
         icon(iconName, { size: 12 }),
         name));
-    if (mayDragDue(item)) {
+    if (drag && mayDragDue(item)) {
       dragToDay(el, {
         cellSelector: link ? '.cal-week-due' : '.cal-day',
         label: name,
@@ -1338,6 +1426,15 @@ export function mount(ctx) {
         key === today ? h('span', { class: 'cal-panel-tag' }, 'Today') : null,
         !loading && meta ? h('span', { class: 'cal-panel-meta num' }, meta) : null,
         button({
+          label: 'Day view',
+          variant: 'ghost',
+          size: 'sm',
+          href: dayHref(currentHash(), key),
+          ariaLabel: `Day view, ${dateWords(key, today)}`,
+          className: 'cal-panel-dayview',
+          focusKey: 'cal-panel-dayview',
+        }),
+        button({
           label: `Show next ${PANEL_DAYS} days`,
           variant: 'ghost',
           size: 'sm',
@@ -1396,8 +1493,8 @@ export function mount(ctx) {
         rowList(g.overdue.map(row), { label: 'Overdue' }));
     }
     for (const d of g.days) {
-      const dayTitle = dayHeading(d.key, today);
-      panel.append(panelHeading(dayTitle, d.sessions.length + d.items.length), rowList(dayRows(d), { label: dayTitle }));
+      const dayText = dayHeading(d.key, today);
+      panel.append(panelHeading(dayText, d.sessions.length + d.items.length), rowList(dayRows(d), { label: dayText }));
     }
     return panel;
   }
@@ -1432,10 +1529,10 @@ export function mount(ctx) {
         rowList(notes.map(sessionRow), { label: 'Needs session notes' }));
     }
     for (const d of days) {
-      const dayTitle = dayHeading(d.key, today);
-      const list = rowList(dayRows(d), { label: dayTitle });
+      const dayText = dayHeading(d.key, today);
+      const list = rowList(dayRows(d), { label: dayText });
       list.dataset.day = d.key;
-      wrap.append(groupHeader({ label: dayTitle, count: d.sessions.length + d.items.length }), list);
+      wrap.append(dayGroupHeader(d.key, dayText, d.sessions.length + d.items.length), list);
     }
     if (!g.overdue.length && !days.length && !notes.length) {
       wrap.append(emptyState({ icon: 'calendar-blank', text: `Nothing scheduled or due in the next ${state.range} days.` }));
@@ -1581,9 +1678,10 @@ export function mount(ctx) {
     } else {
       const range = viewRange(state.view, state, today);
       const sessions = sessionsInRange(state.shown, range.start, range.end).length;
-      const items = state.view === 'month'
-        ? countInMonth(state.byDay, state.month)
-        : weekDays(state.week, today).reduce((sum, d) => sum + (state.byDay.get(d.key)?.length ?? 0), 0);
+      let items;
+      if (state.view === 'month') items = countInMonth(state.byDay, state.month);
+      else if (state.view === 'day') items = state.byDay.get(state.day)?.length ?? 0;
+      else items = weekDays(state.week, today).reduce((sum, d) => sum + (state.byDay.get(d.key)?.length ?? 0), 0);
       ctx.announce(`Calendar, ${heading()}, ${plural(sessions, 'session')}, ${plural(items, 'item')}`);
     }
   })();
