@@ -16,6 +16,7 @@ import {
   findClashes, timeRange, shortDayText, timeInput, isCancelled, durationMinutes, durationText,
 } from './sessions-model.js';
 import { dayKey, todayKey, parseKey, addDays, longDate, daysBetween } from './dates.js';
+import { familyRateFor } from './billing-model.js';
 
 export const QUICK_DURATIONS = Object.freeze([30, 45, 60, 90, 120]);
 export const DEFAULT_START = '16:00';
@@ -132,6 +133,64 @@ export function subjectsFor(links = [], studentId) {
 export function defaultSubject(links = [], tutorId, studentId) {
   const link = links.find((l) => sameId(l.tutor_id, tutorId) && sameId(l.student_id, studentId));
   return String(link?.subject ?? '').trim();
+}
+
+// ---------------------------------------------------------------------------
+// Subjects and what they are priced at (the admin only: family_rates is admin
+// only, so a tutor's form never has rates and keeps the plain suggestions)
+
+// The spelling billing matches subjects on (billing-model.js): trimmed, spaces
+// collapsed, ignoring case
+const subjectKey = (s) => String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+// The subjects a student is priced for: the subjects of their live (not voided)
+// family rates, each once whatever its case, by name. A lesson named for one of
+// these is billed at that rate. `day` keeps to the rates in force on it, and
+// `tutorId` leaves out rates set for another tutor, which do not price this
+// tutor's lessons.
+export function ratedSubjects(rates, studentId, { tutorId = null, day = null } = {}) {
+  const seen = new Map();
+  const rows = (rates ?? [])
+    .filter((r) => !r.voided_at && sameId(r.student_id, studentId) && subjectKey(r.subject)
+      && (!day || String(r.effective_from) <= day)
+      && (!tutorId || !r.tutor_id || sameId(r.tutor_id, tutorId)))
+    // newest first, so the wording of the latest rate is the one that shows
+    .sort((a, b) => String(b.effective_from).localeCompare(String(a.effective_from)));
+  for (const r of rows) {
+    const key = subjectKey(r.subject);
+    if (!seen.has(key)) seen.set(key, String(r.subject).trim().replace(/\s+/g, ' '));
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}
+
+// The subject field's suggestions. Without rates (a tutor, or billing that
+// could not be read) they are the subjects on the student's tutor links. With
+// them (the admin) the student's rated subjects come first, then the link
+// subjects that are not already listed, ignoring case.
+export function subjectChoices({ links = [], studentId, rates = null, tutorId = null, day = null } = {}) {
+  const linked = subjectsFor(links, studentId);
+  if (!Array.isArray(rates)) return linked;
+  const rated = ratedSubjects(rates, studentId, { tutorId, day });
+  const have = new Set(rated.map(subjectKey));
+  return [...rated, ...linked.filter((s) => !have.has(subjectKey(s)))];
+}
+
+// The quiet line under the subject field when the typed subject would price at
+// $0, or null. It asks billing's own rule (familyRateFor): the subject, then the
+// tutor-student link's subject, then a rate with no subject, for this student
+// and the chosen tutor, in force on the lesson's day. So it stays quiet when
+// the lesson is billable some other way, when nothing is typed, when the
+// student or tutor is not chosen yet, and when rates are not known.
+export function subjectRateHint({
+  subject, rates = null, studentId, tutorId, day = null, links = [], now = new Date(),
+} = {}) {
+  const typed = String(subject ?? '').trim();
+  if (!typed || !studentId || !tutorId || !Array.isArray(rates)) return null;
+  const when = KEY_RE.test(day ?? '') ? day : todayKey(now);
+  const linkSubject = defaultSubject(links, tutorId, studentId) || null;
+  if (familyRateFor({ studentId, tutorId, subject: typed, day: when, linkSubject }, rates)) return null;
+  const pick = ratedSubjects(rates, studentId, { tutorId, day: when }).length > 0;
+  return `No rate for ${typed} yet, so it will be priced at $0. ${pick ? 'Pick one of their subjects or add a rate on Account.' : 'Add a rate on Account.'}`;
 }
 
 // ---------------------------------------------------------------------------
