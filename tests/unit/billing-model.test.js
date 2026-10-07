@@ -497,14 +497,16 @@ describe('needs attention and the gates', () => {
     expect(flags[0]).toContain('added_late');
     expect(flags[1]).toContain('longer');
     expect(flags[2]).toContain('altered');
-    expect(flags[3]).toContain('short_notice');
+    // no cancellation policy: a late cancellation is never flagged
+    expect(flags[3]).not.toContain('short_notice');
+    expect(flags[3]).toEqual([]);
     expect(flags[4]).toContain('altered');
     // the admin's own change is not flagged as altered
     const byAdmin = ctxOf([cancelledLater], { edits: [{ ...ctx.edits[0], editor: 'varun' }] });
     expect(flagsFor(byAdmin, byAdmin.rows[0])).not.toContain('altered');
-    // short notice is settled by an exception percentage
+    // and a percentage set on it by hand still applies to what the family pays
     const decided = ctxOf([shortNotice], { sessionBilling: [{ session_id: shortNotice.id, charge_pct: 50, reason: 'late_cancel' }] });
-    expect(flagsFor(decided, decided.rows[0])).not.toContain('short_notice');
+    expect(flagsFor(decided, decided.rows[0])).toEqual([]);
   });
 
   test('no tutor rate blocks only that tutor; overdue and older counts inform', () => {

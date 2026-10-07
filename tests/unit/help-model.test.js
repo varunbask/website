@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { helpSections, helpLede, supportMailto, partsText, SUPPORT_EMAIL, PRIVACY_PATH, NOTICE_HOURS } from '../../portal/js/help-model.js';
+import { helpSections, helpLede, supportMailto, partsText, SUPPORT_EMAIL, PRIVACY_PATH } from '../../portal/js/help-model.js';
 import { MAX_SUBMISSIONS } from '../../portal/js/buckets.js';
 
 const PORTAL = fileURLToPath(new URL('../../portal', import.meta.url));
@@ -121,12 +121,11 @@ describe('families', () => {
     expect(parent).toMatch(/Your child can turn them on/);
   });
 
-  test('rescheduling asks for 24 hours notice and warns about late cancellations', () => {
-    expect(NOTICE_HOURS).toBe(24);
+  test('rescheduling: no notice period and no charge for cancelling', () => {
     for (const role of ['student', 'parent']) {
       const text = textsOf(helpSections(role).find((s) => s.id === 'schedule')).join('\n');
-      expect(text).toContain('at least 24 hours');
-      expect(text).toContain('Late cancellations may be charged.');
+      expect(text).toContain('There is no charge for cancelling.');
+      expect(text).not.toMatch(/24 hours|Late cancellations/);
     }
   });
 
