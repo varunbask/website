@@ -102,7 +102,9 @@
   transition-timing-function: var(--ease-sheet);
   transition-behavior: allow-discrete;
 }
-.palette[open] { opacity: 1; transform: none; }
+/* The dialog itself is the column (no percentage heights: Safari resolves
+   height: 100% inside an auto-height dialog to 0 and the box collapsed) */
+.palette[open] { display: flex; flex-direction: column; opacity: 1; transform: none; }
 @starting-style {
   .palette[open] { opacity: 0; transform: var(--enter-from); }
 }
@@ -122,8 +124,8 @@
 .palette-inner {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  max-height: inherit;
+  flex: 0 1 auto;
+  min-height: 0;
 }
 
 
@@ -276,7 +278,7 @@
     border-radius: 0;
     box-shadow: none;
   }
-  .palette-inner { max-height: none; }
+  .palette-inner { flex: 1 1 auto; }
   .palette-search {
     padding-top: env(safe-area-inset-top);
     padding-left: max(var(--s-4), env(safe-area-inset-left));
