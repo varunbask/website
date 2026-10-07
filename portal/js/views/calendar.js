@@ -1046,9 +1046,13 @@ export function mount(ctx) {
     const times = movedTimes(s, { date, start });
     // The student's sessions (the series and their clashes) and the tutor's
     // (their other students); either failing only makes the clash check know less
-    const [siblings, ws] = await Promise.all([
+    // A tutor reads only their own sessions; the student's lessons with other
+    // tutors come back as busy times only
+    const wantsBusy = ctx.me?.role === 'tutor' && typeof ctx.store.getStudentBusy === 'function';
+    const [siblings, ws, busy] = await Promise.all([
       Promise.resolve(ctx.store.getSessions(s.student_id)).catch((error) => { console.error(error); return []; }),
       Promise.resolve(ctx.store.getWorkspace()).catch((error) => { console.error(error); return null; }),
+      wantsBusy ? Promise.resolve(ctx.store.getStudentBusy(s.student_id)).catch((error) => { console.error(error); return []; }) : [],
     ]);
     const rows = s.series_id ? followingInSeries(mergeSessions(siblings, [s]), s, { now: clock() }) : [s];
     const series = rows.length > 1;
@@ -1059,7 +1063,7 @@ export function mount(ctx) {
       planned: [{ id: s.id, ...times }],
       studentId: s.student_id,
       tutorId: s.tutor_id,
-      list: mergeSessions(siblings ?? [], tutorsOwn(ws?.sessions), tutorsOwn(state.sessions)),
+      list: mergeSessions(siblings ?? [], tutorsOwn(ws?.sessions), tutorsOwn(state.sessions), busy ?? []),
       ignoreIds: [s.id],
       tutorNames: state.tutorNames,
       studentNames: state.studentNames,

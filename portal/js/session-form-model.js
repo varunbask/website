@@ -460,6 +460,7 @@ export function clashLine(clash, { tutorNames = new Map(), studentNames = new Ma
   const s = clash.session;
   const tutor = tutorNames.get(String(s.tutor_id)) || 'This tutor';
   const student = studentNames.get(String(s.student_id)) || 'The student';
+  if (clash.who === 'student' && s.busy) return `${student} has another lesson then.`;
   if (clash.who === 'student') {
     const subject = String(s.subject ?? '').trim() || 'a tutoring session';
     return `${student} has ${subject} with ${tutor} then.`;

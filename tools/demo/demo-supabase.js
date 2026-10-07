@@ -310,8 +310,9 @@
     grades: gradeVisible,
     submission_drafts: (r) => r.student_id === meId,
     updates: (r) => canTeach(r.student_id) || (role() === 'parent' && childOf(r.student_id)) || (role() === 'student' && r.visible_to_student && r.student_id === meId),
-    sessions: (r) => canSee(r.student_id) || (isStaff() && r.tutor_id === meId),
-    session_series: (r) => canSee(r.student_id) || (isStaff() && r.tutor_id === meId),
+    // A tutor reads only their own sessions; everyone else every session of a student they may see
+    sessions: (r) => (isStaff() && r.tutor_id === meId) || (role() !== 'tutor' && canSee(r.student_id)),
+    session_series: (r) => (isStaff() && r.tutor_id === meId) || (role() !== 'tutor' && canSee(r.student_id)),
     materials: (r) => canSee(r.student_id),
   };
   const WRITE = {
@@ -626,6 +627,13 @@
           payer_name: db.profiles.find((p) => p.id === x.parent_id)?.full_name ?? '',
         }));
         return { data: rows.sort((a, b) => b.period.localeCompare(a.period) || Number(b.own) - Number(a.own)), error: null };
+      }
+      case 'student_busy': {
+        // the student's lessons with other tutors, as times only
+        if (!canSee(args.p_student)) return { data: [], error: null };
+        const rows = db.sessions.filter((x) => x.student_id === args.p_student && x.tutor_id !== meId && x.status !== 'cancelled'
+          && x.starts_at < args.p_to && x.ends_at > args.p_from);
+        return { data: rows.map((x) => ({ starts_at: x.starts_at, ends_at: x.ends_at })).sort((a, b) => a.starts_at.localeCompare(b.starts_at)), error: null };
       }
       case 'my_google_connection':
         return { data: [], error: null };
