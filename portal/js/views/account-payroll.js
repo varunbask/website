@@ -2,7 +2,8 @@
 // payroll: tutor pay is counted twice a month, the 1st to the 15th and the 16th
 // to the last day. One card per pay period that overlaps the month, with one
 // row per tutor: the sessions behind the total, bonuses and deductions, the
-// pay summary and the CSV. Check first marks a period with open items.
+// pay summary and the CSV. Check first marks a period holding a tutor with no
+// pay rate; everything else is priced from the calendar as it stands.
 
 import { sb } from '../supabase.js';
 import { h } from '../dom.js';
@@ -11,12 +12,12 @@ import { button, pill, select, emptyState, busy, drawerHref } from '../ui.js';
 import { todayKey } from '../dates.js';
 import { timeRange } from '../sessions-model.js';
 import {
-  money, hoursText, parseMoney, monthEnd, periodsOverlapping, payPeriodEnd, periodText,
+  money, hoursText, parseMoney, monthEnd, periodsOverlapping, payPeriodEnd, periodText, payDateText,
   periodRows, periodStatus, tutorBlockers, yearToDate, dayText, shortDate, ATTENTION,
 } from '../billing-model.js';
 import { payoutText, payrollCsv, labelText, stateText, LABELS } from '../billing-text.js';
 import {
-  setHeader, monthFrom, monthPicker, loadPriced, table, cents, csvButton, act, clientKey, note, tabHref, askReason,
+  setHeader, monthFrom, monthPicker, loadPriced, table, cents, csvButton, act, clientKey, note, askReason,
 } from './account-shared.js';
 
 const TUTOR_LABELS = ['bonus', 'reimbursement', 'deduction', 'other'];
@@ -62,7 +63,7 @@ export function mount(ctx) {
       return h('section', { class: 'card acct-card acct-period', 'aria-label': `Pay period ${periodText(start)}` },
         h('div', { class: 'card-head' },
           h('h2', { class: 'card-title' }, `${dayText(start)} to ${dayText(end, start)}`),
-          h('span', { class: 'card-meta' }, future ? 'Upcoming' : current ? 'In progress' : gateAll.length ? 'Check first' : 'Complete'),
+          h('span', { class: 'card-meta' }, `${future ? 'Upcoming' : current ? 'In progress' : gateAll.length ? 'Check first' : 'Complete'}. ${payDateText(start)}`),
           h('div', { class: 'card-actions' }, csvButton(ctx, `payroll-${start}.csv`, () => payrollCsv(rows)))),
         ended && gateAll.length ? checkNote(gateAll) : null,
         rows.length ? table({
@@ -103,7 +104,7 @@ export function mount(ctx) {
         icon('warning-circle', { size: 20 }),
         h('div', { class: 'callout-body' },
           h('p', { class: 'callout-title' }, `${items.length} ${items.length === 1 ? 'item to check' : 'items to check'} before you send this period to your CPA`),
-          h('p', { class: 'callout-text' }, kinds.join('; '), '. ', h('a', { href: tabHref('dashboard', month) }, 'Open Needs attention'), '.')));
+          h('p', { class: 'callout-text' }, kinds.join('; '), '. ', h('a', { href: '#/rates' }, 'Set a pay rate on Rates'), '.')));
     }
 
     function details(t, planned) {
@@ -115,7 +116,7 @@ export function mount(ctx) {
           h('a', { class: 'acct-line-what', href: drawerHref(location.hash, `s${r.id}`) },
             h('span', { class: 'acct-line-when' }, `${dayText(r.day)}, ${timeRange(r.session)}`),
             h('span', {}, `${who}, ${r.subject || 'Tutoring'}, ${hoursText(s.minutes)} hr`)),
-          pill({ label: s.rows.length > 1 ? `Group of ${s.rows.length}` : stateText(r.state), tone: s.rows.length > 1 ? 'info' : r.state === 'attended' ? 'success' : r.state === 'unconfirmed' ? 'danger' : 'neutral' }),
+          pill({ label: s.rows.length > 1 ? `Group of ${s.rows.length}` : stateText(r.state), tone: s.rows.length > 1 ? 'info' : r.state === 'attended' ? 'success' : 'neutral' }),
           h('span', { class: 'acct-line-amount num' }, money(planned ? s.tutorExpected : s.tutorRealized)));
       });
       return h('div', { class: 'acct-details' },

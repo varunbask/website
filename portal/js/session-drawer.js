@@ -219,7 +219,7 @@ async function loadExtras(dctx, found) {
 async function priced(store) {
   try {
     const d = await store.getBilling();
-    return buildContext({ sessions: d.sessions, links: d.links, rules: d.rules, billing: d.billing, now: new Date(), adminIds: d.adminIds });
+    return buildContext({ sessions: d.sessions, links: d.links, rules: d.rules, billing: d.billing, now: new Date() });
   } catch {
     return null;
   }

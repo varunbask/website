@@ -5,7 +5,7 @@ import {
   stateOf, buildContext, groupSlots, familyMonth, familyRows, familyBalance, familyStatus, allOutstanding,
   tutorPeriod, periodRows, periodStatus, rangeTotals, needsAttention, flagsFor,
   familyBlockers, tutorBlockers, familySnapshot, billingFact, inPaidPeriod, statementNumber,
-  dueDate, yearToDate, isAccepted, dayText,
+  dueDate, yearToDate, isAccepted, dayText, ATTENTION, overlapsOf, STATES, payDate, payDateText,
 } from '../../portal/js/billing-model.js';
 import {
   policyText, statementText, payoutText, payrollCsv, csvText, parseRateLines, matchRates, familiesCsv,
@@ -56,7 +56,7 @@ function billing(extra = {}) {
     ...extra,
   };
 }
-const ctxOf = (sessions, extra = {}, opts = {}) => buildContext({ sessions, billing: billing(extra), now: NOW, links: opts.links ?? [], rules: opts.rules ?? [], adminIds: ['varun'] });
+const ctxOf = (sessions, extra = {}, opts = {}) => buildContext({ sessions, billing: billing(extra), now: NOW, links: opts.links ?? [], rules: opts.rules ?? [] });
 
 describe('money and hours', () => {
   test('formats cents', () => {
@@ -116,6 +116,22 @@ describe('months and pay periods', () => {
     expect(periodText('2026-12-16')).toBe('Dec 16 to Dec 31');
     expect(periodsOverlapping('2026-11-01', '2026-11-30')).toEqual(['2026-11-01', '2026-11-16']);
     expect(periodsOverlapping('2026-11-20', '2026-12-05')).toEqual(['2026-11-16', '2026-12-01']);
+  });
+
+  test('pay dates: the 1st to the 15th is paid the 15th, the 16th to the end of the month the 1st of the next', () => {
+    expect(payDate('2026-10-01')).toBe('2026-10-15');
+    expect(payDate('2026-10-16')).toBe('2026-11-01');
+    expect(payDate('2026-12-16')).toBe('2027-01-01');
+    expect(payDate('2027-02-16')).toBe('2027-03-01');
+    expect(payDate('2028-02-01')).toBe('2028-02-15');
+    expect(payDateText('2026-10-01')).toBe('Pays Oct 15');
+    expect(payDateText('2026-10-16')).toBe('Pays Nov 1');
+    // across a year end the year is spelled out
+    expect(payDateText('2026-12-16')).toBe('Pays Jan 1, 2027');
+    expect(payDateText('2026-12-01')).toBe('Pays Dec 15');
+    // every period of a year has a pay date on the 15th or the 1st
+    for (const p of periodsOverlapping('2027-01-01', '2027-12-31')) expect(payDate(p)).toMatch(/-(15|01)$/);
+    expect(payDateText('2026-10-01')).not.toMatch(/[\u2013\u2014]/);
   });
 
   test('24 periods in a year', () => {
@@ -189,7 +205,17 @@ describe('one session', () => {
     expect(stateOf(session('2026-11-10', '16:00', '17:00', { attendance: 'late' }), NOW)).toBe('attended');
     expect(stateOf(session('2026-11-10', '16:00', '17:00', { attendance: 'absent' }), NOW)).toBe('noshow');
     expect(stateOf(session('2026-11-10', '16:00', '17:00', { status: 'cancelled' }), NOW)).toBe('cancelled');
-    expect(stateOf(session('2026-11-10', '16:00', '17:00', { status: 'cancelled', attendance: 'present' }), NOW)).toBe('conflict');
+    // a cancelled lesson is cancelled, whatever attendance was recorded before
+    expect(stateOf(session('2026-11-10', '16:00', '17:00', { status: 'cancelled', attendance: 'present' }), NOW)).toBe('cancelled');
+    expect(Object.keys(STATES)).toEqual(['cancelled', 'expected', 'attended', 'noshow', 'unconfirmed']);
+  });
+
+  test('a lesson cancelled after attendance was recorded is simply cancelled: $0, nothing listed', () => {
+    const s = session('2026-11-10', '16:00', '17:00', { status: 'cancelled', attendance: 'present' });
+    const ctx = ctxOf([s]);
+    expect(ctx.rows[0]).toMatchObject({ state: 'cancelled', familyRealized: 0, familyExpected: 0, tutorRealized: 0, tutorExpected: 0 });
+    expect(needsAttention(ctx, '2026-11-01', '2026-11-30').items).toEqual([]);
+    expect(billingFact(ctx, s, 'admin')).toBe('Cancelled: not billed, not paid');
   });
 
   test('what each state is worth', () => {
@@ -240,6 +266,22 @@ describe('one session', () => {
     const ctx = ctxOf([trial], { sessionBilling: [{ session_id: trial.id, charge_pct: 0, reason: 'trial' }] });
     expect(ctx.rows[0]).toMatchObject({ familyRealized: 0, tutorRealized: 0, unpriced: true });
     expect(flagsFor(ctx, ctx.rows[0])).not.toContain('unpriced');
+  });
+
+  test('a free trial on any tutor\u2019s lesson: the family pays nothing, the tutor is still paid the standard rate', () => {
+    const trial = session('2026-11-11', '16:00', '17:00', { student_id: 'newkid', tutor_id: 'ethan', attendance: 'present' });
+    const ctx = ctxOf([trial], {
+      sessionBilling: [{ session_id: trial.id, charge_pct: 0, reason: 'trial' }],
+      parentLinks: [{ parent_id: 'alan', student_id: 'newkid', bills: true }],
+    });
+    expect(ctx.rows[0]).toMatchObject({ familyRealized: 0, tutorRealized: 3000, unpriced: true });
+    expect(flagsFor(ctx, ctx.rows[0])).toEqual([]);
+    expect(needsAttention(ctx, '2026-11-01', '2026-11-30').items).toEqual([]);
+    expect(tutorPeriod(ctx, 'ethan', '2026-11-01').totalCents).toBe(3000);
+    // a trial that has not happened yet is $0 for the family and nothing to pay yet
+    const upcoming = session('2026-11-25', '16:00', '17:00', { student_id: 'newkid', tutor_id: 'ethan' });
+    const next = ctxOf([upcoming], { sessionBilling: [{ session_id: upcoming.id, charge_pct: 0, reason: 'trial' }] });
+    expect(next.rows[0]).toMatchObject({ familyExpected: 0, tutorExpected: 3000 });
   });
 
   test('sessions before the ledger start are ignored', () => {
@@ -324,15 +366,27 @@ describe('families', () => {
     expect(f.owedCents).toBe(12000 - 1000);
   });
 
-  test('partial, credit and changed-since-payment statuses', () => {
+  test('partial, paid and credit statuses', () => {
     const pay = (cents, owed) => ({ id: 1, parent_id: 'alan', period: '2026-11-01', amount_cents: cents, received_on: '2026-11-12', created_at: 'a', owed_cents: owed, lines: [] });
     expect(familyStatus(ctxOf(sessions()), familyMonth(ctxOf(sessions(), { payments: [pay(5000, 9000)] }), 'alan', '2026-11-01')).label).toBe('Paid $50.00 of $90.00');
-    const changed = ctxOf(sessions(), { payments: [pay(4500, 4500)] });
-    expect(familyStatus(changed, familyMonth(changed, 'alan', '2026-11-01')).key).toBe('changed');
+    const full = ctxOf(sessions(), { payments: [pay(9000, 9000)] });
+    expect(familyStatus(full, familyMonth(full, 'alan', '2026-11-01'))).toMatchObject({ key: 'paid', label: 'Paid Nov 12', tone: 'success' });
     const exact = ctxOf(sessions(), { payments: [pay(10000, 9000)] });
-    const fm = familyMonth(exact, 'alan', '2026-11-01');
-    expect(fm.changedSincePayment).toBe(false);
-    expect(familyStatus(exact, fm).label).toBe('Credit $10.00');
+    expect(familyStatus(exact, familyMonth(exact, 'alan', '2026-11-01')).label).toBe('Credit $10.00');
+  });
+
+  test('a month edited after it was paid just changes the numbers: the rest is still due, nothing is flagged', () => {
+    // alan paid $45 when the month came to $45; the calendar now has two more lessons for November
+    const pay = { id: 1, parent_id: 'alan', period: '2026-11-01', amount_cents: 4500, received_on: '2026-11-12', created_at: 'a', owed_cents: 4500, lines: [] };
+    const ctx = ctxOf([session('2026-11-03', '16:00', '17:00', { attendance: 'present' }), session('2026-11-10', '16:00', '17:00', { attendance: 'present' })], { payments: [pay] });
+    const f = familyMonth(ctx, 'alan', '2026-11-01');
+    expect(f).toMatchObject({ owedCents: 9000, paidCents: 4500, dueCents: 4500 });
+    expect(f).not.toHaveProperty('changedSincePayment');
+    expect(familyStatus(ctx, f)).toMatchObject({ key: 'partial', label: 'Paid $45.00 of $90.00' });
+    expect(needsAttention(ctx, '2026-11-01', '2026-11-30').items).toEqual([]);
+    // and a lesson taken off the calendar leaves a credit
+    const fewer = ctxOf([session('2026-11-03', '16:00', '17:00', { attendance: 'present' })], { payments: [{ ...pay, amount_cents: 9000 }] });
+    expect(familyStatus(fewer, familyMonth(fewer, 'alan', '2026-11-01'))).toMatchObject({ key: 'credit', label: 'Credit $45.00' });
   });
 
   test('balance across months; a payment with no month is applied overall', () => {
@@ -369,7 +423,7 @@ describe('families', () => {
         payments: [{ id: 1, parent_id: 'alan', payer_name: 'Alan Wang', period: '2026-11-01', amount_cents: 4500, received_on: '2026-11-05', created_at: 'a', owed_cents: 4500, lines: [{ session_id: String(nov.id), amount_cents: 4500 }] }],
       }),
     });
-    expect(familyMonth(ctx, 'alan', '2026-11-01')).toMatchObject({ owedCents: 4500, paidCents: 4500, changedSincePayment: false });
+    expect(familyMonth(ctx, 'alan', '2026-11-01')).toMatchObject({ owedCents: 4500, paidCents: 4500, dueCents: 0 });
     expect(familyMonth(ctx, 'ryan', '2026-11-01').lines).toEqual([]);
     expect(familyBalance(ctx, 'alan')).toBe(0);
     expect(familyMonth(ctx, 'ryan', '2026-12-01').owedCents).toBe(4500);
@@ -409,9 +463,13 @@ describe('tutors', () => {
     expect(periodStatus(ctx, tutorPeriod(ctx, 'ethan', '2026-11-01'))).toMatchObject({ key: 'complete', label: 'Complete' });
     expect(periodStatus(ctx, tutorPeriod(ctx, 'ethan', '2026-11-16'))).toMatchObject({ key: 'open', label: 'In progress' });
     expect(periodStatus(ctx, tutorPeriod(ctx, 'ethan', '2026-12-01'))).toMatchObject({ key: 'future', label: 'Upcoming' });
-    // an ended session without attendance: check it before sending the period on
+    // an ended session without attendance counts as held: nothing to check
     const open = ctxOf([...list(), session('2026-11-12', '16:00', '17:00')]);
-    expect(periodStatus(open, tutorPeriod(open, 'ethan', '2026-11-01'))).toMatchObject({ key: 'check', label: 'Check first' });
+    expect(periodStatus(open, tutorPeriod(open, 'ethan', '2026-11-01'))).toMatchObject({ key: 'complete', label: 'Complete' });
+    expect(tutorPeriod(open, 'ethan', '2026-11-01').totalCents).toBe(10500);
+    // a tutor with no pay rate cannot be priced: check it before sending the period on
+    const unrated = ctxOf([session('2026-11-12', '16:00', '17:00', { tutor_id: 'marcus', attendance: 'present' })]);
+    expect(periodStatus(unrated, tutorPeriod(unrated, 'marcus', '2026-11-01'))).toMatchObject({ key: 'check', label: 'Check first' });
     // payouts recorded under the old Payroll tab change nothing
     const payout = { id: 1, kind: 'tutor', tutor_id: 'ethan', period_start: '2026-11-01', amount_cents: 100, paid_on: '2026-11-20', lines: [] };
     const old = ctxOf(list(), { payouts: [payout] });
@@ -457,85 +515,108 @@ describe('totals', () => {
   });
 });
 
-describe('needs attention and the gates', () => {
-  test('unconfirmed blocks the family and the tutor until confirmed or accepted', () => {
-    const s = session('2026-11-10', '16:00', '17:00');
-    const ctx = ctxOf([s]);
-    expect(familyBlockers(ctx, 'alan', '2026-11-01').ok).toBe(false);
-    expect(tutorBlockers(ctx, 'ethan', '2026-11-01').ok).toBe(false);
-    const accepted = ctxOf([s], { sessionBilling: [{ session_id: s.id, reviewed_at: at('2026-11-12', '09:00') }] });
-    expect(isAccepted(accepted, accepted.rows[0])).toBe(true);
-    expect(familyBlockers(accepted, 'alan', '2026-11-01').ok).toBe(true);
-    // an edit after the Accept reopens it
-    const reopened = ctxOf([s], {
-      sessionBilling: [{ session_id: s.id, reviewed_at: at('2026-11-12', '09:00') }],
-      edits: [{ session_id: s.id, action: 'update', at: at('2026-11-13', '09:00'), old_ends_at: s.ends_at, new_ends_at: s.ends_at, old_starts_at: s.starts_at, new_starts_at: s.starts_at, editor: 'ethan', old_status: 'scheduled', new_status: 'scheduled' }],
-    });
-    expect(isAccepted(reopened, reopened.rows[0])).toBe(false);
+describe('needs attention and the gates: only what cannot be priced', () => {
+  test('the list is a missing family rate, a missing tutor rate, an overlap, no payer and overdue; nothing else', () => {
+    expect(Object.keys(ATTENTION)).toEqual(['unpriced', 'no_tutor_rate', 'overlap', 'no_payer', 'overdue']);
+    expect(Object.entries(ATTENTION).filter(([, v]) => v.blocks).map(([k]) => k)).toEqual(['unpriced', 'no_tutor_rate']);
+    expect(ATTENTION.unpriced.title).toBe('No family rate');
+    expect(ATTENTION.no_tutor_rate.title).toBe('No tutor pay rate');
+    expect(ATTENTION.overlap).toEqual({ title: 'Same tutor, same time', blocks: false });
   });
 
-  test('added late, lengthened late, altered after it ended, short notice', () => {
+  test('a session that ended without attendance counts as held and holds nothing back', () => {
+    const s = session('2026-11-10', '16:00', '17:00');
+    const ctx = ctxOf([s]);
+    expect(ctx.rows[0]).toMatchObject({ state: 'unconfirmed', familyRealized: 4500, tutorRealized: 3000 });
+    expect(familyBlockers(ctx, 'alan', '2026-11-01').ok).toBe(true);
+    expect(tutorBlockers(ctx, 'ethan', '2026-11-01').ok).toBe(true);
+    expect(needsAttention(ctx, '2026-11-01', '2026-11-30').items).toEqual([]);
+    expect(flagsFor(ctx, ctx.rows[0])).toEqual([]);
+  });
+
+  test('how a session got on the calendar is never flagged: added late, made longer, moved, cancelled or deleted afterwards', () => {
     const late = session('2026-11-10', '16:00', '17:00', { attendance: 'present', created_at: at('2026-11-11', '09:00') });
     const longer = session('2026-11-11', '16:00', '18:00', { attendance: 'present', series_id: 'r1' });
     const movedBack = session('2026-11-14', '16:00', '17:00', { attendance: 'present' });
     const cancelledLater = session('2026-11-12', '16:00', '17:00', { status: 'cancelled', cancelled_at: at('2026-11-13', '09:00') });
-    const shortNotice = session('2026-11-13', '16:00', '17:00', { status: 'cancelled', cancelled_at: at('2026-11-13', '10:00') });
-    const ctx = ctxOf([late, longer, cancelledLater, shortNotice, movedBack], {
+    const edit = (s, extra) => ({ session_id: s.id, action: 'update', at: at('2026-11-13', '09:00'), editor: 'ethan',
+      old_starts_at: s.starts_at, new_starts_at: s.starts_at, old_ends_at: s.ends_at, new_ends_at: s.ends_at, ...extra });
+    const ctx = ctxOf([late, longer, cancelledLater, movedBack], {
       edits: [
-        { session_id: cancelledLater.id, action: 'update', at: at('2026-11-13', '09:00'), editor: 'ethan',
-          old_starts_at: cancelledLater.starts_at, new_starts_at: cancelledLater.starts_at, old_ends_at: cancelledLater.ends_at,
-          new_ends_at: cancelledLater.ends_at, old_status: 'scheduled', new_status: 'cancelled' },
-        // made an hour longer a week before it happened
-        { session_id: longer.id, action: 'update', at: at('2026-11-04', '09:00'), editor: 'ethan',
-          old_starts_at: longer.starts_at, new_starts_at: longer.starts_at, old_ends_at: at('2026-11-11', '17:00'), new_ends_at: longer.ends_at },
-        // a December session moved back into a past day of November
-        { session_id: movedBack.id, action: 'update', at: at('2026-11-16', '09:00'), editor: 'ethan',
-          old_starts_at: at('2026-12-05', '16:00'), new_starts_at: movedBack.starts_at, old_ends_at: at('2026-12-05', '17:00'), new_ends_at: movedBack.ends_at },
+        edit(cancelledLater, { old_status: 'scheduled', new_status: 'cancelled' }),
+        edit(longer, { at: at('2026-11-04', '09:00'), old_ends_at: at('2026-11-11', '17:00') }),
+        edit(movedBack, { at: at('2026-11-16', '09:00'), old_starts_at: at('2026-12-05', '16:00'), old_ends_at: at('2026-12-05', '17:00') }),
+        // deleted after it happened, by a tutor
+        { session_id: 999, student_id: 'kevin', tutor_id: 'ethan', editor: 'ethan', action: 'delete', at: at('2026-11-12', '09:00'),
+          old_starts_at: at('2026-11-10', '16:00'), old_ends_at: at('2026-11-10', '17:00'), old_status: 'scheduled', old_attendance: 'present' },
       ],
     });
-    const flags = ctx.rows.map((r) => flagsFor(ctx, r));
-    expect(flags[0]).toContain('added_late');
-    expect(flags[1]).toContain('longer');
-    expect(flags[2]).toContain('altered');
-    // no cancellation policy: a late cancellation is never flagged
-    expect(flags[3]).not.toContain('short_notice');
-    expect(flags[3]).toEqual([]);
-    expect(flags[4]).toContain('altered');
-    // the admin's own change is not flagged as altered
-    const byAdmin = ctxOf([cancelledLater], { edits: [{ ...ctx.edits[0], editor: 'varun' }] });
-    expect(flagsFor(byAdmin, byAdmin.rows[0])).not.toContain('altered');
-    // and a percentage set on it by hand still applies to what the family pays
-    const decided = ctxOf([shortNotice], { sessionBilling: [{ session_id: shortNotice.id, charge_pct: 50, reason: 'late_cancel' }] });
-    expect(flagsFor(decided, decided.rows[0])).toEqual([]);
+    expect(ctx.rows.map((r) => flagsFor(ctx, r))).toEqual([[], [], [], []]);
+    expect(needsAttention(ctx, '2026-11-01', '2026-11-30').items).toEqual([]);
+    expect(familyBlockers(ctx, 'alan', '2026-11-01').ok).toBe(true);
+    expect(tutorBlockers(ctx, 'ethan', '2026-11-01').ok).toBe(true);
+    // the calendar as it stands is what is priced: the late, longer and moved lessons count in full, the cancelled one and the deleted one do not
+    expect(ctx.rows.map((r) => r.familyRealized)).toEqual([4500, 9000, 0, 4500]);
+    expect(familyMonth(ctx, 'alan', '2026-11-01').owedCents).toBe(18000);
   });
 
-  test('no tutor rate blocks only that tutor; overdue and older counts inform', () => {
+  test('a lesson with no family rate is priced at zero and holds that family back, not the tutor; a rate fixes it', () => {
+    const s = session('2026-11-10', '16:00', '17:00', { student_id: 'nobody', attendance: 'present' });
+    const links = { parentLinks: [{ parent_id: 'sue', student_id: 'nobody', bills: true }] };
+    const ctx = ctxOf([s], links);
+    expect(needsAttention(ctx, '2026-11-01', '2026-11-30').byKind.get('unpriced')).toHaveLength(1);
+    const gate = familyBlockers(ctx, 'sue', '2026-11-01');
+    expect(gate.ok).toBe(false);
+    expect(gate.items.map((it) => it.kind)).toEqual(['unpriced']);
+    expect(tutorBlockers(ctx, 'ethan', '2026-11-01').ok).toBe(true);
+    const fixed = ctxOf([s], { ...links, familyRates: [rate('nobody', 5000)] });
+    expect(familyBlockers(fixed, 'sue', '2026-11-01').ok).toBe(true);
+    expect(fixed.rows[0].familyRealized).toBe(5000);
+    // a cancelled lesson needs no rate
+    const cancelled = ctxOf([session('2026-11-10', '16:00', '17:00', { student_id: 'nobody', status: 'cancelled' })], links);
+    expect(needsAttention(cancelled, '2026-11-01', '2026-11-30').items).toEqual([]);
+  });
+
+  test('no tutor rate holds back only that tutor\u2019s pay period; overdue families are listed for information', () => {
     const s = session('2026-11-10', '16:00', '17:00', { tutor_id: 'marcus', attendance: 'present' });
     const ctx = ctxOf([s]);
     expect(tutorBlockers(ctx, 'marcus', '2026-11-01').ok).toBe(false);
+    expect(tutorBlockers(ctx, 'marcus', '2026-11-01').items.map((it) => it.kind)).toEqual(['no_tutor_rate']);
+    expect(tutorBlockers(ctx, 'marcus', '2026-11-16').ok).toBe(true);
     expect(familyBlockers(ctx, 'alan', '2026-11-01').ok).toBe(true);
     const later = buildContext({ sessions: [s], billing: billing({ tutorRates: [trate('marcus', 2000)] }), now: new Date(zonedIso('2026-12-20', '12:00')) });
     const { byKind } = needsAttention(later, '2026-12-01', '2026-12-31');
     expect(byKind.get('overdue')?.[0]).toMatchObject({ parentId: 'alan', cents: 4500 });
+    // older sessions without attendance are no longer counted or listed
     const old = buildContext({ sessions: [session('2026-11-10', '16:00', '17:00')], billing: billing(), now: new Date(zonedIso('2026-12-20', '12:00')) });
-    expect(needsAttention(old, '2026-12-01', '2026-12-31').byKind.get('older_unconfirmed')?.[0].count).toBe(1);
+    expect([...needsAttention(old, '2026-12-01', '2026-12-31').byKind.keys()]).toEqual(['overdue']);
   });
 
-  test('a session a tutor deleted after it happened is listed for review (not the admin\u2019s own)', () => {
-    const del = (editor) => ({ session_id: 999, student_id: 'kevin', tutor_id: 'ethan', editor, action: 'delete', at: at('2026-11-12', '09:00'),
-      old_starts_at: at('2026-11-10', '16:00'), old_ends_at: at('2026-11-10', '17:00'), old_status: 'scheduled', old_attendance: 'present' });
-    const byTutor = needsAttention(ctxOf([], { edits: [del('ethan')] }), '2026-11-01', '2026-11-30').byKind.get('deleted_late');
-    expect(byTutor).toHaveLength(1);
-    expect(byTutor[0]).toMatchObject({ tutorId: 'ethan', studentId: 'kevin', day: '2026-11-10', by: 'ethan' });
-    expect(needsAttention(ctxOf([], { edits: [del('varun')] }), '2026-11-01', '2026-11-30').byKind.get('deleted_late')).toBeUndefined();
-    // a session deleted before it happened is just a cancellation of plans
-    const early = { ...del('ethan'), at: at('2026-11-09', '09:00') };
-    expect(needsAttention(ctxOf([], { edits: [early] }), '2026-11-01', '2026-11-30').byKind.get('deleted_late')).toBeUndefined();
+  test('the same tutor at the same time is information only: never held back, hidden once grouped or accepted', () => {
+    const a = session('2026-11-10', '15:00', '16:00', { student_id: 'kevin', attendance: 'present' });
+    const b = session('2026-11-10', '15:00', '16:00', { student_id: 'amy', attendance: 'present' });
+    const ctx = ctxOf([a, b]);
+    const found = needsAttention(ctx, '2026-11-01', '2026-11-30').byKind.get('overlap');
+    expect(found).toHaveLength(2);
+    expect(overlapsOf(ctx.rows).size).toBe(2);
+    expect(familyBlockers(ctx, 'alan', '2026-11-01').ok).toBe(true);
+    expect(familyBlockers(ctx, 'ryan', '2026-11-01').ok).toBe(true);
+    expect(tutorBlockers(ctx, 'ethan', '2026-11-01').ok).toBe(true);
+    expect(periodStatus(ctx, tutorPeriod(ctx, 'ethan', '2026-11-01'))).toMatchObject({ key: 'complete' });
+    // a cancelled lesson at the same time is not a clash
+    const cancelled = ctxOf([a, { ...b, status: 'cancelled' }]);
+    expect(needsAttention(cancelled, '2026-11-01', '2026-11-30').byKind.get('overlap')).toBeUndefined();
+    // Accept dismisses a real clash for good
+    const accepted = ctxOf([a, b], { sessionBilling: [{ session_id: a.id, reviewed_at: at('2026-11-12', '09:00') }, { session_id: b.id, reviewed_at: at('2026-11-12', '09:00') }] });
+    expect(isAccepted(accepted.rows[0])).toBe(true);
+    expect(isAccepted(ctx.rows[0])).toBe(false);
+    expect(needsAttention(accepted, '2026-11-01', '2026-11-30').byKind.get('overlap')).toBeUndefined();
   });
 
   test('students with no paying parent', () => {
     const ctx = ctxOf([session('2026-11-10', '16:00', '17:00', { student_id: 'amy', attendance: 'present' })], { parentLinks: [] });
     expect(needsAttention(ctx, '2026-11-01', '2026-11-30').byKind.get('no_payer')?.[0].studentId).toBe('amy');
+    expect(familyBlockers(ctx, 'ryan', '2026-11-01').ok).toBe(true);
   });
 });
 
@@ -562,11 +643,22 @@ describe('snapshots and the drawer line', () => {
 });
 
 describe('words and files', () => {
+  test('the policy says the calendar is priced as it stands, cancelled lessons are free and lessons without attendance count as held', () => {
+    const text = policyText(POLICY, SETTINGS);
+    expect(text).toContain('prices every lesson on the calendar as it stands');
+    expect(text).toContain('Cancelled lessons are not billed and not paid.');
+    expect(text).toContain('Lessons without attendance count as held.');
+    expect(text).toContain('Only a lesson with no family rate holds a family’s bill back');
+    expect(text).not.toMatch(/[–—]/);
+    expect(text).not.toMatch(/accepted|confirmed|Check first, until/);
+    expect(policyText({ ...POLICY, count_unconfirmed: false }, SETTINGS)).toContain('Lessons without attendance are not billed or paid until someone records them.');
+  });
+
   test('policy paragraph follows the numbers', () => {
     expect(policyText(POLICY, SETTINGS)).toContain('billed to the family and paid to the tutor in full');
     expect(policyText({ ...POLICY, absent_family_pct: 50, absent_tutor_pct: 0 }, SETTINGS)).toContain('billed at 50 percent and paid to the tutor at 0 percent');
     expect(policyText(POLICY, SETTINGS)).toContain('with the bill dated the 1st of the next month and due on the 15th');
-    expect(policyText(POLICY, SETTINGS)).toContain('the 1st to the 15th and the 16th to the end of the month');
+    expect(policyText(POLICY, SETTINGS)).toContain('the 1st to the 15th and the 16th to the end of the month, for payroll, and paid on the 15th and on the 1st of the next month');
     expect(policyText(POLICY, { ...SETTINGS, due_day: 1 })).toContain('due on the 1st');
   });
 
@@ -581,10 +673,12 @@ describe('words and files', () => {
     expect(text).toContain('Amount due: $100.00');
     expect(text).toContain('Zelle: pay@vp.test');
     const slip = payoutText(ctx, tutorPeriod(ctx, 'ethan', '2026-11-01'));
-    expect(slip).toContain('Pay for Ethan Poon, Nov 1 to Nov 15');
+    expect(slip).toContain('Pay for Ethan Poon, Nov 1 to Nov 15\nPays Nov 15');
+    expect(payoutText(ctx, tutorPeriod(ctx, 'ethan', '2026-11-16'))).toContain('Pays Dec 1');
     expect(slip).not.toContain('Pay day');
     expect(slip).toContain('Total: $60.00');
-    expect(payrollCsv(periodRows(ctx, '2026-11-01'))).toContain('Ethan Poon,2026-11-01,2026-11-15,2.00,30.00,60.00,0.00,60.00');
+    expect(payrollCsv(periodRows(ctx, '2026-11-01'))).toContain('Tutor,Period start,Period end,Pay date,Hours,Rate,Sessions,Adjustments,Total');
+    expect(payrollCsv(periodRows(ctx, '2026-11-01'))).toContain('Ethan Poon,2026-11-01,2026-11-15,2026-11-15,2.00,30.00,60.00,0.00,60.00');
   });
 
   test('a sent statement is saved as a snapshot of family amounts only', () => {
@@ -726,8 +820,8 @@ describe('words and files', () => {
     expect(sendAction({ ...sent, previous_cents: null }, f, 0, OPEN, '2026-12-05').kind).toBeNull();
   });
 
-  test('Mark sent waits for the same open items as Record payment', () => {
-    const open = ctxOf([session('2026-11-10', '16:00', '17:00')]);
+  test('Release waits for the same thing as Mark paid and Record payment: a rate on every session', () => {
+    const open = ctxOf([session('2026-11-10', '16:00', '17:00', { student_id: 'kevin' })], { familyRates: [] });
     const gate = familyBlockers(open, 'alan', '2026-11-01');
     expect(gate.ok).toBe(false);
     const f = familyMonth(open, 'alan', '2026-11-01');
@@ -736,7 +830,8 @@ describe('words and files', () => {
     expect(sendAction({ sent_on: '2026-12-01', month_cents: 1, previous_cents: 0 }, f, 0, gate, '2026-12-05')).toMatchObject({ kind: 'again', blocked: true });
     // nothing to send, nothing blocked
     expect(sendAction({ sent_on: '2026-12-01', month_cents: f.owedCents, previous_cents: 0 }, f, 0, gate, '2026-12-05')).toMatchObject({ kind: null, blocked: false });
-    const ready = ctxOf([session('2026-11-10', '16:00', '17:00', { attendance: 'present' })]);
+    // a session without attendance has a rate, so it is ready
+    const ready = ctxOf([session('2026-11-10', '16:00', '17:00')]);
     expect(sendAction(null, familyMonth(ready, 'alan', '2026-11-01'), 0, familyBlockers(ready, 'alan', '2026-11-01'), '2026-12-05').blocked).toBe(false);
   });
 

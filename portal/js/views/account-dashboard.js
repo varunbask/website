@@ -1,22 +1,21 @@
 // Account > Dashboard (account.html, admin). Revenue, tutor pay and what is
-// left for a month, a custom range or a year; the Needs attention list (with
-// its one-click fixes); and who owes and who is owed. Every number comes from
-// the calendar through billing-model.js.
+// left for a month, a custom range or a year; the Needs attention list (a
+// missing rate, a tutor at two places at once, a student with no payer, an
+// overdue family, each with its one-click fix); and who owes and who is owed.
+// Every number comes from the calendar as it stands, through billing-model.js.
 
-import { sb } from '../supabase.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { button, pill, emptyState, drawerHref } from '../ui.js';
-import { todayKey, dayKey } from '../dates.js';
+import { todayKey } from '../dates.js';
 import { timeRange } from '../sessions-model.js';
 import {
   money, hoursText, monthEnd, monthName, rangeTotals, familyRows, tutorRangeRows, allOutstanding, yearRows,
-  needsAttention, ATTENTION, dayText, monthOf, periodText,
+  needsAttention, ATTENTION, dayText, monthOf,
 } from '../billing-model.js';
 import { familiesCsv, yearCsv } from '../billing-text.js';
 import {
-  setHeader, monthFrom, monthPicker, loadPriced, table, cents, card, csvButton, act, saveSessionBilling,
-  markAttendance, tabHref,
+  setHeader, monthFrom, monthPicker, loadPriced, table, cents, card, csvButton, act, saveSessionBilling, tabHref,
 } from './account-shared.js';
 
 const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -114,91 +113,58 @@ export function mount(ctx) {
   }
 
   function attentionCard(b, attention) {
-    const groups = [];
-    for (const [kind, items] of attention.byKind) {
-      const meta = ATTENTION[kind];
-      groups.push(attentionGroup(b, kind, items, meta));
-    }
+    const groups = [...attention.byKind].map(([kind, items]) => attentionGroup(b, kind, items, ATTENTION[kind]));
     if (!groups.length) {
       return h('section', { class: 'card acct-attention is-clear' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, icon('check-circle'), h('span', {}, 'Nothing needs attention'))),
-        h('p', { class: 'card-meta' }, 'Every session in this range has attendance, a rate and a payer.'));
+        h('p', { class: 'card-meta' }, 'Every lesson in this range has a family rate and a tutor pay rate, and every student has a paying parent.'));
     }
     return h('section', { class: 'card acct-attention' },
       h('div', { class: 'card-head' },
         h('h2', { class: 'card-title' }, icon('warning-circle'), h('span', {}, 'Needs attention')),
-        h('span', { class: 'card-meta' }, 'Items marked with a lock stop payments and payouts for their month or pay period until they are settled.')),
+        h('span', { class: 'card-meta' }, 'The calendar is priced as it stands. A lock marks a missing rate: it holds back that family’s bill or that tutor’s pay period until you add one. The rest is for information.')),
       h('div', { class: 'acct-attention-groups' }, groups));
   }
 
   function attentionGroup(b, kind, items, meta) {
-    const count = kind === 'older_unconfirmed' ? items[0].count : items.length;
     const body = [];
-    const actions = [];
-    if (kind === 'unconfirmed') {
-      const mine = items.filter((it) => String(it.tutorId) === String(ctx.me.id)).map((it) => it.rowId);
-      if (mine.length > 1) {
-        actions.push(button({ label: `Mark all ${mine.length} of mine present`, size: 'sm', icon: 'check', onClick: () => markAttendance(ctx, mine, 'present', { done: `${mine.length} sessions marked present.` }) }));
-      }
-    }
-    if (kind === 'older_unconfirmed') {
-      body.push(h('p', {}, `${count} ${count === 1 ? 'session' : 'sessions'} before this range ended without attendance.`,
-        ' ', h('a', { href: `#/dashboard?from=${b.settings.ledger_start}&to=${from}` }, 'Show them')));
-    } else if (kind === 'overdue') {
+    if (kind === 'overdue') {
       body.push(h('ul', { class: 'acct-attention-list' }, items.map((it) => h('li', {},
         h('a', { href: tabHref('families', it.month) }, `${b.nameOf(it.parentId)}: ${money(it.cents)} for ${monthName(it.month)}`)))));
-    } else if (kind === 'changed_paid') {
-      body.push(h('ul', { class: 'acct-attention-list' }, items.map((it) => h('li', {},
-        h('a', { href: tabHref('families', it.month) }, `${b.nameOf(it.parentId)}, ${monthName(it.month)}: ${it.cents > 0 ? '+' : ''}${money(it.cents)} since the payment`)))));
     } else if (kind === 'no_payer') {
       body.push(h('p', {}, items.map((it) => b.nameOf(it.studentId)).join(', '), '. ',
         h('a', { href: '/portal/people.html#/everyone' }, 'Link a parent on People'), ' (the first parent linked pays).'));
-    } else if (kind === 'deleted_late') {
-      body.push(h('ul', { class: 'acct-attention-list' }, items.map((it) => h('li', { class: 'acct-attention-item' },
-        h('span', { class: 'acct-session-link' },
-          h('span', { class: 'acct-session-when' }, `${dayText(it.day)}, ${timeRange({ starts_at: it.edit.old_starts_at, ends_at: it.edit.old_ends_at })}`),
-          h('span', {}, `${b.nameOf(it.studentId)} with ${b.nameOf(it.tutorId)}; deleted by ${it.by ? b.nameOf(it.by) : 'Google Calendar'} on ${dayText(dayKey(it.edit.at))}. It is no longer billed or paid.`))))));
     } else if (kind === 'no_tutor_rate') {
       body.push(h('p', {}, items.map((it) => b.nameOf(it.tutorId)).join(', '), '. ',
         h('a', { href: '#/rates' }, 'Set a pay rate on Rates'), '.'));
     } else {
+      if (kind === 'overlap') {
+        body.push(h('p', { class: 'card-meta' }, 'Nothing is held back. If this is one group lesson, mark it as a group so the tutor is paid once.'));
+      }
       body.push(h('ul', { class: 'acct-attention-list' }, items.map((it) => h('li', { class: 'acct-attention-item', dataset: { focusKey: `att-${kind}-${it.rowId}` } },
         sessionLine(b, it.row),
         h('div', { class: 'acct-attention-actions' }, fixes(b, kind, it))))));
     }
-    return h('details', { class: 'group acct-attention-group', open: count <= 6 },
+    return h('details', { class: 'group acct-attention-group', open: items.length <= 6 },
       h('summary', { class: 'group-header' },
         icon('caret-right'),
         meta.blocks ? icon('lock-simple') : null,
         h('span', { class: 'group-title' }, meta.title),
-        h('span', { class: 'group-count num' }, String(count))),
-      actions.length ? h('div', { class: 'acct-attention-bulk' }, actions) : null,
+        h('span', { class: 'group-count num' }, String(items.length))),
       body);
   }
 
+  // The fix for a listed session: add the missing rate, or say two overlapping
+  // lessons are one group (or a real clash, which stops it being listed)
   function fixes(b, kind, it) {
     const r = it.row;
-    const id = r.id;
-    const accept = button({ label: 'Accept', size: 'sm', variant: 'ghost', icon: 'check', onClick: () => act(ctx, () => saveSessionBilling(id, { reviewed_at: new Date().toISOString(), reviewed_by: ctx.me.id }), { done: 'Accepted.' }) });
-    const out = [];
-    if (kind === 'unconfirmed') {
-      out.push(button({ label: 'Present', size: 'sm', variant: 'secondary', onClick: () => markAttendance(ctx, [id], 'present', { done: 'Marked present.' }) }));
-      out.push(button({ label: 'Absent', size: 'sm', variant: 'ghost', onClick: () => markAttendance(ctx, [id], 'absent', { done: 'Marked absent.' }) }));
-      out.push(accept);
-    } else if (kind === 'conflict') {
-      out.push(button({ label: 'Restore', size: 'sm', onClick: () => act(ctx, () => sb.from('sessions').update({ status: 'scheduled' }).eq('id', id).select('id'), { done: 'Restored.' }).then((ok) => ok && ctx.store.invalidate(null)) }));
-      out.push(button({ label: 'Keep cancelled', size: 'sm', variant: 'ghost', onClick: () => markAttendance(ctx, [id], null, { done: 'Kept cancelled.' }) }));
-    } else if (kind === 'overlap') {
-      // One key per lesson: the subject and its start time, so two group lessons on a day stay apart
-      const key = `${r.subject || 'Group'} ${timeRange(r.session).split(' to ')[0]}`.slice(0, 40);
-      out.push(button({ label: 'Mark as group', size: 'sm', onClick: () => markGroup(b, r, key) }));
-      out.push(accept);
-    } else if (kind === 'unpriced') {
-      out.push(button({ label: 'Add rate', size: 'sm', href: `#/rates?student=${r.session.student_id}` }));
-    } else {
-      out.push(accept);
-    }
-    return out;
+    if (kind === 'unpriced') return [button({ label: 'Add rate', size: 'sm', href: `#/rates?student=${r.session.student_id}` })];
+    // One key per lesson: the subject and its start time, so two group lessons on a day stay apart
+    const key = `${r.subject || 'Group'} ${timeRange(r.session).split(' to ')[0]}`.slice(0, 40);
+    return [
+      button({ label: 'Mark as group', size: 'sm', onClick: () => markGroup(b, r, key) }),
+      button({ label: 'Accept', size: 'sm', variant: 'ghost', icon: 'check', onClick: () => act(ctx, () => saveSessionBilling(r.id, { reviewed_at: new Date().toISOString(), reviewed_by: ctx.me.id }), { done: 'Accepted.' }) }),
+    ];
   }
 
   // Every payable session of this tutor overlapping this one on the same day gets the same group key
