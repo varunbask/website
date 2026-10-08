@@ -390,12 +390,23 @@ export async function runDraft(repo, id, values, { env = process.env, fetchImpl 
 
 const json = (status, body) => Response.json(body, { status });
 const STAFF = new Set(['tutor', 'admin']);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const NOT_YOURS = 'You can draft homework only for your own students.';
 
 /**
  * { action: 'draft_homework', images, count, difficulty, hints, notes, subject,
  * grade, student_id } from a signed-in caller -> 202 { id, status, created_at }
  */
-export async function handleDraftStart(caller, body, {
+export async function handleDraftStart(caller, body, deps) {
+  try {
+    return await startDraft(caller, body, deps);
+  } catch (err) {
+    console.error(`[draft] start: ${err?.name ?? 'Error'}`);
+    return json(500, { error: 'We couldn’t start the draft. Try again.' });
+  }
+}
+
+async function startDraft(caller, body, {
   repo, env = process.env, now = () => new Date(), fetchImpl = fetch, waitUntil,
 }) {
   const role = await repo.getRole(caller.id);
@@ -407,10 +418,8 @@ export async function handleDraftStart(caller, body, {
   const { values } = checked;
 
   if (values.studentId) {
-    if (await repo.getRole(values.studentId) !== 'student') return json(403, { error: 'You can draft homework only for your own students.' });
-    if (role === 'tutor' && !(await repo.isAssigned(caller.id, values.studentId))) {
-      return json(403, { error: 'You can draft homework only for your own students.' });
-    }
+    if (!UUID.test(values.studentId) || await repo.getRole(values.studentId) !== 'student') return json(403, { error: NOT_YOURS });
+    if (role === 'tutor' && !(await repo.isAssigned(caller.id, values.studentId))) return json(403, { error: NOT_YOURS });
   }
 
   const since = new Date(now().getTime() - DAY_MS);
@@ -427,7 +436,16 @@ export async function handleDraftStart(caller, body, {
  * { action: 'draft_status', id } -> { id, status, result?, error?, created_at }
  * for the person who asked, or the admin. Anyone else gets 404.
  */
-export async function handleDraftStatus(caller, body, { repo, now = () => new Date() }) {
+export async function handleDraftStatus(caller, body, deps) {
+  try {
+    return await draftStatus(caller, body, deps);
+  } catch (err) {
+    console.error(`[draft] status: ${err?.name ?? 'Error'}`);
+    return json(500, { error: 'We couldn’t check the draft. Try again.' });
+  }
+}
+
+async function draftStatus(caller, body, { repo, now = () => new Date() }) {
   const id = body?.id;
   if (!Number.isSafeInteger(id) || id <= 0) return json(400, { error: 'id must be a positive integer' });
   const row = await repo.getDraft(id);

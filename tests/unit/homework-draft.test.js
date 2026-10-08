@@ -301,8 +301,10 @@ describe('requestDraft and draftHomework', () => {
 // The two actions on POST /api/grade
 
 const TUTOR = 'tutor-1';
+const STU = '6f1c2a54-1d2b-4c3a-9e8f-0a1b2c3d4e5f';
+const PAR = '7a2d3b65-2e3c-4d4b-8f90-1b2c3d4e5f60';
 function setup({ caller = { id: TUTOR }, roles = {}, assigned = true, used = 0, draft = null, fetchImpl = okFetch() } = {}) {
-  const roleOf = { [TUTOR]: 'tutor', 'admin-1': 'admin', 'stu-1': 'student', 'par-1': 'parent', 'tutor-2': 'tutor', ...roles };
+  const roleOf = { [TUTOR]: 'tutor', 'admin-1': 'admin', 'stu-1': 'student', [STU]: 'student', [PAR]: 'parent', 'par-1': 'parent', 'tutor-2': 'tutor', ...roles };
   const rows = new Map();
   if (draft) rows.set(draft.id, draft);
   let nextId = 40;
@@ -329,7 +331,7 @@ function setup({ caller = { id: TUTOR }, roles = {}, assigned = true, used = 0, 
 const post = (body) => new Request('https://site.test/api/grade', {
   method: 'POST', headers: { Authorization: 'Bearer t', 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 });
-const start = (over = {}) => ({ action: 'draft_homework', images: [JPEG], count: 5, student_id: 'stu-1', ...over });
+const start = (over = {}) => ({ action: 'draft_homework', images: [JPEG], count: 5, student_id: STU, ...over });
 async function call(options, body) {
   const ctx = setup(options);
   const res = await handleGrade(post(body), ctx.deps);
@@ -354,8 +356,12 @@ describe('POST /api/grade draft_homework', () => {
     const { res, json, repo } = await call({ assigned: false }, start());
     expect(res.status).toBe(403);
     expect(json.error).toMatch(/only for your own students/);
-    expect(repo.isAssigned).toHaveBeenCalledWith(TUTOR, 'stu-1');
-    expect((await call({}, start({ student_id: 'par-1' }))).res.status).toBe(403);
+    expect(repo.isAssigned).toHaveBeenCalledWith(TUTOR, STU);
+    expect((await call({}, start({ student_id: PAR }))).res.status).toBe(403);
+    // an id that is not a uuid never reaches the database
+    const odd = await call({}, start({ student_id: 'stu-1' }));
+    expect(odd.res.status).toBe(403);
+    expect(odd.repo.getRole).not.toHaveBeenCalledWith('stu-1');
   });
 
   test('the admin drafts for any student; a draft without a student is allowed', async () => {
@@ -399,7 +405,7 @@ describe('POST /api/grade draft_homework', () => {
     expect(res.status).toBe(202);
     expect(json).toEqual({ id: 40, status: 'drafting', created_at: NOW.toISOString() });
     expect(repo.createDraft).toHaveBeenCalledWith({
-      createdBy: TUTOR, studentId: 'stu-1',
+      createdBy: TUTOR, studentId: STU,
       options: { count: 5, difficulty: 'same', hints: false, notes: 'negatives', subject: null, grade: null, photos: 1 },
     });
     expect(deps.waitUntil).toHaveBeenCalledTimes(1);
@@ -411,6 +417,18 @@ describe('POST /api/grade draft_homework', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { rows } = await call({ fetchImpl: vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: 'not json' } }] }) })) }, start());
     expect(rows.get(40)).toMatchObject({ status: 'failed', result: null, error: 'The draft came back incomplete. Try again.' });
+  });
+
+  test('a database failure answers 500 with a message, never a crash', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ctx = setup();
+    ctx.repo.countDraftsSince.mockRejectedValue(new Error('db down'));
+    const res = await handleGrade(post(start()), ctx.deps);
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe('We couldn’t start the draft. Try again.');
+    const status = setup();
+    status.repo.getDraft.mockRejectedValue(new Error('db down'));
+    expect((await handleGrade(post({ action: 'draft_status', id: 3 }), status.deps)).status).toBe(500);
   });
 
   test('a grading body still grades exactly as before', async () => {
