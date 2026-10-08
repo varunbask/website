@@ -3,7 +3,7 @@ import {
   MAX_PHOTOS, MAX_PHOTO_CHARS, SHRINK_TRIES, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES,
   POLL_MS, STALE_MS, RECENT_DAYS, DRAFTING_TEXT, READY_TEXT,
   fitSize, base64Length, isImageFile, sizeText, fitsBudget, overBudgetText, photoProblems, checkOptions, draftRequest,
-  draftContext, contextText, formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft,
+  draftContext, contextText, formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft, shouldReopen,
 } from '../../portal/js/homework-draft-model.js';
 import * as server from '../../api/_lib/homework-draft.js';
 
@@ -121,6 +121,9 @@ describe('options', () => {
     expect(draftContext({ links, studentId: 's1', tutorId: 't2' })).toEqual({ subject: 'SAT Reading', grade: null });
     expect(draftContext({ lesson: { student_id: 'other', subject: 'Chemistry' }, links, studentId: 's1', tutorId: 't1' }).subject).toBe('Math');
     expect(draftContext({ links: null, studentId: 's1', tutorId: 't3' })).toEqual({ subject: null, grade: null });
+    // an admin who does not teach the student: their only subject, never a guess between two
+    expect(draftContext({ links, studentId: 's1', tutorId: 'admin' }).subject).toBeNull();
+    expect(draftContext({ links: [...links, { tutor_id: 't1', student_id: 's2', subject: 'Chemistry' }], studentId: 's2', tutorId: 'admin' }).subject).toBe('Chemistry');
     expect(contextText({ subject: 'Algebra', grade: '9th grade' })).toBe('Algebra, 9th grade');
     expect(contextText({})).toBe('');
   });
@@ -187,5 +190,18 @@ describe('job status', () => {
     expect(optionsText({ count: 5, difficulty: 'same' })).toBe('5 problems, about the same');
     expect(optionsText({ count: 1, difficulty: 'harder', hints: true })).toBe('1 problem, harder, with hints');
     expect(optionsText({})).toBe('5 problems');
+  });
+});
+
+describe('reopening the panel by itself', () => {
+  test('a draft still drafting, or one ready in the last hour, for this student', () => {
+    const row = (over) => ({ id: 1, student_id: 's1', status: 'ready', created_at: ago(30 * 60_000), finished_at: ago(29 * 60_000), ...over });
+    expect(shouldReopen([row({ status: 'drafting', created_at: ago(60_000), finished_at: null })], { studentId: 's1', now: NOW })).toBe(true);
+    expect(shouldReopen([row()], { studentId: 's1', now: NOW })).toBe(true);
+    expect(shouldReopen([row({ finished_at: ago(61 * 60_000) })], { studentId: 's1', now: NOW })).toBe(false);
+    expect(shouldReopen([row({ status: 'failed' })], { studentId: 's1', now: NOW })).toBe(false);
+    expect(shouldReopen([row({ status: 'drafting', created_at: ago(STALE_MS + 1), finished_at: null })], { studentId: 's1', now: NOW })).toBe(false);
+    expect(shouldReopen([row()], { studentId: 's2', now: NOW })).toBe(false);
+    expect(shouldReopen([row()], { studentId: null, now: NOW })).toBe(false);
   });
 });

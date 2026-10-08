@@ -31,7 +31,7 @@ import {
   MAX_PHOTOS, SHRINK_TRIES, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES, POLL_MS, RECENT_DAYS,
   DRAFTING_TEXT, READY_TEXT, STALE_ERROR,
   fitSize, isImageFile, fitsBudget, overBudgetText, photoProblems, checkOptions, draftRequest, contextText,
-  formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft,
+  formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft, shouldReopen,
 } from './homework-draft-model.js';
 
 const LIST_FIELDS = 'id, student_id, status, options, error, created_at, finished_at, title:result->title';
@@ -98,11 +98,12 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
   let active = null;           // { id, startedAt } while a draft of this panel is drafting
   let filled = false;          // the form holds a draft
   let adding = false;
+  let starting = false;        // a draft request is on its way (one at a time)
   let recent = [];
   let names = new Map();
   let pollTimer = null;
   let tickTimer = null;
-  let loadedRecent = false;
+  let recentLoad = null;       // the Recent drafts query, once per form
   const alive = () => dctx.alive?.() !== false;
 
   // Photos ------------------------------------------------------------------
@@ -286,7 +287,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     root.hidden = false;
     opener.hidden = true;
     paintContext();
-    if (!loadedRecent) loadRecent();
+    ensureRecent();
     if (focus) root.querySelector('.hwd-title')?.focus();
   }
 
@@ -332,7 +333,16 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
   }
 
   async function start() {
-    if (active || adding) return;
+    if (active || adding || starting) return;
+    starting = true;
+    try {
+      await startOnce();
+    } finally {
+      starting = false;
+    }
+  }
+
+  async function startOnce() {
     errorSlot.replaceChildren();
     const checked = checkOptions({ count: countInput.value, difficulty: levelSelect.value, hints: hintsBox.checked, notes: notesInput.value });
     setFieldError(countField, checked.errors.count ?? '');
@@ -437,19 +447,30 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
   }
 
   // Recent drafts -----------------------------------------------------------
+  function ensureRecent() {
+    recentLoad ??= loadRecent().then((ok) => {
+      if (!ok) recentLoad = null;
+      return ok;
+    }, (error) => {
+      console.error(error);
+      recentLoad = null;
+      return false;
+    });
+    return recentLoad;
+  }
+
+  // -> true when the list loaded
   async function loadRecent() {
-    loadedRecent = true;
     const since = new Date(Date.now() - RECENT_DAYS * 86_400_000).toISOString();
     const [list, ws] = await Promise.all([
       sb.from('homework_drafts').select(LIST_FIELDS).eq('created_by', dctx.me?.id).gte('created_at', since)
         .order('created_at', { ascending: false }).limit(20),
       dctx.store?.getWorkspace?.().catch(() => null) ?? null,
     ]);
-    if (!alive()) return;
+    if (!alive()) return false;
     if (list.error) {
       console.error(list.error);
-      loadedRecent = false;
-      return;
+      return false;
     }
     names = new Map((ws?.students ?? []).map((s) => [String(s.id), displayName(s)]));
     const known = new Set(recent.map((r) => r.id));
@@ -465,6 +486,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     }
     renderRecent();
     schedulePoll(true);
+    return true;
   }
 
   async function openDraft(row, trigger) {
@@ -512,7 +534,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
       const state = draftState(row, now);
       const who = names.get(String(row.student_id)) ?? null;
       const title = state === 'ready' && row.title ? String(row.title)
-        : state === 'drafting' ? 'Drafting' : state === 'failed' ? 'No draft' : 'Draft';
+        : state === 'drafting' ? 'New draft' : state === 'failed' ? 'No draft' : 'Draft';
       const meta = [who, optionsText(row.options ?? {}), relativeTime(row.created_at, now).text].filter(Boolean).join(', ');
       const tone = state === 'ready' ? { tone: 'success', icon: 'check-circle', label: 'Ready' }
         : state === 'drafting' ? { tone: 'info', icon: 'hourglass-medium', label: 'Drafting' }
@@ -544,6 +566,12 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
       return photos.map((p, i) => new File([p.blob], `Lesson photo ${i + 1}.jpg`, { type: 'image/jpeg' }));
     },
     photoCount: () => photos.length,
+    // When the form opens: a draft for this student still drafting, or one
+    // just finished, opens the panel by itself (the tutor left while it ran)
+    async peek() {
+      if (!(await ensureRecent()) || !alive() || !root.hidden) return;
+      if (shouldReopen(recent, { studentId: getStudentId() })) open();
+    },
     hasDraft: () => filled,
     // The student changed in the form: the context and the list order follow
     studentChanged() {

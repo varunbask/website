@@ -358,6 +358,7 @@ export function itemForm(dctx, {
     });
     studentSelect?.addEventListener('change', () => drafted.studentChanged());
     if (draft) drafted.open();
+    else drafted.peek();
   }
 
   const lessonNote = lesson && !editing

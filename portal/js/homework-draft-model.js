@@ -119,13 +119,16 @@ export function draftRequest({ photos, options, context = {}, studentId = null }
 }
 
 // The subject and grade sent as context: the lesson's subject, else the
-// subject of the signed-in tutor's link to the student; the grade from the
+// subject of the signed-in tutor's link to the student, else the student's
+// only subject (an admin who does not teach them); the grade from the
 // student's profile
 export function draftContext({ lesson = null, links = null, studentId = null, tutorId = null, gradeLevel = null } = {}) {
   const same = (a, b) => a !== null && a !== undefined && String(a) === String(b);
   const fromLesson = lesson && same(lesson.student_id, studentId) ? lesson.subject : null;
-  const link = (links ?? []).find((l) => same(l.student_id, studentId) && same(l.tutor_id, tutorId) && l.subject);
-  const subject = String(fromLesson || link?.subject || '').trim() || null;
+  const theirs = (links ?? []).filter((l) => same(l.student_id, studentId) && String(l.subject ?? '').trim());
+  const own = theirs.find((l) => same(l.tutor_id, tutorId));
+  const subjects = [...new Set(theirs.map((l) => String(l.subject).trim()))];
+  const subject = String(fromLesson || own?.subject || (subjects.length === 1 ? subjects[0] : '') || '').trim() || null;
   const grade = String(gradeLevel ?? '').trim() || null;
   return { subject, grade };
 }
@@ -191,4 +194,17 @@ export function activeDraft(rows, { studentId, now = new Date() } = {}) {
   return (rows ?? [])
     .filter((r) => String(r.student_id) === String(studentId) && draftState(r, now) === 'drafting')
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+}
+
+// Whether the create form should open the panel by itself: this student has a
+// draft still drafting, or one that finished in the last hour
+export function shouldReopen(rows, { studentId, now = new Date() } = {}) {
+  if (studentId === null || studentId === undefined) return false;
+  return (rows ?? []).some((r) => {
+    if (String(r.student_id) !== String(studentId)) return false;
+    const state = draftState(r, now);
+    if (state === 'drafting') return true;
+    const finished = Date.parse(r.finished_at ?? r.created_at);
+    return state === 'ready' && now.getTime() - finished <= 3_600_000;
+  });
 }

@@ -782,8 +782,8 @@
 }
 
 .hwd-options { display: flex; flex-direction: column; gap: var(--s-3); }
-.hwd-option-row { display: flex; flex-wrap: wrap; gap: var(--s-4); }
-.hwd-option-row > .field { flex: 0 1 200px; min-width: 0; }
+.hwd-option-row { display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-4); }
+.hwd-option-row > .field { flex: 1 1 140px; min-width: 0; max-width: 220px; }
 .hwd-count { max-width: 120px; }
 .hwd-options > .check,
 .hwd-attach { align-self: flex-start; }
@@ -865,7 +865,6 @@
 
 @media (max-width: 767.98px) {
   .hwd-panel { padding: var(--s-3); }
-  .hwd-option-row > .field { flex: 1 1 140px; }
   .hwd-recent-item {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: "main actions" "pill actions";

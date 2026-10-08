@@ -104,7 +104,7 @@ describe('the entry points', () => {
     const panel = read('portal/js/homework-draft.js');
     expect(panel).toContain("type: 'file', accept: 'image/*', multiple: true");
     expect(panel).toContain("capture: 'environment'");
-    expect(panel).toMatch(/async function start\(\) \{\n\s*if \(active \|\| adding\) return;/);
+    expect(panel).toMatch(/async function start\(\) \{\n\s*if \(active \|\| adding \|\| starting\) return;\n\s*starting = true;/);
     expect(panel).toContain("callApi({ action: 'draft_status', id })");
     expect(panel).toContain("fetch('/api/grade'");
     expect(panel).toContain("dctx.signal?.addEventListener('abort', stop, { once: true });");
