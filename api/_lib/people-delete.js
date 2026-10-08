@@ -43,6 +43,7 @@ const MAX_FILES = 20000;
 
 export const HOMEWORK_BUCKET = 'homework';
 export const MATERIALS_BUCKET = 'materials';
+export const AVATARS_BUCKET = 'avatars';
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -174,7 +175,7 @@ async function gather(repo, person, nowMs) {
     .sort((a, b) => a.name.localeCompare(b.name));
   const noPayer = moves.filter((m) => !m.next_parent_id).map((m) => names[m.student_id] ?? '').filter(Boolean).sort();
 
-  const fileCount = new Set([...files.homework, ...files.materials.map((p) => `m/${p}`)]).size;
+  const fileCount = new Set([...files.homework, ...files.materials.map((p) => `m/${p}`), ...(files.avatars ?? []).map((p) => `a/${p}`)]).size;
   return {
     summary: {
       counts: {
@@ -270,6 +271,8 @@ export async function handleDelete(action, data, caller, {
   };
   await step('homework files', () => repo.removeFiles(HOMEWORK_BUCKET, files.homework));
   await step('material files', () => repo.removeFiles(MATERIALS_BUCKET, files.materials));
+  // Their profile photos (avatars/<id>/...): nobody can see them any more, so they go too
+  if (files.avatars?.length) await step('profile photos', () => repo.removeFiles(AVATARS_BUCKET, files.avatars));
   await step('lesson history', () => repo.deleteSessionEdits(person.id));
   // A parent who paid for a student: the bill goes to another linked parent, if any
   for (const move of moves) {
@@ -409,8 +412,9 @@ export function createDeleteRepo(db) {
       return count('payments', (q) => q.is('voided_at', null).contains('lines', JSON.stringify([{ student_id: studentId }])), 'paymentsNaming');
     },
 
-    // Every file the delete would leave behind: homework answers, and materials on
-    // the person's own folder or (a tutor) on their lessons, which sit in their students' folders
+    // Every file the delete would leave behind: homework answers, materials on
+    // the person's own folder or (a tutor) on their lessons, which sit in their
+    // students' folders, and their profile photos
     async filesOf(id, lessonIds) {
       const homework = new Set();
       const materials = new Set();
@@ -427,7 +431,10 @@ export function createDeleteRepo(db) {
       }
       for (const p of await folder(HOMEWORK_BUCKET, id)) homework.add(p);
       for (const p of await folder(MATERIALS_BUCKET, id)) materials.add(p);
-      return { homework: [...homework], materials: [...materials] };
+      // Profile photos sit in '<id>/' of the avatars bucket. The bucket comes with
+      // the profiles and photos migration: before it, there is nothing to remove.
+      const avatars = await folder(AVATARS_BUCKET, id).catch(() => []);
+      return { homework: [...homework], materials: [...materials], avatars };
     },
 
     // Removes files by path, a hundred at a time -> how many went

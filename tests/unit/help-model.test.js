@@ -51,12 +51,12 @@ describe('support address', () => {
 
 describe('sections by role', () => {
   test('students and parents: contact, homework, schedule, install, privacy', () => {
-    for (const role of ['student', 'parent']) expect(ids(role)).toEqual(['contact', 'homework', 'schedule', 'install', 'privacy']);
+    for (const role of ['student', 'parent']) expect(ids(role)).toEqual(['contact', 'homework', 'schedule', 'profile', 'install', 'privacy']);
   });
 
   test('tutors: staff tips, no family sections; admins add the admin tips', () => {
-    expect(ids('tutor')).toEqual(['contact', 'notes', 'grading', 'google', 'keyboard', 'install', 'privacy']);
-    expect(ids('admin')).toEqual(['contact', 'notes', 'grading', 'google', 'keyboard', 'admin', 'install', 'privacy']);
+    expect(ids('tutor')).toEqual(['contact', 'notes', 'grading', 'google', 'profile', 'keyboard', 'install', 'privacy']);
+    expect(ids('admin')).toEqual(['contact', 'notes', 'grading', 'google', 'profile', 'keyboard', 'admin', 'install', 'privacy']);
   });
 
   test('an unknown role gets the student help, never staff tips', () => {
@@ -176,7 +176,7 @@ describe('everyone', () => {
   });
 
   test('every link goes somewhere real: a portal route, the privacy page or the support mailto', () => {
-    const routes = new Set(['assignments', 'calendar', 'review', 'students']);
+    const routes = new Set(['assignments', 'calendar', 'review', 'students', 'profile']);
     for (const role of ['student', 'parent', 'tutor', 'admin']) {
       for (const { href } of linksOf(role)) {
         if (href.startsWith('#/')) expect(routes.has(href.slice(2).split(/[/?]/)[0]), `${role} ${href}`).toBe(true);
@@ -206,5 +206,32 @@ describe('dead ends are gone', () => {
     }
     expect(read('submit-work.js')).not.toContain('email it to your tutor');
     expect(read('item-drawer.js')).not.toMatch(/used all 5 attempts/);
+  });
+});
+
+describe('your profile', () => {
+  const section = (role) => helpSections(role).find((s) => s.id === 'profile');
+  const text = (role) => textsOf(section(role)).join('\n');
+
+  test('students, parents and tutors each get a short Your profile section that links to the page', () => {
+    for (const role of ['student', 'parent', 'tutor', 'admin']) {
+      expect(section(role).title).toBe('Your profile');
+      const links = section(role).blocks.flatMap((b) => b.items).flat().filter((p) => typeof p === 'object');
+      expect(links).toContainEqual({ text: 'Profile', href: '#/profile' });
+    }
+  });
+
+  test('it says who sees the profile and that photos lose their location data', () => {
+    expect(text('student')).toMatch(/your parents, your tutors and the admin/);
+    expect(text('parent')).toMatch(/their tutors and the admin/);
+    expect(text('tutor')).toMatch(/Families of the students you teach/);
+    for (const role of ['student', 'parent', 'tutor']) expect(text(role)).toMatch(/location data is removed/);
+  });
+
+  test('no AI wording and no dashes', () => {
+    for (const role of ['student', 'parent', 'tutor']) {
+      expect(text(role)).not.toMatch(/\bAI\b|grader|automatic/i);
+      expect(text(role)).not.toMatch(/[\u2013\u2014]/);
+    }
   });
 });

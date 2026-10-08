@@ -14,7 +14,8 @@
 
 import { h } from './dom.js';
 import { icon } from './icons.js';
-import { pill, emptyState, errorCallout, button, avatar, itemRow, rowList, drawerHref } from './ui.js';
+import { pill, emptyState, errorCallout, button, itemRow, rowList, drawerHref } from './ui.js';
+import { personAvatar } from './photos.js';
 import { menu, choiceDialog } from './overlays.js';
 import { todayKey } from './dates.js';
 import { displayName, firstName, canHaveSessions } from './format.js';
@@ -590,14 +591,14 @@ function buildDetail(dctx, found, { now, names, actions }) {
   // Facts: when, who, where
   const facts = h('dl', { class: 'ses-facts' });
   const fact = (label, ...value) => facts.append(h('div', { class: 'ses-fact' }, h('dt', {}, label), h('dd', {}, ...value)));
-  const person = (name, fallback, { staffTint = false } = {}) => (name
-    ? h('span', { class: 'ses-person' }, avatar(name, { size: 24, staff: staffTint }), h('span', {}, name))
+  const person = (id, name, fallback, { staffTint = false } = {}) => (name
+    ? h('span', { class: 'ses-person' }, personAvatar(id, name, { size: 24, staff: staffTint }), h('span', {}, name))
     : h('span', { class: 'ses-muted' }, fallback));
 
   const when = whenText(session, { now });
   fact('When', h('span', { class: 'ses-when-date' }, when.date), h('span', { class: 'ses-when-time' }, when.time));
-  fact('Tutor', person(tutorName, staff ? 'A tutor' : 'Your tutor', { staffTint: true }));
-  if (staff) fact('Student', person(student ? displayName(student) : null, 'Student'));
+  fact('Tutor', person(session.tutor_id, tutorName, staff ? 'A tutor' : 'Your tutor', { staffTint: true }));
+  if (staff) fact('Student', person(session.student_id, student ? displayName(student) : null, 'Student'));
 
   const where = [];
   if (session.location) where.push(h('span', { class: 'ses-place' }, session.location));

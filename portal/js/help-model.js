@@ -140,6 +140,37 @@ const googleSync = {
   }],
 };
 
+// Your profile: the student's own, a parent's child's, or a tutor's own
+function profile(role) {
+  const staff = isStaffRole(role);
+  const parent = role === PARENT;
+  const open = link('Profile', '#/profile');
+  let items;
+  if (staff) {
+    items = [
+      ['Open ', open, ' to add a photo and a few lines about you: About me, Subjects I teach, School or university, and Hobbies and interests.'],
+      'Families of the students you teach see your photo and these details on their Overview, under their tutors.',
+      'The photo is resized on your device and its location data is removed before it is saved. Remove it any time.',
+      'A dot on Profile means About me or Subjects I teach is still empty.',
+    ];
+  } else if (parent) {
+    items = [
+      ['Open ', open, ' to fill in your child’s profile: grade, school, hobbies and interests, favorite subjects, goals and how they learn best. With two or more children, choose the child first.'],
+      'You can add a photo of your child too. It is resized on your device and its location data is removed before it is saved.',
+      'Your child, you, their tutors and the admin see the profile and the photo. Your child can change it too.',
+      'A dot on Profile means grade, school or hobbies is still empty.',
+    ];
+  } else {
+    items = [
+      ['Open ', open, ' to tell your tutors about you: your grade, school, hobbies and interests, favorite subjects, goals and how you learn best.'],
+      'Add a photo if you like. It is resized on your device and its location data is removed before it is saved.',
+      'You, your parents, your tutors and the admin see your profile and photo. Change or remove them any time.',
+      'A dot on Profile means grade, school or hobbies is still empty.',
+    ];
+  }
+  return { id: 'profile', title: 'Your profile', blocks: [{ type: 'list', items }] };
+}
+
 const keyboard = {
   id: 'keyboard',
   title: 'Keyboard tips',
@@ -190,13 +221,13 @@ const privacy = {
 export function helpSections(role) {
   if (isStaffRole(role)) {
     return [
-      contact(role), notes, grading, googleSync, keyboard,
+      contact(role), notes, grading, googleSync, profile(role), keyboard,
       ...(role === 'admin' ? [adminTips] : []),
       install, privacy,
     ];
   }
   const family = role === PARENT ? PARENT : STUDENT;
-  return [contact(family), homework(family), schedule(family), install, privacy];
+  return [contact(family), homework(family), schedule(family), profile(family), install, privacy];
 }
 
 // The lede under the Help title

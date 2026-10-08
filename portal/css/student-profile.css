@@ -1,6 +1,9 @@
 /* Student profile: the staff Overview's Profile and Staff notes cards, the About
    card families see, and the profile editor in the drawer. Prefix: sp-.
-   Tokens and components come from app.css; no raw hex.
+   Also the Profile page (#/profile), the "Finish your profile" card, the tutors
+   on the family Overview and the Students list's "Profile not filled in" mark.
+   Prefix: prf- (and stu- for the mark). Tokens and components come from
+   app.css; no raw hex.
 
    Markup (built by portal/js/student-profile-card.js and student-profile-drawer.js)
      section.card.sp-card.sp-profile > div.card-head (h2.card-title + a.btn.sp-edit)
@@ -12,7 +15,10 @@
        + form.sp-note-form > div.field + div.sp-note-actions
        + div.sp-note-host > ul.sp-note-list > li.sp-note (p.sp-note-body + div.sp-note-foot
            > span.sp-note-by + button.icon-btn.sp-note-del) | .ovw-card-empty ; button.sp-more
-     section.card.sp-card.sp-about > div.card-head + dl.sp-facts
+     section.card.sp-card.sp-profile > div.sp-due (span.avatar + p.sp-due-text) while the
+       family has not filled in grade, school and hobbies
+     section.card.sp-card.sp-about > div.card-head (h2 + a.card-link "Edit")
+       + div.sp-about-body > span.avatar + dl.sp-facts
      div.sp-form-wrap > h2.drawer-title + p.sp-form-lede + form.sp-form
        > div.sp-form-pair > div.field x2 ; div.field > div.sp-area > textarea + p.sp-count */
 
@@ -165,3 +171,225 @@
 .sp-area > .textarea { min-height: 96px; resize: vertical; }
 .sp-count { align-self: flex-end; margin: 0; font: var(--t-caption); color: var(--text-3); }
 .sp-form-errors:empty { display: none; }
+
+/* "Profile not filled in" (staff Profile card) ------------------------------------- */
+
+.sp-card > .card-head > .pill { flex: none; }
+.sp-due {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+}
+.sp-due-text { margin: 0; font: var(--t-meta); color: var(--text-2); }
+.sp-about-body { display: flex; align-items: flex-start; gap: var(--s-4); }
+.sp-about-body > .sp-facts { flex: 1; min-width: 0; }
+
+/* ==========================================================================
+   Profiles and photos (prf-)
+
+   section.card.prf-nudge (> div.prf-nudge-lead > span.avatar.avatar-40)
+     + div.prf-nudge-main > h2.prf-nudge-title + p.prf-nudge-text + ul.prf-steps
+     + div.prf-nudge-side > p.prf-nudge-count + a.btn.btn-primary
+   ul.prf-steps > li.prf-step(.is-done) > svg.prf-step-icon + span.prf-step-label
+     + span.prf-step-tag ("Optional")
+   div.prf-grid > div.prf-side (beside the form from 1100px, above it below that)
+     > section.card.prf-progress(.is-complete) > div.card-head + p.prf-progress-text + ul.prf-steps
+     > section.card.prf-photo-card > div.card-head + div.prf-photo-row
+         (div.prf-photo > img | span.prf-initials) + div.prf-photo-side
+         (div.prf-photo-actions > button x2 + label + input[type=file].visually-hidden,
+          p.prf-photo-status[role=status]) ; div.prf-photo-error ; p.prf-photo-note
+   then section.card.prf-details > div.card-head + form.prf-form > div.field ...
+         + div.prf-form-errors + div.prf-form-foot > button + p.prf-saved
+   li.ovw-tutor.prf-tutor (Your tutors) > span.avatar.avatar-40 + span.ovw-tutor-main
+     > name + span.prf-tutor-subjs + span.prf-tutor-teaches + p.prf-tutor-bio(.is-clamped)
+     + dl.prf-tutor-more + button.prf-tutor-toggle[aria-expanded]
+   ========================================================================== */
+
+/* The checklist ---------------------------------------------------------------------- */
+
+.prf-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.prf-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: var(--t-meta);
+  color: var(--text-2);
+}
+.prf-step-icon { flex: none; color: var(--text-4); }
+.prf-step.is-done { color: var(--text-3); }
+.prf-step.is-done > .prf-step-icon { color: var(--success-text); }
+.prf-step-tag {
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background-color: var(--surface-2);
+  font: var(--t-caption);
+  color: var(--text-3);
+}
+
+/* "Finish your profile" ----------------------------------------------------------------- */
+
+.card.prf-nudge,
+.ovw-grid .card.prf-nudge {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s-3) var(--s-4);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line-strong));
+  background-color: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
+}
+.prf-nudge-main { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.prf-nudge-title { font: var(--t-h3); letter-spacing: -0.005em; color: var(--text); }
+.prf-nudge-text { margin: 0; font: var(--t-ui); color: var(--text-2); }
+.prf-nudge-side {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-3);
+}
+.prf-nudge-count { margin: 0; font: var(--t-meta); color: var(--text-2); }
+@media (max-width: 479.98px) {
+  .prf-nudge-side > .btn { width: 100%; justify-content: center; }
+}
+@media (min-width: 720px) {
+  .card.prf-nudge,
+  .ovw-grid .card.prf-nudge { grid-template-columns: 40px minmax(0, 1fr) auto; }
+  .prf-nudge-side {
+    grid-column: auto;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: flex-start;
+  }
+}
+
+/* The Profile page ------------------------------------------------------------------------ */
+
+.prf-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--s-6);
+}
+@media (min-width: 1100px) {
+  .prf-grid { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); }
+}
+.prf-side { display: flex; flex-direction: column; gap: var(--s-6); min-width: 0; }
+.prf-grid .card { display: flex; flex-direction: column; gap: var(--s-4); min-width: 0; }
+.prf-grid .card > .card-head { align-items: center; margin-bottom: 0; }
+.prf-grid .card-title > .icon { width: 16px; height: 16px; margin-right: 6px; vertical-align: -2px; }
+.prf-progress.is-complete .card-title > .icon { color: var(--success-text); }
+.prf-progress-text { margin: 0; font: var(--t-ui); color: var(--text-2); }
+
+.prf-sk { min-height: 160px; }
+.prf-sk-photo { width: 112px; height: 112px; border-radius: var(--r-lg); }
+.prf-sk-line { width: 100%; height: 14px; border-radius: var(--r-xs); }
+.prf-sk-line.is-short { width: 60%; }
+
+/* Photo */
+.prf-photo-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-4) var(--s-5);
+}
+.prf-photo {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 112px;
+  height: 112px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
+}
+.prf-photo > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.prf-initials {
+  font: 600 32px/1 var(--font-ui);
+  color: var(--text-2);
+  text-transform: uppercase;
+  user-select: none;
+}
+.prf-photo-side { display: flex; flex: 1 1 200px; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.prf-photo-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.prf-photo-status { min-height: 18px; margin: 0; font: var(--t-meta); color: var(--text-3); }
+.prf-photo-error:empty { display: none; }
+.prf-photo-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  font: var(--t-meta);
+  color: var(--text-3);
+}
+.prf-photo-note > .icon { flex: none; margin-top: 2px; }
+
+/* Details */
+.prf-form { display: flex; flex-direction: column; gap: var(--s-5); }
+.prf-form > .field[hidden] { display: none; }
+.prf-area { display: flex; flex-direction: column; gap: var(--s-1); }
+.prf-area > .textarea { min-height: 88px; resize: vertical; }
+.prf-count { align-self: flex-end; margin: 0; font: var(--t-caption); color: var(--text-3); }
+.prf-form-errors:empty { display: none; }
+.prf-form-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.prf-saved { margin: 0; font: var(--t-meta); color: var(--text-3); }
+@media (max-width: 479.98px) {
+  .prf-form-foot > .btn { width: 100%; justify-content: center; }
+}
+
+/* Your tutors (family Overview) ------------------------------------------------------------ */
+
+.ovw-tutor.prf-tutor {
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: start;
+  padding-top: var(--s-3);
+  padding-bottom: var(--s-3);
+}
+.prf-tutor > .ovw-tutor-main { gap: 4px; }
+.prf-tutor-subjs { display: flex; flex-wrap: wrap; gap: 4px; max-width: 100%; }
+.prf-tutor-teaches { font: var(--t-meta); color: var(--text-2); overflow-wrap: anywhere; }
+.prf-tutor-bio {
+  margin: 2px 0 0;
+  font: var(--t-ui);
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.prf-tutor-bio.is-clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+.prf-tutor-more { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-1) 0 0; }
+.prf-tutor-more[hidden] { display: none; }
+.prf-tutor-fact > dt { font: var(--t-caption); color: var(--text-3); }
+.prf-tutor-fact > dd { margin: 0; font: var(--t-ui); color: var(--text-2); overflow-wrap: anywhere; }
+.prf-tutor-toggle { margin-left: -8px; }
+.prf-tutor-toggle[aria-expanded="true"] > .icon:last-child { transform: rotate(180deg); }
+
+/* Students list: "Profile not filled in" --------------------------------------------------- */
+
+.stu-profile-due {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--t-caption);
+  color: var(--warning-text);
+}
+.stu-profile-due > .icon { flex: none; }
+
+/* Today: the nudge sits above the sessions */
+.tdy-nudge { margin: 0; }

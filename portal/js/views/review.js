@@ -7,7 +7,8 @@
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { sb } from '../supabase.js';
-import { avatar, button, iconButton, emptyState, errorCallout, pill, draftChip } from '../ui.js';
+import { button, iconButton, emptyState, errorCallout, pill, draftChip } from '../ui.js';
+import { personAvatar } from '../photos.js';
 import { one, displayName, firstName } from '../format.js';
 import { dueLabel } from '../dates.js';
 import { submissionStatus } from '../status.js';
@@ -188,7 +189,7 @@ export async function mount(ctx) {
     due ? h('span', { class: 'rvw-lede-due num', title: due.full }, due.text) : null);
   ctx.setHeader({
     title,
-    lead: avatar(name, { size: 40 }),
+    lead: personAvatar(studentId, name, { size: 40 }),
     lede,
     docTitle: `Review: ${title}`,
     crumbs: [

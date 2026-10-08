@@ -136,7 +136,7 @@ export async function mount(ctx) {
   function paintProgress() {
     const progress = profileProgress(kind, { profile: saved, avatarPath });
     progressHost.classList.toggle('is-complete', progress.complete);
-    progressHost.replaceChildren(
+    progressHost.replaceChildren(...[
       h('div', { class: 'card-head' },
         h('h2', { class: 'card-title', id: progressTitleId },
           icon(progress.complete ? 'check-circle' : 'user'),
@@ -148,7 +148,8 @@ export async function mount(ctx) {
       progress.complete && (kind === 'staff' || target.own)
         ? h('p', { class: 'prf-progress-text' }, kind === 'staff' ? 'Families can see this now. Thank you.' : 'Thank you. Your tutors can see this now.')
         : null,
-      stepList(progress));
+      stepList(progress),
+    ].filter(Boolean));
   }
   paintProgress();
 
@@ -172,7 +173,8 @@ export async function mount(ctx) {
     },
   });
 
-  body.replaceWith(h('div', { class: 'prf-grid' }, progressHost, photo, details));
+  // Wide screens: the checklist and the photo beside the form; phones: one column
+  body.replaceWith(h('div', { class: 'prf-grid' }, h('div', { class: 'prf-side' }, progressHost, photo), details));
   ctx.announce(head.title);
 }
 
@@ -377,6 +379,26 @@ function detailsCard(ctx, target, saved, { onSaved }) {
     });
   }
 
+  // The form shows what was saved (trimmed, spacing tidied)
+  function fill(saved) {
+    for (const name of fields) {
+      if (name === 'grade_level' && gradeSelect) {
+        const choice = gradeChoice(saved?.grade_level);
+        gradeSelect.value = choice.choice;
+        gradeOther.value = choice.other;
+        otherWrap.hidden = choice.choice !== OTHER_GRADE;
+        continue;
+      }
+      const control = controls[name];
+      const value = saved?.[name] ?? '';
+      if (control.value !== value) {
+        control.value = value;
+        control.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    }
+    drafts.delete(key);
+  }
+
   function current() {
     const raw = {};
     for (const name of fields) {
@@ -443,6 +465,7 @@ function detailsCard(ctx, target, saved, { onSaved }) {
           row = next ?? { ...(row ?? {}), ...values };
           drafts.delete(key);
           if (!ctx.alive()) return;
+          fill(row);
           savedNote.textContent = 'Saved.';
           onSaved(row);
           ctx.toast({ text: own ? 'Your profile is saved.' : `${first}’s profile is saved.` });

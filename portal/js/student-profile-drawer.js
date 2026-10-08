@@ -1,6 +1,9 @@
 // The profile editor, shown in the drawer (open=profile on the staff Overview).
-// Staff only: grade, school, goals and learning notes. The form keeps what was
-// typed through any store change, and on save asks the Overview to reload.
+// Staff only: grade, school, pronouns, favorite subjects, hobbies and
+// interests, goals, how they learn best (the fields the family also fills in on
+// their Profile page) and the learning notes, which only staff ever see. The
+// form keeps what was typed through any store change, and on save asks the
+// Overview to reload.
 //
 // renderProfileDrawer(dctx) -> Promise
 
@@ -100,15 +103,33 @@ function profileForm(dctx, student, row) {
     type: 'text', class: 'input', name: 'school', maxlength: String(LIMITS.school), autocomplete: 'off',
     placeholder: 'Arcadia High School', value: draft.school,
   });
+  const pronouns = h('input', {
+    type: 'text', class: 'input', name: 'pronouns', maxlength: String(LIMITS.pronouns), autocomplete: 'off',
+    placeholder: 'she/her', value: draft.pronouns,
+  });
+  const favorite = h('input', {
+    type: 'text', class: 'input', name: 'favorite_subjects', maxlength: String(LIMITS.favorite_subjects), autocomplete: 'off',
+    placeholder: 'Biology and art', value: draft.favorite_subjects,
+  });
+  const interests = h('textarea', { class: 'input textarea', name: 'interests', rows: '3', maxlength: String(LIMITS.interests) }, draft.interests);
   const goals = h('textarea', { class: 'input textarea', name: 'goals', rows: '4', maxlength: String(LIMITS.goals) }, draft.goals);
+  const style = h('textarea', { class: 'input textarea', name: 'learning_style', rows: '3', maxlength: String(LIMITS.learning_style) }, draft.learning_style);
   const notes = h('textarea', { class: 'input textarea', name: 'learning_notes', rows: '5', maxlength: String(LIMITS.learning_notes) }, draft.learning_notes);
 
   const fields = {
     grade_level: field({ label: 'Grade', control: grade }),
     school: field({ label: 'School', control: school }),
+    pronouns: field({ label: 'Pronouns', optional: true, control: pronouns }),
+    favorite_subjects: field({ label: 'Favorite subjects', control: favorite }),
+    interests: field({ label: 'Hobbies and interests', control: counted(interests, LIMITS.interests) }),
+    learning_style: field({
+      label: 'How they learn best',
+      hint: `${first} and the parents can read and change this.`,
+      control: counted(style, LIMITS.learning_style),
+    }),
     goals: field({
       label: 'Goals',
-      hint: `What ${first} and the family want from tutoring. ${first} and the parents can read this.`,
+      hint: `What ${first} and the family want from tutoring. ${first} and the parents can read and change this.`,
       control: counted(goals, LIMITS.goals),
     }),
     learning_notes: field({
@@ -117,15 +138,18 @@ function profileForm(dctx, student, row) {
       control: counted(notes, LIMITS.learning_notes),
     }),
   };
-  const inputs = { grade_level: grade, school, goals, learning_notes: notes };
+  const inputs = {
+    grade_level: grade, school, pronouns, favorite_subjects: favorite, interests, goals, learning_style: style, learning_notes: notes,
+  };
   const errorSlot = h('div', { class: 'sp-form-errors' });
 
   const form = h('form', { class: 'sp-form', id: formId, novalidate: true },
     h('div', { class: 'sp-form-pair' }, fields.grade_level, fields.school),
-    fields.goals, fields.learning_notes, errorSlot);
+    h('div', { class: 'sp-form-pair' }, fields.pronouns, fields.favorite_subjects),
+    fields.interests, fields.goals, fields.learning_style, fields.learning_notes, errorSlot);
   const root = h('div', { class: 'sp-form-wrap', dataset: { title } },
     h('h2', { class: 'drawer-title', tabindex: '-1' }, title),
-    h('p', { class: 'sp-form-lede' }, `For ${name}. Every tutor who teaches ${first} can see and change this.`),
+    h('p', { class: 'sp-form-lede' }, `For ${name}. Every tutor who teaches ${first} can see and change this, and ${first} and the parents fill in all but the learning notes on their Profile page.`),
     form);
 
   const save = button({ label: 'Save profile', variant: 'primary', type: 'submit', focusKey: 'save-profile' });
