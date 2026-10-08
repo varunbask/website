@@ -6,7 +6,7 @@
 // the second segment is a sub and the third, if any, an id.
 
 // Params that only open, focus or prefill the drawer; they never change the view
-export const DRAWER_PARAMS = Object.freeze(['open', 'focus', 'kind', 'due', 'at', 'session']);
+export const DRAWER_PARAMS = Object.freeze(['open', 'focus', 'kind', 'due', 'at', 'session', 'draft']);
 
 const isBlank = (v) => v === null || v === undefined || v === '';
 

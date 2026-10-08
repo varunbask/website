@@ -22,6 +22,13 @@
 // number of times; every copy is created at once with its own due date, and
 // attached files go on each copy.
 //
+// Creating also offers "Draft with AI from lesson photos" (homework-draft.js):
+// a panel that drafts the title, the instructions and an answer key from
+// photos of the lesson. A draft only fills the form; Create saves it as
+// usual, then adds the answer key (task_answer_keys, staff only) and, when
+// ticked, the photos as attachments. `draft` opens the panel at once (the
+// session drawer's "Make homework from this lesson").
+//
 // The form puts its title in an h2.drawer-title and its buttons in the drawer
 // footer (dctx.setFooter). The caller inserts the element into dctx.body and
 // then calls dctx.setTitle(el.dataset.title) to name the dialog.
@@ -39,6 +46,11 @@ import { newSeriesId, shortDayText } from './sessions-model.js';
 import {
   REPEATS, MIN_REPEAT_COUNT, checkRepeat, repeatSummary, repeatRows, followingText, seriesUpdates, groupUpdates, itemNoun,
 } from './task-repeat-model.js';
+import { draftPanel } from './homework-draft.js';
+import { draftContext } from './homework-draft-model.js';
+import { addAnswerKeys, MAX_ANSWER_KEY, ANSWER_KEY_HINT } from './answer-key.js';
+import { loadProfile } from './student-profile-data.js';
+import { gradeText } from './student-profile-model.js';
 
 const KIND_LABEL = { assignment: 'Assignment', task: 'Task' };
 const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -92,7 +104,7 @@ function dangerCallout(title, text) {
 // and is saved as tasks.session_id
 export function itemForm(dctx, {
   task = null, kind, due, studentOptions = null, selectedStudent = null, lesson = null, series = null, seriesKept = 0,
-  onCancel, onSaved,
+  draft = false, onCancel, onSaved,
 } = {}) {
   const editing = Boolean(task);
   let currentKind = (editing ? task.kind : kind) === 'task' ? 'task' : 'assignment';
@@ -152,6 +164,16 @@ export function itemForm(dctx, {
 
   const details = h('textarea', { class: 'input textarea', name: 'details', rows: '6', maxlength: '5000' }, task?.details ?? '');
   const detailsField = field({ label: 'Instructions', optional: true, hint: instructionsHint(currentKind), control: details });
+
+  // The answer key (creating an assignment): staff only, never shown to the student
+  let answerKeyInput = null;
+  let answerKeyField = null;
+  if (!editing) {
+    answerKeyInput = h('textarea', { class: 'input textarea asg-key-input', name: 'answer_key', rows: '5', maxlength: String(MAX_ANSWER_KEY) });
+    answerKeyField = field({ label: 'Answer key', optional: true, hint: ANSWER_KEY_HINT, control: answerKeyInput });
+    answerKeyField.classList.add('asg-key-field');
+    answerKeyField.hidden = currentKind !== 'assignment';
+  }
 
   const dueInput = h('input', {
     type: 'date',
@@ -299,13 +321,54 @@ export function itemForm(dctx, {
     renderAttachments();
   }
 
+  // Draft from lesson photos (creating): fills the title, instructions and answer key
+  const formStudent = () => (lesson ? lesson.student_id : (studentSelect ? studentSelect.value || null : dctx.scope?.student?.id ?? null));
+  let drafted = null;
+  let before = null;   // what the fields held before a draft filled them (Discard puts it back)
+  if (!editing) {
+    drafted = draftPanel(dctx, {
+      getStudentId: formStudent,
+      getContext: async (studentId) => {
+        const [ws, profile] = await Promise.all([
+          dctx.store?.getWorkspace?.().catch(() => null) ?? null,
+          loadProfile(studentId).catch(() => null),
+        ]);
+        return draftContext({ lesson, links: ws?.links, studentId, tutorId: dctx.me?.id, gradeLevel: gradeText(profile?.grade_level) });
+      },
+      onFill: (values) => {
+        before ??= { title: titleInput.value, details: details.value, answerKey: answerKeyInput.value };
+        // A draft is homework: an assignment
+        const assignment = typeGroup.querySelector('input[value="assignment"]');
+        if (currentKind !== 'assignment' && assignment) {
+          assignment.checked = true;
+          assignment.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        titleInput.value = values.title;
+        details.value = values.details;
+        answerKeyInput.value = values.answerKey;
+        setFieldError(titleField, '');
+      },
+      onDiscard: () => {
+        if (!before) return;
+        titleInput.value = before.title;
+        details.value = before.details;
+        answerKeyInput.value = before.answerKey;
+        before = null;
+      },
+    });
+    studentSelect?.addEventListener('change', () => drafted.studentChanged());
+    if (draft) drafted.open();
+  }
+
   const lessonNote = lesson && !editing
     ? h('p', { class: 'note asg-lesson-note' }, icon('book-open-text'),
       h('span', {}, `Homework for ${lessonLabel(lesson, todayKey())}. Add a worksheet or slides after you create it.`))
     : null;
 
   const form = h('form', { class: 'asg-form', id: formId, novalidate: true },
-    lessonNote, applyField, typeField, studentField, titleField, detailsField, dueField, repeatGroup, attachField, errorSlot);
+    lessonNote, applyField, typeField, studentField,
+    drafted ? h('div', { class: 'hwd-slot' }, drafted.opener, drafted.root) : null,
+    titleField, detailsField, answerKeyField, dueField, repeatGroup, attachField, errorSlot);
 
   // A screenshot pasted anywhere in the form is attached (pasted text still
   // goes into the field being typed in)
@@ -350,6 +413,8 @@ export function itemForm(dctx, {
     dctx.setTitle(heading.textContent);
     const hint = detailsField.querySelector('.field-hint');
     if (hint) hint.textContent = instructionsHint(currentKind);
+    // Tasks are not graded, so they have no answer key
+    if (answerKeyField) answerKeyField.hidden = currentKind !== 'assignment';
     paintRepeat();
   });
 
@@ -524,16 +589,21 @@ export function itemForm(dctx, {
           errorSlot.scrollIntoView?.({ block: 'nearest' });
           return;
         }
-        // The items exist: attach the files to the first, then copy them to
-        // the rest. A file that fails is reported, and the items stay (files
-        // can be added from them later).
+        // The items exist: add the answer key (staff only) to each, then
+        // attach the files to the first and copy them to the rest. A key or
+        // file that fails is reported, and the items stay (both can be added
+        // from them later).
         const dueTime = (t) => (t.due_at ? Date.parse(t.due_at) : 0);
         const made = [...result.data].sort((a, b) => dueTime(a) - dueTime(b) || a.id - b.id);
         const first = made[0];
+        const keyText = currentKind === 'assignment' ? answerKeyInput.value.trim() : '';
+        const keyError = keyText ? await addAnswerKeys(made.map((t) => t.id), keyText) : null;
+        if (keyError) console.error(keyError);
+        const files = [...pendingFiles, ...(drafted?.attachFiles() ?? [])];
         let attached = { added: 0, problems: [], rows: [] };
         let copied = { added: 0, problems: [] };
-        if (pendingFiles.length) {
-          attached = await uploadMaterialFiles({ studentId, owner: { task_id: first.id }, files: pendingFiles });
+        if (files.length) {
+          attached = await uploadMaterialFiles({ studentId, owner: { task_id: first.id }, files });
           if (attached.rows.length && made.length > 1) {
             copied = await copyMaterialFiles({ studentId, rows: attached.rows, owners: made.slice(1).map((t) => ({ task_id: t.id })) });
           }
@@ -544,6 +614,7 @@ export function itemForm(dctx, {
         dctx.toast({ text: createdText(currentKind, made.length, attached.added, { everyCopy }) });
         const problems = [...attached.problems, ...copied.problems];
         if (problems.length) dctx.toast({ text: problemsText(problems) });
+        if (keyError) dctx.toast({ text: 'The answer key was not saved. Open the assignment and add it there.' });
         // The drawer may have closed (or moved on) while the files went up
         if (dctx.alive?.() === false) return;
         if (lesson) {

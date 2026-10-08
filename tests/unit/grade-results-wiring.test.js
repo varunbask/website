@@ -75,7 +75,7 @@ describe('the item drawer', () => {
 describe('stylesheets', () => {
   const pages = readdirSync(join(ROOT, 'portal')).filter((f) => f.endsWith('.html'));
   const TOUCHED = {
-    'app.css': '9', 'assignments.css': '8', 'calendar.css': '10', 'overview.css': '9', 'people.css': '16', 'report.css': '2', 'review.css': '5',
+    'app.css': '9', 'assignments.css': '9', 'calendar.css': '10', 'overview.css': '9', 'people.css': '16', 'report.css': '2', 'review.css': '5',
   };
 
   test('the sheets this change touched carry one new ?v= on every page that links them', () => {

@@ -126,6 +126,21 @@ const grading = {
   }],
 };
 
+// Staff only: families never read anything about AI
+const drafts = {
+  id: 'drafts',
+  title: 'Draft homework from lesson photos',
+  blocks: [{
+    type: 'list',
+    items: [
+      'Open a lesson that has happened and choose Make homework from this lesson, or choose Draft with AI from lesson photos on a new assignment.',
+      'Add 1 to 6 photos of the whiteboard, worksheet or notes, pick how many problems and how hard, then choose Draft homework. It can take a few minutes; you can keep working and open it later from Recent drafts.',
+      'The draft fills the form with new problems on the same skills and an answer key. Check every problem, then create the assignment. Nothing is saved until you do.',
+      'Only staff see the answer key. The AI grader uses it to check the work; students and parents never see it.',
+    ],
+  }],
+};
+
 const googleSync = {
   id: 'google',
   title: 'Google Calendar sync',
@@ -190,7 +205,7 @@ const privacy = {
 export function helpSections(role) {
   if (isStaffRole(role)) {
     return [
-      contact(role), notes, grading, googleSync, keyboard,
+      contact(role), notes, grading, drafts, googleSync, keyboard,
       ...(role === 'admin' ? [adminTips] : []),
       install, privacy,
     ];

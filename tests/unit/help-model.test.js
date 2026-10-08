@@ -55,8 +55,8 @@ describe('sections by role', () => {
   });
 
   test('tutors: staff tips, no family sections; admins add the admin tips', () => {
-    expect(ids('tutor')).toEqual(['contact', 'notes', 'grading', 'google', 'keyboard', 'install', 'privacy']);
-    expect(ids('admin')).toEqual(['contact', 'notes', 'grading', 'google', 'keyboard', 'admin', 'install', 'privacy']);
+    expect(ids('tutor')).toEqual(['contact', 'notes', 'grading', 'drafts', 'google', 'keyboard', 'install', 'privacy']);
+    expect(ids('admin')).toEqual(['contact', 'notes', 'grading', 'drafts', 'google', 'keyboard', 'admin', 'install', 'privacy']);
   });
 
   test('an unknown role gets the student help, never staff tips', () => {
@@ -159,6 +159,16 @@ describe('staff', () => {
     expect(text('google')).toContain('VP Education sessions');
     expect(text('google')).toContain('Reconnect Google Calendar');
     expect(text('keyboard')).toContain('Page Up and Page Down');
+  });
+
+  test('drafting homework from lesson photos: where to start, the wait, and that the answer key is staff only', () => {
+    const text = textsOf(helpSections('tutor').find((s) => s.id === 'drafts')).join('\n');
+    expect(text).toContain('Make homework from this lesson');
+    expect(text).toContain('Draft with AI from lesson photos');
+    expect(text).toContain('Recent drafts');
+    expect(text).toMatch(/Nothing is saved until you do/);
+    expect(text).toMatch(/students and parents never see it/);
+    for (const role of ['student', 'parent']) expect(allText(role)).not.toMatch(/lesson photos|answer key|Recent drafts/i);
   });
 
   test('only admins get People and Account', () => {

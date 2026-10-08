@@ -719,3 +719,166 @@
 @media (max-width: 767.98px) {
   .doc-reader .doc-page:focus-visible { box-shadow: none; }
 }
+
+
+/* Draft homework from lesson photos (staff, the create form) ----------------
+   div.hwd-slot > button.hwd-opener + section.hwd-panel[hidden]
+     div.hwd-head > h3.hwd-title + button.icon-btn (close)
+     p.hwd-lede
+     div.field.hwd-photos > ul.hwd-thumbs > li.hwd-thumb > img + button.hwd-thumb-remove
+                          + div.hwd-photo-actions (Add photos, Take a photo on touch screens)
+     div.hwd-options > div.hwd-option-row (count, difficulty) + label.check + div.field (notes)
+     p.note.hwd-context, label.check.hwd-attach, div.hwd-actions
+     div.hwd-status-box (spinner, text, timer), div.hwd-error, div.hwd-result
+     div.hwd-recent > h4.hwd-recent-title + ul.hwd-recent-list > li.hwd-recent-item */
+
+.hwd-slot { display: flex; flex-direction: column; gap: var(--s-3); }
+.hwd-opener { align-self: flex-start; }
+.hwd-opener[hidden],
+.hwd-panel[hidden],
+.hwd-thumbs[hidden],
+.hwd-context[hidden],
+.hwd-status-box[hidden],
+.hwd-result[hidden],
+.hwd-recent[hidden],
+.asg-key-field[hidden] { display: none; }
+
+.hwd-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+  min-width: 0;
+  padding: var(--s-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background-color: var(--surface-2);
+}
+.hwd-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
+.hwd-title { font: var(--t-h3); letter-spacing: -0.005em; color: var(--text); }
+.hwd-lede { max-width: 65ch; font: 400 13px/20px var(--font-ui); color: var(--text-2); }
+
+.hwd-thumbs { display: flex; flex-wrap: wrap; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.hwd-thumb {
+  position: relative;
+  width: 88px;
+  height: 88px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.hwd-thumb > img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.hwd-thumb-remove.icon-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  border: 1px solid var(--line-strong);
+  background-color: var(--surface);
+}
+.hwd-photo-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.hwd-photo-problem:empty { display: none; }
+@media (pointer: fine) {
+  .hwd-camera { display: none; }
+}
+
+.hwd-options { display: flex; flex-direction: column; gap: var(--s-3); }
+.hwd-option-row { display: flex; flex-wrap: wrap; gap: var(--s-4); }
+.hwd-option-row > .field { flex: 0 1 200px; min-width: 0; }
+.hwd-count { max-width: 120px; }
+.hwd-options > .check,
+.hwd-attach { align-self: flex-start; }
+.hwd-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+.hwd-status-box {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+  font: 400 13px/20px var(--font-ui);
+  color: var(--text-2);
+}
+.hwd-status-text { flex: 1 1 auto; min-width: 0; }
+.hwd-timer { flex: none; font: 500 13px/20px var(--font-mono); color: var(--text); }
+.hwd-spinner {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: hwd-spin 900ms linear infinite;
+}
+@keyframes hwd-spin { to { transform: rotate(360deg); } }
+.hwd-error:empty { display: none; }
+.hwd-result { display: flex; flex-direction: column; gap: var(--s-2); }
+.hwd-result-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+
+.hwd-recent { display: flex; flex-direction: column; gap: var(--s-2); }
+.hwd-recent-title { font: 600 13px/20px var(--font-ui); color: var(--text-2); }
+.hwd-recent-list { display: flex; flex-direction: column; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.hwd-recent-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-areas: "main pill actions";
+  align-items: center;
+  gap: var(--s-1) var(--s-3);
+  padding: 6px 6px 6px var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.hwd-recent-item > .pill { grid-area: pill; }
+.hwd-recent-main { grid-area: main; display: flex; flex-direction: column; min-width: 0; }
+.hwd-recent-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+}
+.hwd-recent-meta,
+.hwd-recent-why { font: 400 12px/16px var(--font-ui); color: var(--text-3); overflow-wrap: anywhere; }
+.hwd-recent-why { color: var(--danger-text); }
+.hwd-recent-actions { grid-area: actions; display: flex; align-items: center; gap: var(--s-1); }
+
+/* The answer key: a field on the create form, a collapsed section in the drawer (staff only) */
+.asg-key-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: 32px;
+  cursor: pointer;
+  list-style: none;
+  font: var(--t-h3);
+  letter-spacing: -0.005em;
+}
+.asg-key-summary::-webkit-details-marker { display: none; }
+.asg-key-caret { flex: none; color: var(--text-3); transition: transform 150ms ease; }
+.asg-key[open] .asg-key-caret { transform: rotate(90deg); }
+.asg-key-body { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-2); }
+.asg-key-text { max-width: 65ch; overflow-wrap: anywhere; }
+.asg-key-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.asg-key-problem:empty { display: none; }
+
+@media (max-width: 767.98px) {
+  .hwd-panel { padding: var(--s-3); }
+  .hwd-option-row > .field { flex: 1 1 140px; }
+  .hwd-recent-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "main actions" "pill actions";
+  }
+  .hwd-recent-item > .pill { justify-self: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hwd-spinner { animation: none; border-top-color: var(--line-strong); }
+  .asg-key-caret { transition: none; }
+}
+
+@media (forced-colors: active) {
+  .hwd-panel, .hwd-thumb, .hwd-recent-item { border-color: CanvasText; }
+  .hwd-spinner { border-top-color: Highlight; }
+}
