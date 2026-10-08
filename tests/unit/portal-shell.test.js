@@ -64,7 +64,7 @@ test('no portal file contains an en dash', () => {
 });
 
 // The CSP in vercel.json must allow exactly what the portal loads (spec 9)
-test('the portal CSP covers fonts, supabase-js, the Supabase API, its Realtime socket, blob previews and profile photos', () => {
+test('the portal CSP covers fonts, supabase-js, the Supabase API, its Realtime socket, blob previews, profile photos and worksheet PDFs', () => {
   const vercel = JSON.parse(readFileSync(fileURLToPath(new URL('../../vercel.json', import.meta.url)), 'utf8'));
   const rule = vercel.headers.find((h) => h.source === '/portal(.*)');
   expect(rule).toBeTruthy();
@@ -83,7 +83,10 @@ test('the portal CSP covers fonts, supabase-js, the Supabase API, its Realtime s
   expect(directives.get('img-src')).toEqual(["'self'", 'data:', 'blob:', new URL(SUPABASE_URL).origin]);
   // The API over https and Realtime over its websocket (live updates), nothing broader
   expect(directives.get('connect-src')).toEqual(["'self'", new URL(SUPABASE_URL).origin, new URL(SUPABASE_URL).origin.replace(/^https:/, 'wss:')]);
-  expect(directives.get('object-src')).toEqual(["'none'"]);
+  // Worksheet PDFs are blobs the portal builds itself: Open shows them in the
+  // browser's PDF viewer and Print in a hidden frame, nothing from elsewhere
+  expect(directives.get('object-src')).toEqual(["'self'", 'blob:']);
+  expect(directives.get('frame-src')).toEqual(["'self'", 'blob:']);
   expect(directives.get('base-uri')).toEqual(["'none'"]);
   expect(directives.get('frame-ancestors')).toEqual(["'none'"]);
   for (const [name, values] of directives) {
