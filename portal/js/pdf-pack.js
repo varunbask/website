@@ -1,9 +1,12 @@
 // Packs JPEG pages into one PDF (version 1.4). Pure: bytes in, bytes out, no DOM,
 // so it runs the same in the browser and under node.
 //
-// packJpegsToPdf(pages) -> Uint8Array
-//   pages  [{ bytes: Uint8Array (a JPEG), width, height }]  in page order; width
-//          and height are the JPEG's pixel size
+// packJpegsToPdf(pages, { pageSize }) -> Uint8Array
+//   pages     [{ bytes: Uint8Array (a JPEG), width, height }]  in page order; width
+//             and height are the JPEG's pixel size
+//   pageSize  { width, height } in points to give every page that size, the
+//             image filling it (pdf-writer.js: Letter worksheets); by default
+//             each page takes its image's own shape, as below
 //
 // One page per image. The JPEG bytes go into the file untouched as an image
 // XObject with /Filter /DCTDecode (the PDF reader decodes them), so nothing is
@@ -81,7 +84,7 @@ export function readJpegInfo(bytes) {
 const COLOR_SPACES = { 1: '/DeviceGray', 3: '/DeviceRGB' };
 
 // Checks one page and returns what its image object needs
-function describePage(page, n) {
+function describePage(page, n, pageSize = null) {
   const where = `Page ${n}`;
   const bytes = page?.bytes;
   if (!(bytes instanceof Uint8Array) || bytes.length < 4 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes[2] !== 0xff) {
@@ -102,14 +105,14 @@ function describePage(page, n) {
       throw new Error(`${where} is ${info.width} x ${info.height} pixels, not the ${width} x ${height} given.`);
     }
   }
-  const size = fitPage(width, height);
+  const size = pageSize ? { width: pageSize.width, height: pageSize.height } : fitPage(width, height);
   if (size.width < MIN_PAGE_SIDE || size.height < MIN_PAGE_SIDE) throw new Error(`${where} is too narrow to make a page.`);
   return { bytes, width, height, colorSpace, size };
 }
 
-export function packJpegsToPdf(pages) {
+export function packJpegsToPdf(pages, { pageSize = null } = {}) {
   if (!Array.isArray(pages) || pages.length === 0) throw new Error('Add at least one page.');
-  const described = pages.map((page, index) => describePage(page, index + 1));
+  const described = pages.map((page, index) => describePage(page, index + 1, pageSize));
 
   const chunks = [];
   const offsets = [];            // offsets[n] is where object n starts (index 0 unused)

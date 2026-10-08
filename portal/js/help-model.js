@@ -63,6 +63,7 @@ function homework(role) {
     ? [
       'Your child opens an assignment under Assignments and submits their own answer. You can see everything here, but only they can submit.',
       `They can write the answer in the portal or attach a file (PDF, JPG or PNG photo, or text file, up to ${uploadMb} MB). A photo of handwritten work is fine.`,
+      'An assignment with written problems has a Worksheet: open, print or download it so your child can fill it in on paper, then they take a photo or scan to hand it in. They can also mark it up in the portal and hand it in from there.',
       `Each assignment can be submitted up to ${MAX_SUBMISSIONS} times, so a better answer can be sent again.`,
       'Their tutor reviews the work and marks it Completed, Missing or Extended, with feedback.',
       ['Once the tutor releases it, the result and any feedback appear under ', link('Graded', '#/assignments/graded'), '. Until then the assignment shows as In review.'],
@@ -71,6 +72,7 @@ function homework(role) {
     : [
       ['Open an assignment from ', link('Assignments', '#/assignments/todo'), '.'],
       `Choose Write your answer to type it in the portal, or attach a file (PDF, JPG or PNG photo, or text file, up to ${uploadMb} MB). A photo of handwritten work is fine.`,
+      'An assignment with written problems has a Worksheet. Print it and fill it in on paper, then take a photo or scan to hand it in. Or choose Mark up to write on it in the portal, then Hand in.',
       `Choose Submit work. You can submit up to ${MAX_SUBMISSIONS} times for each assignment, so you can improve your answer and send it again.`,
       'Your tutor reviews your work and marks it Completed, Missing or Extended, with feedback.',
       ['Once your tutor releases it, the result and any feedback appear under ', link('Graded', '#/assignments/graded'), '. Until then the assignment shows as In review.'],
@@ -137,6 +139,7 @@ const drafts = {
       'Add 1 to 6 photos of the whiteboard, worksheet or notes, pick how many problems and how hard, then choose Draft homework. It can take a few minutes; you can keep working and open it later from Recent drafts.',
       'The draft fills the form with new problems on the same skills and an answer key. Check every problem, then create the assignment. Nothing is saved until you do.',
       'Only staff see the answer key. The AI grader uses it to check the work; students and parents never see it.',
+      'After a draft fills the form, Preview worksheet shows the page the student will print or mark up. On a saved assignment, Worksheet in its drawer also has With answer key.',
     ],
   }],
 };

@@ -884,3 +884,167 @@
   .hwd-panel, .hwd-thumb, .hwd-recent-item { border-color: CanvasText; }
   .hwd-spinner { border-top-color: Highlight; }
 }
+
+
+/* Worksheet (item drawer) ----------------------------------------------------
+   section.drawer-section.ws-section > h3 + p.ws-line + div.ws-actions (buttons)
+     + p.note.ws-apple (iPad and iPhone) + div.ws-problem
+   iframe.ws-print-frame   the hidden frame Print uses */
+
+.ws-line { max-width: 65ch; font: 400 13px/20px var(--font-ui); color: var(--text-2); }
+.ws-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-3); }
+.ws-apple { margin-top: var(--s-3); }
+.ws-problem { margin-top: var(--s-2); }
+.ws-problem:empty { display: none; }
+.ws-print-frame {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+
+/* Mark up: a full-screen view over the drawer -------------------------------
+   dialog.markup > div.mk-inner
+     div.mk-bar > div.mk-heading (h2.mk-title + p.mk-name) + p.mk-status + close
+     p.mk-hint, div.mk-problem
+     div.mk-scroll > div.mk-pages > div.mk-page (img.mk-bg + canvas.mk-ink + hidden page text)
+     div.mk-tools[role=toolbar] > div.mk-group ... (pinned to the bottom)
+   .is-hand: one finger scrolls (Hand mode); .is-eraser: the eraser cursor */
+
+.markup {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  background-color: var(--canvas);
+}
+.markup::backdrop { background-color: var(--scrim); }
+.mk-inner { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.mk-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-height: 56px;
+  padding: var(--s-2) var(--s-3) var(--s-2) var(--s-4);
+  padding-top: max(var(--s-2), env(safe-area-inset-top));
+  border-bottom: 1px solid var(--line);
+  background-color: var(--raised);
+}
+.mk-heading { display: flex; align-items: baseline; gap: var(--s-2); flex: 1 1 auto; min-width: 0; }
+.mk-title { font: var(--t-h3); flex: none; }
+.mk-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 400 14px/20px var(--font-ui);
+  color: var(--text-2);
+}
+.mk-status { flex: 0 1 auto; min-width: 0; font: 400 12px/16px var(--font-ui); color: var(--text-3); text-align: right; }
+.mk-hint { padding: var(--s-2) var(--s-4) 0; font: 400 12px/16px var(--font-ui); color: var(--text-3); }
+.mk-problem { padding: var(--s-2) var(--s-4) 0; }
+.mk-problem:empty { display: none; }
+
+.mk-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.mk-pages {
+  --mk-page-w: 600px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-4);
+  width: max-content;
+  min-width: 100%;
+  padding: var(--s-4) var(--s-3) var(--s-6);
+}
+.mk-page {
+  position: relative;
+  flex: none;
+  width: var(--mk-page-w);
+  aspect-ratio: 612 / 792;
+  overflow: hidden;
+  border-radius: 4px;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 1px var(--line-strong), 0 2px 8px rgba(0, 0, 0, .12);
+}
+.mk-page.is-loading { background-image: linear-gradient(90deg, #f3f4f6, #ffffff, #f3f4f6); }
+.mk-bg,
+.mk-ink {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+.mk-ink { touch-action: none; cursor: crosshair; }
+.markup.is-eraser .mk-ink { cursor: cell; }
+.markup.is-hand .mk-ink { touch-action: pan-x pan-y pinch-zoom; }
+
+.mk-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
+  padding: var(--s-2) var(--s-3);
+  padding-bottom: max(var(--s-2), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background-color: var(--raised);
+}
+.mk-group { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); }
+.mk-group-end { margin-left: auto; }
+.mk-tools .btn[aria-pressed="true"] { border-color: var(--accent); background-color: var(--accent-soft); color: var(--accent-text); }
+.mk-redo .icon { transform: scaleX(-1); }
+.mk-zoom-btn { min-width: 32px; justify-content: center; }
+.mk-zoom { min-width: 44px; text-align: center; font: 500 12px/16px var(--font-ui); color: var(--text-2); }
+.mk-color {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  background-color: var(--surface);
+  cursor: pointer;
+}
+.mk-color[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.mk-color:disabled { opacity: .45; cursor: default; }
+.mk-swatch { width: 16px; height: 16px; border-radius: 50%; box-shadow: 0 0 0 1px var(--line-strong); }
+.mk-swatch.is-black { background-color: #1f2328; }
+.mk-swatch.is-blue { background-color: #1d4ed8; }
+.mk-swatch.is-red { background-color: #c62828; }
+@media (pointer: coarse) {
+  .mk-color { width: 44px; height: 44px; }
+}
+
+@media (max-width: 767.98px) {
+  .mk-bar { padding-left: var(--s-3); }
+  .mk-heading { flex-direction: column; align-items: flex-start; gap: 0; }
+  .mk-status { display: none; }
+  .mk-pages { padding: var(--s-3) var(--s-2) var(--s-4); gap: var(--s-3); }
+  .mk-tools { gap: var(--s-2); }
+  .mk-group-end { margin-left: 0; flex-basis: 100%; }
+  .mk-group-end > .btn { flex: 1 1 auto; justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mk-page.is-loading { background-image: none; }
+}
+
+@media (forced-colors: active) {
+  .mk-page { outline: 1px solid CanvasText; }
+  .mk-color[aria-pressed="true"], .mk-tools .btn[aria-pressed="true"] { outline: 2px solid Highlight; }
+}

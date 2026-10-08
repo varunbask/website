@@ -13,6 +13,7 @@
 //   onDiscard     () -> whether the form still holds an earlier draft
 //   onBusy        (on) while a draft for this form runs (the form locks its student)
 //   attachRoom    () -> how many photos may still be attached (MAX_ATTACHMENTS less the files)
+//   onPreview     async () opens the worksheet the form would make (Preview worksheet)
 //   attachFiles   the photos as JPEG files when "Attach these photos" is ticked
 //
 // Photos are shrunk here (homework-draft-model.js has the numbers), kept in
@@ -27,7 +28,7 @@
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
 import { sb } from './supabase.js';
-import { button, iconButton, field, select, pill, setFieldError } from './ui.js';
+import { button, iconButton, field, select, pill, setFieldError, busy } from './ui.js';
 import { fileDrop } from './file-drop.js';
 import { relativeTime } from './dates.js';
 import { displayName } from './format.js';
@@ -117,7 +118,7 @@ async function shrinkPhoto(file, { maxEdge, quality }) {
 // ---------------------------------------------------------------------------
 
 export function draftPanel(dctx, {
-  getStudentId = () => null, getContext = async () => ({}), onFill, onDiscard, onBusy, attachRoom = () => Infinity,
+  getStudentId = () => null, getContext = async () => ({}), onFill, onDiscard, onBusy, attachRoom = () => Infinity, onPreview = null,
 } = {}) {
   const headingId = uid('hwd-head');
   const photos = [];           // { blob, dataUrl, chars, url, name }
@@ -187,8 +188,26 @@ export function draftPanel(dctx, {
     h('p', { class: 'note' }, icon('check-circle'), h('span', {}, READY_TEXT)),
     noticeBox,
     h('div', { class: 'hwd-result-actions' },
+      onPreview ? previewButton() : null,
       button({ label: 'Try again', size: 'sm', icon: 'arrow-counter-clockwise', onClick: () => tryAgain(), focusKey: 'hwd-again' }),
       button({ label: 'Discard draft', size: 'sm', variant: 'ghost', icon: 'trash', onClick: () => discard(), focusKey: 'hwd-discard' })));
+  // Preview worksheet: the page the student will print or mark up, from the form as it is now
+  function previewButton() {
+    const btn = button({
+      label: 'Preview worksheet', icon: 'arrow-square-out', size: 'sm', focusKey: 'hwd-preview',
+      ariaLabel: 'Preview worksheet, opens in a new tab',
+    });
+    btn.addEventListener('click', async () => {
+      try {
+        await busy(btn, 'Preparing…', () => onPreview());
+      } catch (error) {
+        console.error(error);
+        showError('We couldn’t make the worksheet preview. Try again.', { retry: false });
+      }
+    });
+    return btn;
+  }
+
   const recentList = h('ul', { class: 'hwd-recent-list' });
   const recentBox = h('div', { class: 'hwd-recent', hidden: true },
     h('h4', { class: 'hwd-recent-title' }, 'Recent drafts'),

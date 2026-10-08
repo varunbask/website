@@ -10,10 +10,12 @@ import { h, uid } from './dom.js';
 import { icon } from './icons.js';
 import { sb } from './supabase.js';
 import { button, busy } from './ui.js';
+import { openWorksheet } from './worksheet-ui.js';
 
 export const MAX_ANSWER_KEY = 20000;
 export const ANSWER_KEY_HEADING = 'Answer key (only staff see this)';
 export const ANSWER_KEY_HINT = 'Only staff see this. The AI grader uses it to check the work and never shows it to the student.';
+export const KEY_WORKSHEET_HEADING = 'Answer key (staff only)';
 
 // The key's text, or null when there is none
 export async function loadAnswerKey(taskId) {
@@ -106,4 +108,26 @@ export function answerKeySection(dctx, { taskId, body = null, onSaved } = {}) {
 
   showRead();
   return section;
+}
+
+// "With answer key" in the worksheet section: the student's worksheet with the
+// key on its own pages at the end. Staff only, like everything in this module;
+// the key is read again on each click, so an edit shows at once.
+export function keyWorksheetButton(dctx, { task }) {
+  const btn = button({
+    label: 'With answer key', icon: 'eye', size: 'sm', focusKey: 'ws-key',
+    ariaLabel: 'Open the worksheet with the answer key, opens in a new tab',
+  });
+  btn.addEventListener('click', async () => {
+    try {
+      await busy(btn, 'Preparing…', async () => {
+        const body = await loadAnswerKey(task.id);
+        await openWorksheet(task, { appendix: body ? { heading: KEY_WORKSHEET_HEADING, text: body } : null, host: dctx.body ?? document.body });
+      });
+    } catch (error) {
+      console.error(error);
+      dctx.toast?.({ text: 'We couldn’t make the worksheet. Try again.' });
+    }
+  });
+  return btn;
 }

@@ -51,6 +51,8 @@ import { PROFILE_DRAWER } from './student-profile-model.js';
 import { sb } from './supabase.js';
 import { answerView } from './rich-doc-dom.js';
 import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './task-repeat-model.js';
+import { worksheetSection } from './worksheet-ui.js';
+import { hasWorksheet } from './worksheet-model.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SUBMITTED = 'Work submitted. Your tutor will review it soon.';
@@ -191,7 +193,9 @@ async function loadExtras(dctx, found) {
       : null,
     keyed
       ? answerKeyModule()
-        .then(async ({ loadAnswerKey, answerKeySection }) => ({ body: await loadAnswerKey(found.task.id), build: answerKeySection }))
+        .then(async ({ loadAnswerKey, answerKeySection, keyWorksheetButton }) => ({
+          body: await loadAnswerKey(found.task.id), build: answerKeySection, worksheetButton: keyWorksheetButton,
+        }))
         .catch((error) => { console.error(error); return null; })
       : null,
   ]);
@@ -638,6 +642,24 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, keepAn
   nodes.push(section('Instructions', task.details
     ? h('p', { class: 'read is-pre asg-instructions' }, task.details)
     : h('p', { class: 'asg-muted' }, 'No extra instructions.')));
+
+  // The worksheet: the details as a page to print, fill in or mark up. The
+  // student may hand a marked-up one in while they can still submit; staff
+  // also get the version with the answer key (built by answer-key.js).
+  if (!isTask && hasWorksheet(task)) {
+    const canHandIn = isStudent && item.canSubmit && item.attempts < MAX_SUBMISSIONS;
+    nodes.push(worksheetSection(dctx, {
+      task,
+      studentId: found.studentId,
+      role: staff ? 'staff' : (parent ? 'parent' : 'student'),
+      canMarkUp: staff || canHandIn,
+      canHandIn,
+      attemptText: `It counts as attempt ${item.attempts + 1} of ${MAX_SUBMISSIONS}.`,
+      onHandedIn: () => actions.submitted(found.studentId),
+      extra: staff && found.answerKey?.body && found.answerKey.worksheetButton
+        ? [found.answerKey.worksheetButton(dctx, { task })] : [],
+    }));
+  }
 
   // Worksheets and files from the tutor (staff add and remove them)
   if (found.attachments) {

@@ -50,6 +50,7 @@ import {
   REPEATS, MIN_REPEAT_COUNT, checkRepeat, repeatSummary, repeatRows, followingText, seriesUpdates, groupUpdates, itemNoun,
 } from './task-repeat-model.js';
 import { draftPanel } from './homework-draft.js';
+import { openWorksheet } from './worksheet-ui.js';
 import { draftContext, attachmentsProblem, MAX_ATTACHMENTS } from './homework-draft-model.js';
 import { addAnswerKeys, MAX_ANSWER_KEY, ANSWER_KEY_HINT } from './answer-key.js';
 import { loadProfile } from './student-profile-data.js';
@@ -375,6 +376,11 @@ export function itemForm(dctx, {
       },
       // How many lesson photos may still be attached next to the files chosen
       attachRoom: () => MAX_ATTACHMENTS - pendingFiles.length,
+      // Preview worksheet: what the student will get from the form as it is now
+      onPreview: () => openWorksheet(
+        { title: titleInput.value.trim(), details: details.value, due_at: dueDateToIso(dueInput.value) },
+        { host: dctx.body ?? document.body },
+      ),
     });
     studentSelect?.addEventListener('change', () => drafted.studentChanged());
     if (draft) drafted.open();

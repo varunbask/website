@@ -17,7 +17,9 @@
 
    Seeded for Daniel (?as=tutor): an assignment for Maya with an answer key
    ("Factoring trinomials, set 1"), a ready draft from yesterday, and a failed
-   one for Leo.
+   one for Leo. For the worksheet, Maya also has "Exponents and roots
+   practice", written by hand with x², √ and − in it, long enough for two
+   pages (?as=student and ?as=parent see its Worksheet section).
 
    Try it
      ?as=tutor   Calendar: Maya's last Algebra lesson > Make homework from this lesson
@@ -110,6 +112,30 @@
     body: '1. (x + 2)(x + 3)\n   2 × 3 = 6 and 2 + 3 = 5.\n\n2. (x - 5)(x + 2)\n   -5 × 2 = -10 and -5 + 2 = -3.\n\n3. (x - 3)(x - 5)\n   -3 × -5 = 15 and -3 + (-5) = -8.',
     updated_by: 'u-daniel', updated_at: h.ago(1),
   });
+  // A hand-written assignment for the worksheet: numbered, with unicode math and a hint
+  db.tasks.push({
+    id: h.id(), student_id: 'u-maya', created_by: 'u-daniel', kind: 'assignment', title: 'Exponents and roots practice',
+    details: [
+      'Simplify each expression. Show every step, and box your final answer.',
+      '',
+      '1. Simplify x² · x³.',
+      '',
+      '2. Simplify (2a³)².',
+      '',
+      '3. Find √49 + √16.',
+      '',
+      '4. Solve 3x − 7 = 11.',
+      '',
+      '5. Evaluate (−3)² − 4.',
+      '   Hint: square first, then subtract.',
+      '',
+      '6. Write 0.000045 in scientific notation.',
+      '',
+      '7. Simplify √(x²) when x ≥ 0.',
+    ].join('\n'),
+    due_at: h.dueAt(4), completed_at: null, created_at: h.ago(0.5), session_id: null, series_id: null, extended_from: null,
+  });
+
   db.homework_drafts.push(
     {
       id: h.id(), created_by: 'u-daniel', student_id: 'u-maya', status: 'ready',

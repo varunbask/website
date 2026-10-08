@@ -171,6 +171,16 @@ describe('staff', () => {
     for (const role of ['student', 'parent']) expect(allText(role)).not.toMatch(/lesson photos|answer key|Recent drafts/i);
   });
 
+  test('the worksheet: families print, fill in on paper or mark it up; staff preview it', () => {
+    const student = textsOf(helpSections('student').find((s) => s.id === 'homework')).join('\n');
+    const parent = textsOf(helpSections('parent').find((s) => s.id === 'homework')).join('\n');
+    expect(student).toContain('Print it and fill it in on paper, then take a photo or scan to hand it in. Or choose Mark up');
+    expect(parent).toMatch(/Worksheet: open, print or download it so your child can fill it in on paper/);
+    for (const text of [student, parent]) expect(text).not.toMatch(/\bAI\b|answer key|[\u2013\u2014]/);
+    const drafts = textsOf(helpSections('tutor').find((s) => s.id === 'drafts')).join('\n');
+    expect(drafts).toContain('Preview worksheet');
+  });
+
   test('only admins get People and Account', () => {
     expect(allText('admin')).toMatch(/People is where/);
     expect(allText('tutor')).not.toMatch(/People is where/);
