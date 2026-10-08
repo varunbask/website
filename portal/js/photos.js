@@ -27,8 +27,10 @@ import { avatar, setAvatarPhoto } from './ui.js';
 import { PHOTO_BUCKET, SIGN_SECONDS, isFresh } from './photo-model.js';
 
 // A path learned from person_cards() is asked for again after this long; one
-// from a profile row is replaced whenever that row loads again
+// from a profile row is replaced whenever that row loads again. A lookup that
+// failed is tried again much sooner.
 const CARD_TTL_MS = 10 * 60 * 1000;
+const RETRY_AFTER_MS = 30 * 1000;
 const CARD_BATCH = 500;
 
 const paths = new Map();      // person id -> { path, at, from: 'row' | 'card' }
@@ -86,8 +88,8 @@ async function loadCards(ids) {
     const { data, error } = await sb.rpc('person_cards', { p_ids: part });
     if (error) {
       // Not this time (offline, or the migration is not there yet): initials,
-      // and a new try once the entries go stale
-      for (const id of part) paths.set(id, { path: null, at, from: 'card' });
+      // and a new try in half a minute
+      for (const id of part) paths.set(id, { path: null, at: at - CARD_TTL_MS + RETRY_AFTER_MS, from: 'card' });
       continue;
     }
     const found = new Set();
@@ -139,6 +141,14 @@ function flush() {
   });
 }
 
+// A photo that fails to load (replaced and deleted since it was signed, or
+// its address ran out): forget what we knew, so the next draw asks again
+function forget(id) {
+  const entry = paths.get(id);
+  if (entry?.path) signed.delete(entry.path);
+  if (entry) paths.set(id, { ...entry, at: 0, from: 'card' });
+}
+
 // avatar(name, opts) for a person: their photo when it is signed already,
 // otherwise the initials until this tick's batch brings it
 export function personAvatar(id, name, opts = {}) {
@@ -146,6 +156,8 @@ export function personAvatar(id, name, opts = {}) {
   const el = avatar(name, { ...opts, src: k ? photoUrl(k) : null });
   if (!k) return el;
   el.dataset.photoId = k;
+  // error does not bubble, but it can be heard on the way down
+  el.addEventListener('error', () => forget(k), true);
   if (needsBatch(k)) {
     if (!queued) {
       queued = { ids: new Set(), els: new Set() };

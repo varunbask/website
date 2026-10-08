@@ -433,7 +433,12 @@ export function createDeleteRepo(db) {
       for (const p of await folder(MATERIALS_BUCKET, id)) materials.add(p);
       // Profile photos sit in '<id>/' of the avatars bucket. The bucket comes with
       // the profiles and photos migration: before it, there is nothing to remove.
-      const avatars = await folder(AVATARS_BUCKET, id).catch(() => []);
+      // Any other failure stops the delete, like the other folders, so a child's
+      // photo is never left behind without a word.
+      const avatars = await folder(AVATARS_BUCKET, id).catch((error) => {
+        if (/bucket not found/i.test(error?.message ?? '')) return [];
+        throw error;
+      });
       return { homework: [...homework], materials: [...materials], avatars };
     },
 

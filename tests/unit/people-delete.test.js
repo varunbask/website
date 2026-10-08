@@ -751,6 +751,15 @@ describe('the repo', () => {
     expect((await createDeleteRepo(db).filesOf(CONSTANCE, [])).avatars).toEqual([]);
   });
 
+  test('files: any other failure listing the photos stops the delete, so no photo is left behind', async () => {
+    const db = fakeSupabase(world());
+    const real = db.storage.from;
+    db.storage.from = (bucket) => (bucket === AVATARS_BUCKET
+      ? { list: async () => ({ data: null, error: { message: 'connection reset' } }) }
+      : real(bucket));
+    await expect(createDeleteRepo(db).filesOf(CONSTANCE, [])).rejects.toThrow('list avatars: connection reset');
+  });
+
   test('files: a long folder is listed a page at a time', async () => {
     const many = Array.from({ length: 2500 }, (_, i) => `${CONSTANCE}/f${i}.pdf`);
     const repo = createDeleteRepo(fakeSupabase(world(), { [HOMEWORK_BUCKET]: many }));

@@ -172,7 +172,11 @@ function profileCard(ctx, student, { profile, parents, tutors, names }) {
 
   card.append(parentsPart(ctx, student.id, parents));
 
-  const updated = profile.ok && row ? updatedText(row, names, ctx.now) : null;
+  // The family fills in their part too: "Updated by Maya" or "by Grace", not "by Staff"
+  const editors = new Map(names ?? []);
+  editors.set(String(student.id), displayName(student));
+  for (const p of parents.ok ? parents.data ?? [] : []) if (p.full_name) editors.set(String(p.parent_id), p.full_name);
+  const updated = profile.ok && row ? updatedText(row, editors, ctx.now) : null;
   if (updated) card.append(h('div', { class: 'card-foot sp-foot' }, h('p', { class: 'sp-updated' }, updated)));
   return card;
 }

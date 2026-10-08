@@ -21,7 +21,7 @@ import {
   profileProgress, progressText, profileKind,
 } from '../profile-model.js';
 import { PHOTO_STEPS } from '../photo-model.js';
-import { loadStudentFields, saveStudentFields, loadStaffFields, saveStaffFields } from '../profile-data.js';
+import { loadStudentFields, saveStudentFields, loadStaffFields, saveStaffFields, loadAvatarPath } from '../profile-data.js';
 import { savePhoto, removePhoto, PhotoError } from '../photo-upload.js';
 import { ensurePhotos, photoUrl, photoPath } from '../photos.js';
 import { stepList } from '../profile-nudge.js';
@@ -111,9 +111,11 @@ export async function mount(ctx) {
 
   let saved;
   try {
+    // The photo path comes from the person's own row (then it is signed), so a
+    // failed lookup can never pass for "no photo yet"
     [saved] = await Promise.all([
       kind === 'staff' ? loadStaffFields(person.id) : loadStudentFields(person.id),
-      ensurePhotos([person.id]),
+      loadAvatarPath(person.id).then(() => ensurePhotos([person.id])),
     ]);
   } catch (error) {
     if (!ctx.alive()) return;
@@ -467,7 +469,9 @@ function detailsCard(ctx, target, saved, { onSaved }) {
     try {
       await busy(save, 'Saving…', async () => {
         try {
-          const next = kind === 'staff' ? await saveStaffFields(person.id, values) : await saveStudentFields(person.id, values);
+          const next = kind === 'staff'
+            ? await saveStaffFields(person.id, values, { row })
+            : await saveStudentFields(person.id, values, { row });
           row = next ?? { ...(row ?? {}), ...values };
           drafts.delete(key);
           if (!ctx.alive()) return;

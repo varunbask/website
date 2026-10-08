@@ -34,9 +34,9 @@ describe('who may see a person', () => {
     expect(body).toMatch(/p\.role in \('tutor', 'admin'\) and exists \(\s+select 1 from public\.tutor_students ts\s+where ts\.tutor_id = p\.id and private\.can_view_student\(ts\.student_id\)\)/);
   });
 
-  test('a photo is changed by the person, the admin, or a parent of a student', () => {
+  test('a photo is changed by the person (once approved), the admin, or a parent of a student', () => {
     const set = fn('private.can_set_avatar');
-    expect(set).toContain('p_person = auth.uid()');
+    expect(set).toContain("(p_person = auth.uid() and private.my_role() in ('student', 'parent', 'tutor', 'admin'))");
     expect(set).toContain("private.has_role(p_person, 'student')");
     expect(set).toContain('ps.parent_id = auth.uid() and ps.student_id = p_person');
   });
@@ -68,6 +68,18 @@ describe('the photo path and the bucket', () => {
     expect(list.find((p) => p.command === 'insert').body).toContain('private.can_set_avatar_file(name)');
     expect(list.find((p) => p.command === 'insert').body).toContain(PATTERN.replace(/^'|'$/g, ''));
     expect(list.find((p) => p.command === 'delete').body).toContain('private.can_set_avatar_file(name)');
+    // at most 10 files in a folder, counted past the read policy
+    expect(list.find((p) => p.command === 'insert').body).toContain('not private.avatar_folder_full(name)');
+    expect(fn('private.avatar_folder_full')).toContain('>= 10');
+  });
+
+  test('every helper is closed to the public; the policy helpers are open to signed-in people only', () => {
+    for (const sig of ['avatar_folder(text)', 'can_see_avatar_file(text)', 'can_set_avatar_file(text)', 'avatar_folder_full(text)', 'clean_text(text)', 'can_see_person(uuid)', 'can_set_avatar(uuid)']) {
+      expect(sql, sig).toContain(`revoke execute on function private.${sig} from public;`);
+    }
+    for (const sig of ['can_see_avatar_file(text)', 'can_set_avatar_file(text)', 'avatar_folder_full(text)', 'can_see_person(uuid)', 'can_set_avatar(uuid)']) {
+      expect(sql, sig).toContain(`grant execute on function private.${sig} to authenticated;`);
+    }
   });
 
   test('the folder is checked against a uuid before it is cast', () => {
@@ -137,6 +149,11 @@ describe('staff_profiles', () => {
       expect(p.body, p.name).toContain("profile_id = (select auth.uid()) and (select private.my_role()) in ('tutor', 'admin')");
       expect(p.body, p.name).toContain('(select private.is_admin())');
     }
+  });
+
+  test('profile_id has no update grant (the portal updates or inserts, never upserts)', () => {
+    expect(sql).not.toMatch(/grant update \([^)]*profile_id[^)]*\) on public\.staff_profiles/);
+    expect(readFileSync(fileURLToPath(new URL('../../portal/js/profile-data.js', import.meta.url)), 'utf8')).not.toContain('.upsert(');
   });
 
   test('exact grants, and a trigger that refuses anyone but a tutor or an admin', () => {

@@ -15,10 +15,12 @@
 --     bucket, or null. Only set_avatar() writes it: no client has an update
 --     grant on the column.
 -- storage bucket "avatars"
---     Private, at most 1 MB a file, WebP, JPEG or PNG. Whoever may see the
---     person may read the file. The person, the admin, or a parent of a student
---     adds and removes files in that person's folder. A file is never
---     overwritten (no update policy): a new photo is a new file name.
+--     Private, at most 1 MB a file, WebP, JPEG or PNG, at most 10 files in a
+--     person's folder (the portal keeps one and deletes the one it replaced).
+--     Whoever may see the person may read the file. The person (once approved),
+--     the admin, or a parent of a student adds and removes files in that
+--     person's folder. A file is never overwritten (no update policy): a new
+--     photo is a new file name.
 -- set_avatar(person, path) -> the previous path
 --     Points the profile at an uploaded file (or clears it with null) and hands
 --     back the old path, so the portal can delete the old file.
@@ -76,14 +78,15 @@ $$;
 revoke execute on function private.can_see_person(uuid) from public;
 grant execute on function private.can_see_person(uuid) to authenticated;
 
--- Who may change a person's photo: the person, the admin, or a parent of that
--- person when the person is a student (parents of young children add it)
+-- Who may change a person's photo: the person (not while still waiting for
+-- approval), the admin, or a parent of that person when the person is a
+-- student (parents of young children add it)
 create function private.can_set_avatar(p_person uuid)
 returns boolean
 language sql stable security definer set search_path = ''
 as $$
   select p_person is not null and coalesce(
-    p_person = auth.uid()
+    (p_person = auth.uid() and private.my_role() in ('student', 'parent', 'tutor', 'admin'))
     or private.is_admin()
     or (private.my_role() = 'parent'
         and private.has_role(p_person, 'student')
@@ -133,12 +136,16 @@ begin
 end;
 $$;
 
+revoke execute on function private.avatar_folder(text) from public;
+
 create function private.can_see_avatar_file(p_name text)
 returns boolean
 language sql stable security definer set search_path = ''
 as $$
   select coalesce(private.can_see_person(private.avatar_folder(p_name)), false)
 $$;
+revoke execute on function private.can_see_avatar_file(text) from public;
+grant execute on function private.can_see_avatar_file(text) to authenticated;
 
 create function private.can_set_avatar_file(p_name text)
 returns boolean
@@ -146,6 +153,21 @@ language sql stable security definer set search_path = ''
 as $$
   select coalesce(private.can_set_avatar(private.avatar_folder(p_name)), false)
 $$;
+revoke execute on function private.can_set_avatar_file(text) from public;
+grant execute on function private.can_set_avatar_file(text) to authenticated;
+
+-- How many photos a person's folder already holds (an upload is refused at 10,
+-- so nobody can fill the bucket). Counted as the owner, past the read policy.
+create function private.avatar_folder_full(p_name text)
+returns boolean
+language sql stable security definer set search_path = ''
+as $$
+  select (select count(*) from storage.objects o
+           where o.bucket_id = 'avatars'
+             and split_part(o.name, '/', 1) = split_part(p_name, '/', 1)) >= 10
+$$;
+revoke execute on function private.avatar_folder_full(text) from public;
+grant execute on function private.avatar_folder_full(text) to authenticated;
 
 create policy "avatars: read photos of people you may see" on storage.objects
   for select to authenticated
@@ -155,7 +177,8 @@ create policy "avatars: add a photo for yourself or your child" on storage.objec
   for insert to authenticated
   with check (bucket_id = 'avatars'
               and name ~ '^[0-9a-f-]{36}/[A-Za-z0-9_-]{8,64}\.(webp|jpg|png)$'
-              and private.can_set_avatar_file(name));
+              and private.can_set_avatar_file(name)
+              and not private.avatar_folder_full(name));
 
 create policy "avatars: remove a photo of yourself or your child" on storage.objects
   for delete to authenticated
@@ -232,11 +255,12 @@ alter table public.student_profiles
 grant insert (pronouns, interests, favorite_subjects, learning_style) on public.student_profiles to authenticated;
 grant update (pronouns, interests, favorite_subjects, learning_style) on public.student_profiles to authenticated;
 
--- Trimmed text, or null when nothing but blanks is left
+-- Trimmed text, or null when nothing but blanks is left (save_student_profile)
 create function private.clean_text(p_text text)
 returns text
 language sql immutable set search_path = ''
 as $$ select nullif(regexp_replace(coalesce(p_text, ''), '^[[:space:]]+|[[:space:]]+$', '', 'g'), '') $$;
+revoke execute on function private.clean_text(text) from public;
 
 -- The student, a linked parent or a tutor of the student (the admin too) saves
 -- the seven family fields. learning_notes is never read or written here. The
@@ -356,7 +380,9 @@ create trigger staff_profiles_staff_only before insert or update on public.staff
   for each row execute function private.staff_profile_staff_only();
 
 -- Privileges: start from nothing, grant exactly what the policies need. Nobody
--- deletes a staff profile (it goes with the person).
+-- deletes a staff profile (it goes with the person). profile_id has no update
+-- grant, so the portal saves with an update, or an insert when there is no row
+-- yet, never a PostgREST upsert (which would set profile_id too).
 revoke all on public.staff_profiles from anon, authenticated;
 grant all on public.staff_profiles to service_role;
 grant select on public.staff_profiles to authenticated;
