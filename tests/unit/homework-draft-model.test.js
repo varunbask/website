@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   MAX_PHOTOS, MAX_PHOTO_CHARS, SHRINK_TRIES, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES,
-  POLL_MS, RECENT_DAYS, DRAFTING_TEXT, READY_TEXT, MAX_ATTACHMENTS, GONE_ERROR,
+  POLL_MS, RECENT_DAYS, DRAFTING_TEXT, READY_TEXT, MAX_ATTACHMENTS, GONE_ERROR, MAX_DETAILS,
   pollOutcome, tokenNeedsRefresh, attachmentsProblem, elsewhereText,
   fitSize, base64Length, isImageFile, sizeText, fitsBudget, overBudgetText, photoProblems, checkOptions, draftRequest,
   draftContext, contextText, formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft, shouldReopen,
@@ -28,7 +28,7 @@ describe('the browser and the server agree', () => {
       context: { subject: 'Algebra', grade: '9th grade' }, studentId: 'u-maya',
     });
     expect(body).toEqual({
-      action: 'draft_homework', images: [photos[0].dataUrl], count: 7, difficulty: 'harder', hints: true, notes: 'negatives',
+      action: 'draft_homework', images: [photos[0].dataUrl], count: 7, difficulty: 'harder', hints: true, challenge: true, notes: 'negatives',
       subject: 'Algebra', grade: '9th grade', student_id: 'u-maya',
     });
     const checked = server.checkDraftRequest(body);
@@ -99,7 +99,8 @@ describe('the photo budget', () => {
 
 describe('options', () => {
   test('defaults: 5 problems, about the same, no hints, no notes', () => {
-    expect(checkOptions({})).toEqual({ values: { count: 5, difficulty: 'same', hints: false, notes: null }, errors: {} });
+    expect(checkOptions({})).toEqual({ values: { count: 5, difficulty: 'same', hints: false, challenge: true, notes: null }, errors: {} });
+    expect(checkOptions({ challenge: false }).values.challenge).toBe(false);
     expect(DIFFICULTIES.map((d) => d.label)).toEqual(['Easier', 'About the same', 'Harder']);
   });
 
@@ -135,8 +136,9 @@ describe('a finished draft fills the form', () => {
     const result = { title: ' Factoring practice ', details: '1. Factor x^2 + 5x + 6.', answer_key_text: '1. (x + 2)(x + 3)', problems: [] };
     expect(formFromDraft(result)).toEqual({ title: 'Factoring practice', details: '1. Factor x^2 + 5x + 6.', answerKey: '1. (x + 2)(x + 3)', notice: null });
     expect(formFromDraft({ ...result, notice: '2 problems were left out.' }).notice).toBe('2 problems were left out.');
-    const long = formFromDraft({ title: 't'.repeat(300), details: 'd'.repeat(6000), answer_key_text: 'k'.repeat(30000) });
-    expect([long.title.length, long.details.length, long.answerKey.length]).toEqual([200, 5000, 20000]);
+    const long = formFromDraft({ title: 't'.repeat(300), details: 'd'.repeat(13000), answer_key_text: 'k'.repeat(30000) });
+    expect([long.title.length, long.details.length, long.answerKey.length]).toEqual([200, 12000, 20000]);
+    expect(MAX_DETAILS).toBe(server.MAX_DETAILS);
     expect(formFromDraft(null)).toEqual({ title: '', details: '', answerKey: '', notice: null });
   });
 });
@@ -219,9 +221,9 @@ describe('job status', () => {
   });
 
   test('one line about a draft\'s options', () => {
-    expect(optionsText({ count: 5, difficulty: 'same' })).toBe('5 problems, about the same');
-    expect(optionsText({ count: 1, difficulty: 'harder', hints: true })).toBe('1 problem, harder, with hints');
-    expect(optionsText({})).toBe('5 problems');
+    expect(optionsText({ count: 5, difficulty: 'same' })).toBe('5 practice problems, about the same');
+    expect(optionsText({ count: 1, difficulty: 'harder', hints: true })).toBe('1 practice problem, harder, with hints');
+    expect(optionsText({})).toBe('5 practice problems');
   });
 });
 

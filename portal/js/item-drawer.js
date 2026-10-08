@@ -52,6 +52,7 @@ import { sb } from './supabase.js';
 import { answerView } from './rich-doc-dom.js';
 import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './task-repeat-model.js';
 import { worksheetSection } from './worksheet-ui.js';
+import { homeworkView } from './homework-view.js';
 import { hasWorksheet } from './worksheet-model.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -640,7 +641,7 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, keepAn
 
   // 1. Instructions
   nodes.push(section('Instructions', task.details
-    ? h('p', { class: 'read is-pre asg-instructions' }, task.details)
+    ? h('div', { class: 'asg-instructions' }, homeworkView(task.details))
     : h('p', { class: 'asg-muted' }, 'No extra instructions.')));
 
   // The worksheet: the details as a page to print, fill in or mark up. The

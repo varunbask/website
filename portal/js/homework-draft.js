@@ -158,11 +158,12 @@ export function draftPanel(dctx, {
     type: 'number', class: 'input hwd-count', name: 'draft_count', inputmode: 'numeric',
     min: String(MIN_PROBLEMS), max: String(MAX_PROBLEMS), value: String(DEFAULT_PROBLEMS),
   });
-  const countField = field({ label: 'Number of problems', control: countInput });
+  const countField = field({ label: 'Practice problems (Part B)', control: countInput });
   const levelWrap = select({ name: 'draft_difficulty', options: DIFFICULTIES.map((d) => ({ value: d.value, label: d.label })), value: 'same' });
   const levelSelect = levelWrap.querySelector('select');
   const levelField = field({ label: 'Difficulty', control: levelWrap });
   const hintsBox = h('input', { type: 'checkbox', class: 'checkbox', name: 'draft_hints' });
+  const challengeBox = h('input', { type: 'checkbox', class: 'checkbox', name: 'draft_challenge', checked: true });
   const notesInput = h('textarea', { class: 'input textarea', name: 'draft_notes', rows: '2', maxlength: String(MAX_NOTES) });
   const notesField = field({
     label: 'Notes for the draft', optional: true, control: notesInput,
@@ -218,11 +219,12 @@ export function draftPanel(dctx, {
     h('div', { class: 'hwd-head' },
       h('h3', { class: 'hwd-title', id: headingId, tabindex: '-1' }, 'Draft homework from lesson photos'),
       closeBtn),
-    h('p', { class: 'hwd-lede' }, 'The AI writes new problems on the same skills as your lesson, and an answer key only staff see. Nothing is saved until you create the assignment.'),
+    h('p', { class: 'hwd-lede' }, 'The AI writes a full problem set on the skills in your lesson: a warm-up, a worked example, practice, a word problem, a challenge and a reflection, with an answer key only staff see. Nothing is saved until you create the assignment.'),
     photoField,
     h('div', { class: 'hwd-options' },
       h('div', { class: 'hwd-option-row' }, countField, levelField),
       h('label', { class: 'check' }, hintsBox, h('span', {}, 'Include worked hints')),
+      h('label', { class: 'check' }, challengeBox, h('span', {}, 'Include a challenge problem')),
       notesField),
     contextNote,
     h('label', { class: 'check hwd-attach' }, attachBox, h('span', {}, 'Attach these photos to the assignment for the student')),
@@ -422,7 +424,9 @@ export function draftPanel(dctx, {
 
   async function startOnce() {
     errorSlot.replaceChildren();
-    const checked = checkOptions({ count: countInput.value, difficulty: levelSelect.value, hints: hintsBox.checked, notes: notesInput.value });
+    const checked = checkOptions({
+      count: countInput.value, difficulty: levelSelect.value, hints: hintsBox.checked, challenge: challengeBox.checked, notes: notesInput.value,
+    });
     setFieldError(countField, checked.errors.count ?? '');
     setFieldError(notesField, checked.errors.notes ?? '');
     if (!photos.length) {

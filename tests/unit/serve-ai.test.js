@@ -4,13 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readModelEnv, modelEnv, createJobs, createServer, MODEL_KEYS } from '../../tools/demo/serve-ai.mjs';
 import { completion } from './fixtures.js';
+import { draftV2 } from './draft-fixtures.js';
 
 // tools/demo/serve-ai.mjs: the local server for trying drafts in a browser.
 // Everything here runs offline with a fake model; nothing reads a real .env.
 const JPEG = `data:image/jpeg;base64,${'A'.repeat(400)}`;
-const problems = (n) => Array.from({ length: n }, (_, i) => ({ prompt: `Factor x^2 + ${i + 5}x + ${i + 6}.`, hint: null }));
-const answers = (n) => Array.from({ length: n }, () => ({ answer: '(x + 2)(x + 3)', explanation: 'Two numbers.' }));
-const DRAFT = { title: 'Factoring practice', instructions: 'Show your work.', problems: problems(5), answer_key: answers(5) };
+const DRAFT = draftV2();
 const ENV = { LLM_ENDPOINT: 'http://127.0.0.1:9/v1/chat/completions', LLM_KEY: 'test-key' };
 const okFetch = () => vi.fn(async () => ({ ok: true, status: 200, json: async () => completion(DRAFT) }));
 
@@ -64,7 +63,7 @@ describe('jobs', () => {
     const ready = jobs.status({ id: 10_000_001 });
     expect(ready.status).toBe(200);
     expect(ready.body).toMatchObject({ status: 'ready', student_id: 'u-maya', options: { count: 5, photos: 1 } });
-    expect(ready.body.result.title).toBe('Factoring practice');
+    expect(ready.body.result.title).toBe('Factoring trinomials');
     expect(JSON.stringify(jobs.jobs.get(10_000_001).options)).not.toContain('base64');
   });
 

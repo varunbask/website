@@ -11,11 +11,34 @@ import { icon } from './icons.js';
 import { sb } from './supabase.js';
 import { button, busy } from './ui.js';
 import { openWorksheet } from './worksheet-ui.js';
+import { parseKey, hasMath } from './homework-doc.js';
+import { richText } from './homework-view.js';
+import { typesetIn } from './math.js';
 
 export const MAX_ANSWER_KEY = 20000;
 export const ANSWER_KEY_HEADING = 'Answer key (only staff see this)';
 export const ANSWER_KEY_HINT = 'Only staff see this. The AI grader uses it to check the work and never shows it to the student.';
 export const KEY_WORKSHEET_HEADING = 'Answer key (staff only)';
+
+// The key as the portal shows it: grouped by part, each answer by its ref
+// (A1, B3...) with its steps, math typeset. A key a tutor typed shows as typed.
+export function keyView(body) {
+  const groups = parseKey(body);
+  let node;
+  if (!groups) {
+    node = h('div', { class: 'hw-key' }, h('p', { class: 'read is-pre asg-key-text' }, ...richText(body, { breaks: false })));
+  } else {
+    node = h('div', { class: 'hw-key' }, groups.map((g) => h('section', { class: 'hw-key-group' },
+      g.heading ? h('h4', { class: 'hw-key-heading' }, ...richText(g.heading)) : null,
+      h('ol', { class: 'hw-key-list' }, g.entries.map((e) => h('li', { class: 'hw-key-entry' },
+        h('span', { class: 'hw-key-ref' }, e.ref),
+        h('div', { class: 'hw-key-body' },
+          h('p', { class: 'hw-key-answer' }, ...richText(e.answer)),
+          e.steps.length ? h('ol', { class: 'hw-key-steps' }, e.steps.map((st) => h('li', {}, ...richText(st)))) : null)))))));
+  }
+  if (hasMath(body)) typesetIn(node).catch((error) => console.error(error));
+  return node;
+}
 
 // The key's text, or null when there is none
 export async function loadAnswerKey(taskId) {
@@ -68,7 +91,7 @@ export function answerKeySection(dctx, { taskId, body = null, onSaved } = {}) {
     delete section.dataset.editing;
     content.replaceChildren(
       body
-        ? h('p', { class: 'read is-pre asg-key-text' }, body)
+        ? keyView(body)
         : h('p', { class: 'asg-muted' }, 'No answer key yet. Add one so grading can check the answers.'),
       h('div', { class: 'asg-key-actions' }, button({
         label: body ? 'Edit answer key' : 'Add answer key', size: 'sm', icon: 'pencil-simple', focusKey: 'asg-key-edit', onClick: showEdit,

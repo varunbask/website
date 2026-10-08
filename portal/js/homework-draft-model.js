@@ -21,6 +21,7 @@ export const MIN_PROBLEMS = 1;
 export const MAX_PROBLEMS = 15;
 export const DEFAULT_PROBLEMS = 5;
 export const MAX_NOTES = 500;
+export const MAX_DETAILS = 12000;            // tasks.details holds this much
 export const DIFFICULTIES = Object.freeze([
   Object.freeze({ value: 'easier', label: 'Easier' }),
   Object.freeze({ value: 'same', label: 'About the same' }),
@@ -90,7 +91,7 @@ export function photoProblems({ notImages = [], unreadable = [], tooMany = 0, ov
 // Options
 
 // The options as typed -> { values, errors }; errors has count or notes
-export function checkOptions({ count, difficulty, hints, notes } = {}) {
+export function checkOptions({ count, difficulty, hints, challenge = true, notes } = {}) {
   const errors = {};
   const raw = String(count ?? '').trim();
   const n = raw === '' ? DEFAULT_PROBLEMS : Number(raw);
@@ -99,7 +100,7 @@ export function checkOptions({ count, difficulty, hints, notes } = {}) {
   if (text.length > MAX_NOTES) errors.notes = `Keep the notes under ${MAX_NOTES} characters.`;
   const level = DIFFICULTIES.some((d) => d.value === difficulty) ? difficulty : 'same';
   return {
-    values: { count: errors.count ? DEFAULT_PROBLEMS : n, difficulty: level, hints: Boolean(hints), notes: text || null },
+    values: { count: errors.count ? DEFAULT_PROBLEMS : n, difficulty: level, hints: Boolean(hints), challenge: challenge !== false, notes: text || null },
     errors,
   };
 }
@@ -112,6 +113,7 @@ export function draftRequest({ photos, options, context = {}, studentId = null }
     count: options.count,
     difficulty: options.difficulty,
     hints: options.hints,
+    challenge: options.challenge !== false,
     notes: options.notes,
     subject: context.subject ?? null,
     grade: context.grade ?? null,
@@ -148,7 +150,7 @@ export function formFromDraft(result) {
   const r = result && typeof result === 'object' ? result : {};
   return {
     title: String(r.title ?? '').trim().slice(0, 200),
-    details: String(r.details ?? '').trim().slice(0, 5000),
+    details: String(r.details ?? '').trim().slice(0, MAX_DETAILS),
     answerKey: String(r.answer_key_text ?? '').trim().slice(0, 20000),
     notice: typeof r.notice === 'string' && r.notice.trim() ? r.notice.trim() : null,
   };
@@ -217,11 +219,11 @@ export function recentDrafts(rows, { studentId = null, now = new Date() } = {}) 
 
 const DIFFICULTY_WORDS = { easier: 'easier', same: 'about the same', harder: 'harder' };
 
-// One line about a draft's options: "5 problems, harder, with hints"
+// One line about a draft's options: "5 practice problems, harder, with hints"
 export function optionsText(options = {}) {
   const n = Number(options.count) || DEFAULT_PROBLEMS;
   return [
-    `${n} ${n === 1 ? 'problem' : 'problems'}`,
+    `${n} practice ${n === 1 ? 'problem' : 'problems'}`,
     DIFFICULTY_WORDS[options.difficulty] ?? null,
     options.hints ? 'with hints' : null,
   ].filter(Boolean).join(', ');

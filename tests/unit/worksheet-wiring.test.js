@@ -30,7 +30,10 @@ function staticGraph(entry) {
 }
 const entryOf = (page) => read(`portal/${page}`).match(/<script type="module" src="\/(portal\/js\/[\w/-]+\.js)"><\/script>/)[1];
 
-const WORKSHEET_MODULES = ['portal/js/worksheet-ui.js', 'portal/js/worksheet.js', 'portal/js/worksheet-model.js', 'portal/js/pdf-writer.js', 'portal/js/markup.js', 'portal/js/markup-model.js'];
+const WORKSHEET_MODULES = [
+  'portal/js/worksheet-ui.js', 'portal/js/worksheet.js', 'portal/js/worksheet-model.js', 'portal/js/pdf-writer.js', 'portal/js/markup.js',
+  'portal/js/markup-model.js', 'portal/js/homework-view.js', 'portal/js/homework-doc.js', 'portal/js/math.js',
+];
 
 // The string literals of a source file, comments left out
 function literals(source) {
@@ -42,6 +45,7 @@ describe('families never download answer-key code', () => {
     for (const page of ['student.html', 'parent.html']) {
       const graph = staticGraph(entryOf(page));
       expect(graph.has('portal/js/worksheet-ui.js'), page).toBe(true);
+      expect(graph.has('portal/js/homework-view.js'), page).toBe(true);
       for (const staffOnly of ['portal/js/answer-key.js', 'portal/js/item-form.js', 'portal/js/homework-draft.js']) {
         expect(graph.has(staffOnly), `${page} ${staffOnly}`).toBe(false);
       }
@@ -169,5 +173,38 @@ describe('markup', () => {
   test('works at phone width: pages scroll, the toolbar stays at the bottom', () => {
     expect(css).toMatch(/\.mk-inner \{ display: flex; flex-direction: column; height: 100%;/);
     expect(css).toMatch(/\.mk-scroll \{\n\s*flex: 1 1 auto;\n\s*min-height: 0;\n\s*overflow: auto;/);
+  });
+});
+
+describe('the structured homework in the portal', () => {
+  test('the drawer shows the instructions with the homework view, for families and staff', () => {
+    const drawer = read('portal/js/item-drawer.js');
+    expect(drawer).toContain("h('div', { class: 'asg-instructions' }, homeworkView(task.details))");
+  });
+
+  test('the staff answer key shows with refs and math; the form has Write and Preview', () => {
+    expect(read('portal/js/answer-key.js')).toMatch(/body\n\s*\? keyView\(body\)/);
+    const form = read('portal/js/item-form.js');
+    expect(form).toContain("options: [{ value: 'write', label: 'Write' }, { value: 'preview', label: 'Preview' }],");
+    expect(form).toContain('? homeworkView(details.value)');
+    expect(form).toContain("maxlength: '12000'");
+  });
+
+  test('real headings and lists; each formula is labelled with its TeX', () => {
+    const view = read('portal/js/homework-view.js');
+    expect(view).toMatch(/const tag = `h\$\{Math\.min\(Math\.max\(headingLevel, 2\), 6\)\}`;/);
+    expect(view).toContain("h('ol', { class: 'hw-problems'");
+    expect(view).toContain("h('ul', { class: 'hw-choices', 'aria-label': 'Choices' }");
+    expect(view).toContain("h('details', { class: 'hw-hint' }, h('summary', {}, 'Hint')");
+    expect(read('portal/js/math.js')).toContain("svg.setAttribute('aria-label', tex);");
+  });
+
+  test('the worksheet draws formulas from MathJax images and falls back to TeX if a canvas cannot be read', () => {
+    const ws = read('portal/js/worksheet.js');
+    expect(ws).toContain('ctx.drawImage(m.image, item.x * scale, (item.y - item.ascent) * scale, item.width * scale, (item.ascent + item.descent) * scale);');
+    expect(ws).toContain("if (error?.name !== 'SecurityError' || layout.mathAsText) throw error;");
+    expect(read('portal/js/math.js')).toContain("new Blob([markup], { type: 'image/svg+xml' })");
+    // a plain SVG: the code never builds a foreignObject (which would taint the canvas)
+    expect(strip(read('portal/js/math.js'))).not.toMatch(/foreignObject/);
   });
 });

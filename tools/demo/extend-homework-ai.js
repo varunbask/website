@@ -41,38 +41,98 @@
   };
 
   // ---------------------------------------------------------------------------
-  // The canned draft: factoring trinomials, like the lesson photos would show
+  // The canned draft: a factoring problem set in the homework format
+  // (portal/js/homework-doc.js), LaTeX math, with a worked example, practice,
+  // a word problem, a challenge and a reflect section, and its answer key
 
-  const BANK = [
-    ['x² + 7x + 12', '(x + 3)(x + 4)', 'Find two numbers that multiply to 12 and add to 7.', '3 × 4 = 12 and 3 + 4 = 7.'],
-    ['x² - 2x - 15', '(x - 5)(x + 3)', 'Find two numbers that multiply to -15 and add to -2.', '-5 × 3 = -15 and -5 + 3 = -2.'],
-    ['x² + x - 20', '(x + 5)(x - 4)', 'Which pair of factors of -20 adds to 1?', '5 × -4 = -20 and 5 + (-4) = 1.'],
-    ['x² - 9x + 18', '(x - 3)(x - 6)', 'Both numbers are negative, because they add to -9 and multiply to a positive.', '-3 × -6 = 18 and -3 + (-6) = -9.'],
-    ['x² + 10x + 21', '(x + 3)(x + 7)', 'List the factor pairs of 21.', '3 × 7 = 21 and 3 + 7 = 10.'],
-    ['x² - 4x - 32', '(x - 8)(x + 4)', 'The larger number is negative, because the middle term is negative.', '-8 × 4 = -32 and -8 + 4 = -4.'],
-    ['x² + 2x - 35', '(x + 7)(x - 5)', 'Which pair of factors of 35 is 2 apart?', '7 × -5 = -35 and 7 + (-5) = 2.'],
-    ['x² - 11x + 28', '(x - 4)(x - 7)', 'Look for a pair that multiplies to 28 and adds to -11.', '-4 × -7 = 28 and -4 + (-7) = -11.'],
-    ['x² + 13x + 40', '(x + 5)(x + 8)', 'List the factor pairs of 40.', '5 × 8 = 40 and 5 + 8 = 13.'],
-    ['x² - x - 42', '(x - 7)(x + 6)', 'Which pair of factors of 42 is 1 apart?', '-7 × 6 = -42 and -7 + 6 = -1.'],
-    ['2x² + 7x + 3', '(2x + 1)(x + 3)', 'Multiply 2 × 3 = 6 and find two numbers that multiply to 6 and add to 7.', '1 and 6 work: 2x² + x + 6x + 3 = x(2x + 1) + 3(2x + 1).'],
-    ['3x² - 10x + 8', '(3x - 4)(x - 2)', 'Multiply 3 × 8 = 24 and look for two negatives that add to -10.', '-4 and -6: 3x² - 6x - 4x + 8 = 3x(x - 2) - 4(x - 2).'],
-    ['2x² - x - 15', '(2x + 5)(x - 3)', 'Multiply 2 × -15 = -30 and find a pair that adds to -1.', '5 and -6: 2x² + 5x - 6x - 15 = x(2x + 5) - 3(2x + 5).'],
-    ['x² - 16', '(x - 4)(x + 4)', 'This is a difference of two squares.', 'x² - 16 = x² - 4², so it factors as (x - 4)(x + 4).'],
-    ['x² + 6x + 9', '(x + 3)²', 'Is this a perfect square trinomial?', '3 × 3 = 9 and 3 + 3 = 6, so (x + 3)(x + 3) = (x + 3)².'],
+  // [prompt, answer, hint, steps]; practice gets harder down the list
+  const PRACTICE = [
+    ['Factor $x^2 + 5x + 6$.', '$(x + 2)(x + 3)$', 'Which two numbers multiply to $6$ and add to $5$?', ['$2 \\cdot 3 = 6$ and $2 + 3 = 5$.']],
+    ['Factor $x^2 + 9x + 20$.', '$(x + 4)(x + 5)$', 'List the factor pairs of $20$.', ['$4 \\cdot 5 = 20$ and $4 + 5 = 9$.']],
+    ['Factor $x^2 - 2x - 15$.', '$(x - 5)(x + 3)$', 'One number is negative, because $c$ is negative.', ['$-5 \\cdot 3 = -15$ and $-5 + 3 = -2$.']],
+    ['Review: solve $3x - 7 = 11$.', '$x = 6$', 'Undo the subtraction first.', ['$3x = 18$', '$x = 6$']],
+    ['Factor $x^2 - 9x + 18$.', '$(x - 3)(x - 6)$', 'Both numbers are negative here.', ['$(-3)(-6) = 18$ and $-3 + (-6) = -9$.']],
+    ['Factor $x^2 + x - 42$.', '$(x + 7)(x - 6)$', 'Look for factors of $42$ that are $1$ apart.', ['$7 \\cdot (-6) = -42$ and $7 - 6 = 1$.']],
+    ['Factor $x^2 - 16$.', '$(x - 4)(x + 4)$', 'This is a difference of two squares.', ['$x^2 - 4^2 = (x - 4)(x + 4)$.']],
+    ['Review: simplify $(2a^3)^2$.', '$4a^6$', 'Square the $2$ and double the exponent.', ['$2^2 = 4$', '$(a^3)^2 = a^6$']],
+    ['Factor $x^2 - 11x + 28$.', '$(x - 4)(x - 7)$', 'Which negative pair adds to $-11$?', ['$(-4)(-7) = 28$ and $-4 + (-7) = -11$.']],
+    ['Factor $x^2 + 13x + 40$.', '$(x + 5)(x + 8)$', 'List the factor pairs of $40$.', ['$5 \\cdot 8 = 40$ and $5 + 8 = 13$.']],
   ];
+  const MC = ['Which is a factor of $x^2 - x - 6$?', ['$x - 2$', '$x + 2$', '$x + 3$', '$x - 6$'], '(B) $x + 2$', ['$x^2 - x - 6 = (x - 3)(x + 2)$.']];
 
-  function cannedDraft({ count = 5, difficulty = 'same', hints = false } = {}) {
-    const order = difficulty === 'harder' ? [...BANK.slice(10), ...BANK.slice(0, 10)]
-      : difficulty === 'easier' ? [BANK[0], BANK[4], BANK[8], BANK[14], ...BANK.slice(1, 4), ...BANK.slice(5, 8), ...BANK.slice(9, 14)]
-        : BANK;
-    const picked = order.slice(0, Math.max(1, Math.min(15, count)));
-    const instructions = 'Factor each expression completely. For each one, write the two numbers you used before you write the factors.';
-    const problems = picked.map(([expr, , hint]) => ({ prompt: `Factor ${expr}.`, hint: hints ? hint : null }));
-    const answerKey = picked.map(([expr, answer, , why]) => ({ answer: `${expr} = ${answer}`, explanation: why }));
-    const indent = (text) => text.split('\n').join('\n   ');
-    const details = [instructions, ...problems.map((p, i) => `${i + 1}. ${indent(p.prompt)}${p.hint ? `\n   Hint: ${indent(p.hint)}` : ''}`)].join('\n\n');
-    const answerText = answerKey.map((a, i) => `${i + 1}. ${a.answer}\n   ${a.explanation}`).join('\n\n');
-    return { title: 'Factoring trinomials practice', instructions, problems, answer_key: answerKey, details, answer_key_text: answerText };
+  function cannedDraft({ count = 5, difficulty = 'same', hints = false, challenge = true } = {}) {
+    const n = Math.max(1, Math.min(15, count));
+    const bank = difficulty === 'harder' ? [...PRACTICE.slice(4), ...PRACTICE.slice(0, 4)] : PRACTICE;
+    const practice = [];
+    for (let i = 0; i < n; i += 1) practice.push(i === 1 ? null : bank[i % bank.length]);   // the second one is multiple choice
+    const lines = [
+      'Objective: You will be able to factor trinomials of the form $x^2 + bx + c$.',
+      `Time: about ${10 + n * 3} minutes`,
+      'Materials: Pencil. No calculator.',
+      '',
+      '## Part A: Warm-up',
+      'Directions: Multiply. Write each answer in standard form.',
+      '1. Multiply $(x + 2)(x + 3)$. [space: short]',
+      '2. Multiply $(x - 4)(x + 1)$. [space: short]',
+      '',
+      '## Worked example',
+      'Directions: Read each step before you start Part B.',
+      'Problem: Factor $x^2 + 7x + 12$.',
+      'Step 1: Find two numbers that multiply to $c = 12$ and add to $b = 7$.',
+      'Step 2: They are $3$ and $4$, since $3 \\cdot 4 = 12$ and $3 + 4 = 7$.',
+      'Step 3: Write each number in a factor: $(x + 3)(x + 4)$. Check by multiplying.',
+      'Answer: $(x + 3)(x + 4)$',
+      '',
+      '## Part B: Practice',
+      'Directions: Factor each trinomial. Check each answer by multiplying.',
+    ];
+    const key = [
+      '## Part A: Warm-up',
+      'A1. $x^2 + 5x + 6$',
+      '   Step 1: $x \\cdot x + 3x + 2x + 6$',
+      'A2. $x^2 - 3x - 4$',
+      '   Step 1: $x \\cdot x + x - 4x - 4$',
+      '',
+      '## Part B: Practice',
+    ];
+    practice.forEach((p, i) => {
+      if (!p) {
+        lines.push(`${i + 1}. ${MC[0]} [space: none]`, `   ${MC[1].map((c, k) => `(${'ABCD'[k]}) ${c}`).join('  ')}`);
+        key.push(`B${i + 1}. ${MC[2]}`, ...MC[3].map((st, k) => `   Step ${k + 1}: ${st}`));
+        return;
+      }
+      lines.push(`${i + 1}. ${p[0]} [space: medium]`);
+      if (hints) lines.push(`   Hint: ${p[2]}`);
+      key.push(`B${i + 1}. ${p[1]}`, ...p[3].map((st, k) => `   Step ${k + 1}: ${st}`));
+    });
+    lines.push(
+      '',
+      '## Part C: Apply',
+      'Directions: Show how you set up each problem.',
+      '1. A rectangular garden has an area of $x^2 + 8x + 15$ square feet. Write expressions for its length and width, then find both when $x = 4$. [space: long]',
+    );
+    key.push('', '## Part C: Apply', 'C1. Length $x + 5$, width $x + 3$; when $x = 4$: $9$ feet by $7$ feet.', '   Step 1: $x^2 + 8x + 15 = (x + 5)(x + 3)$', '   Step 2: $4 + 5 = 9$ and $4 + 3 = 7$');
+    let letter = 'D';
+    if (challenge) {
+      lines.push('', '## Part D: Challenge', 'Directions: A stretch problem. Show every step.', '1. Factor $2x^2 + 7x + 3$. [space: grid]');
+      key.push('', '## Part D: Challenge', 'D1. $(2x + 1)(x + 3)$', '   Step 1: $2 \\cdot 3 = 6$; the pair $1$ and $6$ adds to $7$.', '   Step 2: $2x^2 + x + 6x + 3 = x(2x + 1) + 3(2x + 1)$');
+      letter = 'E';
+    }
+    lines.push(
+      '',
+      `## Part ${letter}: Check and reflect`,
+      'Directions: Answer in a sentence or two.',
+      '1. Why must the two numbers multiply to $c$ and add to $b$? [space: medium]',
+      '2. Which problem was hardest for you, and why? [space: short]',
+    );
+    key.push('', `## Part ${letter}: Check and reflect`, `${letter}1. Because $(x + m)(x + n) = x^2 + (m + n)x + mn$.`, `${letter}2. Answers vary.`);
+    return {
+      title: 'Factoring trinomials practice',
+      details: lines.join('\n'),
+      answer_key_text: key.join('\n'),
+      dropped: 0,
+      notice: null,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -112,6 +172,15 @@
     body: '1. (x + 2)(x + 3)\n   2 × 3 = 6 and 2 + 3 = 5.\n\n2. (x - 5)(x + 2)\n   -5 × 2 = -10 and -5 + 2 = -3.\n\n3. (x - 3)(x - 5)\n   -3 × -5 = 15 and -3 + (-5) = -8.',
     updated_by: 'u-daniel', updated_at: h.ago(1),
   });
+  // A drafted problem set, saved: the structure and LaTeX the drawer and worksheet render
+  const structured = cannedDraft({ count: 5, hints: true });
+  const structuredTask = {
+    id: h.id(), student_id: 'u-maya', created_by: 'u-daniel', kind: 'assignment', title: 'Factoring trinomials practice set',
+    details: structured.details, due_at: h.dueAt(5), completed_at: null, created_at: h.ago(0.3), session_id: null, series_id: null, extended_from: null,
+  };
+  db.tasks.push(structuredTask);
+  db.task_answer_keys.push({ task_id: structuredTask.id, body: structured.answer_key_text, updated_by: 'u-daniel', updated_at: h.ago(0.3) });
+
   // A hand-written assignment for the worksheet: numbered, with unicode math and a hint
   db.tasks.push({
     id: h.id(), student_id: 'u-maya', created_by: 'u-daniel', kind: 'assignment', title: 'Exponents and roots practice',
@@ -167,7 +236,7 @@
     };
   };
   const optionsOf = (b) => ({
-    count: b.count ?? 5, difficulty: b.difficulty ?? 'same', hints: Boolean(b.hints), notes: b.notes ?? null,
+    count: b.count ?? 5, difficulty: b.difficulty ?? 'same', hints: Boolean(b.hints), challenge: b.challenge !== false, notes: b.notes ?? null,
     subject: b.subject ?? null, grade: b.grade ?? null, photos: Array.isArray(b.images) ? b.images.length : 0,
   });
 

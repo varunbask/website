@@ -51,6 +51,7 @@ import {
 } from './task-repeat-model.js';
 import { draftPanel } from './homework-draft.js';
 import { openWorksheet } from './worksheet-ui.js';
+import { homeworkView } from './homework-view.js';
 import { draftContext, attachmentsProblem, MAX_ATTACHMENTS } from './homework-draft-model.js';
 import { addAnswerKeys, MAX_ANSWER_KEY, ANSWER_KEY_HINT } from './answer-key.js';
 import { loadProfile } from './student-profile-data.js';
@@ -165,8 +166,31 @@ export function itemForm(dctx, {
   });
   const titleField = field({ label: 'Title', control: titleInput });
 
-  const details = h('textarea', { class: 'input textarea', name: 'details', rows: '6', maxlength: '5000' }, task?.details ?? '');
+  const details = h('textarea', { class: 'input textarea', name: 'details', rows: '6', maxlength: '12000' }, task?.details ?? '');
   const detailsField = field({ label: 'Instructions', optional: true, hint: instructionsHint(currentKind), control: details });
+  // Write or Preview: the preview is what the student sees (homework-view.js), math typeset
+  const detailsPreview = h('div', { class: 'asg-preview', hidden: true });
+  let previewing = false;
+  const paintPreview = () => {
+    if (!previewing) return;
+    detailsPreview.replaceChildren(details.value.trim()
+      ? homeworkView(details.value)
+      : h('p', { class: 'asg-muted' }, 'Nothing to preview yet. Write the instructions first.'));
+  };
+  const viewToggle = segmented({
+    label: 'Instructions: write or preview',
+    options: [{ value: 'write', label: 'Write' }, { value: 'preview', label: 'Preview' }],
+    value: 'write',
+    className: 'asg-view-toggle',
+    onChange: (value) => {
+      previewing = value === 'preview';
+      details.hidden = previewing;
+      detailsPreview.hidden = !previewing;
+      paintPreview();
+    },
+  });
+  details.before(viewToggle);
+  details.after(detailsPreview);
 
   // The answer key (creating an assignment): staff only, never shown to the student
   let answerKeyInput = null;
@@ -355,6 +379,7 @@ export function itemForm(dctx, {
         details.value = values.details;
         answerKeyInput.value = values.answerKey;
         setFieldError(titleField, '');
+        paintPreview();
       },
       // -> whether the form still holds an earlier draft
       onDiscard: () => {
@@ -363,6 +388,7 @@ export function itemForm(dctx, {
         titleInput.value = last.title;
         details.value = last.details;
         answerKeyInput.value = last.answerKey;
+        paintPreview();
         return before.length > 0;
       },
       // While a draft for this form runs, its student is locked: the draft's

@@ -1048,3 +1048,135 @@
   .mk-page { outline: 1px solid CanvasText; }
   .mk-color[aria-pressed="true"], .mk-tools .btn[aria-pressed="true"] { outline: 2px solid Highlight; }
 }
+
+
+/* Homework in the portal (homework-view.js): the problem set with typeset math
+   div.hw-doc.is-structured > ul.hw-chips > li.hw-chip
+     section.hw-section > h4.hw-heading + p.hw-directions + p.hw-text
+       + div.hw-example (p.hw-example-label, p.hw-example-problem, ol.hw-steps, p.hw-example-answer)
+       + ol.hw-problems > li.hw-problem > span.hw-num + div.hw-problem-body
+           (p.hw-prompt, ul.hw-choices > li.hw-choice, details.hw-hint)
+   span.hw-math[data-tex] (.is-display: on its own line) holds the TeX until MathJax's svg replaces it
+   div.hw-key (staff): section.hw-key-group > h4.hw-key-heading + ol.hw-key-list > li.hw-key-entry */
+
+.hw-doc { display: flex; flex-direction: column; gap: var(--s-4); color: var(--text); }
+.hw-doc .read.is-pre { margin: 0; }
+.hw-chips { display: flex; flex-wrap: wrap; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.hw-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background-color: var(--accent-soft);
+  font: 400 13px/20px var(--font-ui);
+  color: var(--text);
+}
+.hw-chip:first-child { border-radius: var(--r-sm); }
+.hw-chip > .icon { flex: none; align-self: center; color: var(--accent-text); }
+.hw-chip-label { font-weight: 600; color: var(--accent-text); }
+.hw-section { display: flex; flex-direction: column; gap: var(--s-2); }
+.hw-heading {
+  padding: 6px 10px 6px 12px;
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  background-color: var(--accent-soft);
+  font: 600 14px/20px var(--font-ui);
+  color: var(--accent-text);
+}
+.hw-directions { font: 400 13px/20px var(--font-ui); color: var(--text-2); }
+.hw-text { max-width: 65ch; }
+.hw-example {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  background-color: var(--surface-2);
+}
+.hw-example-label { font: 600 11px/16px var(--font-ui); letter-spacing: .06em; text-transform: uppercase; color: var(--accent-text); }
+.hw-steps { display: flex; flex-direction: column; gap: 4px; margin: 0; padding-left: 1.4em; list-style: decimal; }
+.hw-steps > li::marker { font-weight: 600; color: var(--accent-text); }
+.hw-example-answer { padding: 4px 8px; border-radius: var(--r-sm); background-color: var(--accent-soft); }
+.hw-problems { display: flex; flex-direction: column; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.hw-problem {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: var(--s-3);
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.hw-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: var(--accent);
+  font: 600 12px/1 var(--font-ui);
+  color: var(--on-accent);
+}
+.hw-problem-body { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.hw-prompt { overflow-wrap: anywhere; }
+.hw-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px var(--s-3); margin: 0; padding: 0; list-style: none; }
+.hw-choice { display: flex; align-items: center; gap: var(--s-2); min-width: 0; }
+.hw-choice-letter {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 50%;
+  font: 600 11px/1 var(--font-ui);
+  color: var(--text-2);
+}
+.hw-hint > summary { cursor: pointer; width: max-content; font: 500 12px/18px var(--font-ui); color: var(--accent-text); }
+.hw-hint > p { margin-top: 4px; font: 400 13px/20px var(--font-ui); color: var(--text-2); }
+/* Inline math sits on the text's baseline (the svg is shifted down by its depth) */
+.hw-math { font-family: var(--font-mono); font-size: .92em; overflow-wrap: anywhere; }
+.hw-math.is-typeset { font-family: inherit; font-size: inherit; white-space: nowrap; }
+.hw-math > svg { display: inline; max-width: none; overflow: visible; }
+.hw-math.is-display { display: block; margin: var(--s-2) 0; overflow-x: auto; overflow-y: hidden; text-align: center; }
+.hw-math.is-display > svg { display: inline-block; }
+
+.hw-key { display: flex; flex-direction: column; gap: var(--s-3); }
+.hw-key-group { display: flex; flex-direction: column; gap: var(--s-2); }
+.hw-key-heading { font: 600 13px/20px var(--font-ui); color: var(--accent-text); }
+.hw-key-list { display: flex; flex-direction: column; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.hw-key-entry { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: var(--s-2); align-items: baseline; }
+.hw-key-ref {
+  justify-self: start;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background-color: var(--accent);
+  font: 600 11px/16px var(--font-ui);
+  color: var(--on-accent);
+}
+.hw-key-steps { margin: 4px 0 0; padding-left: 1.3em; list-style: decimal; font: 400 13px/20px var(--font-ui); color: var(--text-2); }
+
+/* The create and edit form: Write or Preview the instructions */
+.asg-view-toggle { align-self: flex-start; margin-bottom: var(--s-1); }
+.asg-preview {
+  min-height: 120px;
+  max-height: 520px;
+  overflow: auto;
+  padding: var(--s-3);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background-color: var(--surface);
+}
+.asg-preview[hidden], .asg-view-toggle[hidden] { display: none; }
+textarea.input[hidden] { display: none; }
+
+@media (max-width: 767.98px) {
+  .hw-problem { grid-template-columns: 22px minmax(0, 1fr); padding: var(--s-2) var(--s-3); gap: var(--s-2); }
+  .hw-num { width: 22px; height: 22px; }
+}

@@ -12,6 +12,7 @@ import {
 import { groupTasks, countsNow } from '../buckets.js';
 import { firstName, displayName } from '../format.js';
 import { taskCheck } from '../task-check.js';
+import { detailsSummary } from '../homework-doc.js';
 
 const STAFF = new Set(['tutor', 'admin']);
 const ENTER_ROWS = 8;
@@ -171,7 +172,7 @@ export async function mount(ctx) {
 // One task row: the shared item row, with the checkbox (or the parent glyph)
 // in its leading cell
 function taskRow(item, ctx) {
-  const meta = firstLine(item.task.details);
+  const meta = detailsSummary(item.task.details);
   const li = itemRow(item, { audience: ctx.audience, meta: meta || null, now: ctx.now });
   li.classList.add('tsk-item');
   const link = li.querySelector(':scope > a.row');

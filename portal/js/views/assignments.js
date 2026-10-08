@@ -14,6 +14,7 @@ import {
 import { displayName, firstName } from '../format.js';
 import { getSeen, markSeen, isNewSince } from '../seen.js';
 import { resultLabel } from '../results.js';
+import { detailsSummary } from '../homework-doc.js';
 
 const LABELS = { todo: 'To do', 'in-review': 'In review', graded: 'Graded', archived: 'Archived' };
 const DOC_TITLES = {
@@ -154,7 +155,7 @@ function todoList(items, opts) {
     }
     return [emptyState({ icon: 'check-circle', text, action }), 0];
   }
-  const render = (item) => rowFor(item, opts, { meta: firstLine(item.task.details) || 'No instructions' });
+  const render = (item) => rowFor(item, opts, { meta: detailsSummary(item.task.details) || 'No instructions' });
   return [groups.flatMap((g) => groupBlock(g, render)), total];
 }
 

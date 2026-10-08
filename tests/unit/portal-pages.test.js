@@ -1,6 +1,7 @@
 import { test, expect, vi } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 // These tests read the portal's files from disk. The first full run after a
 // checkout reads freshly written files slowly, which once pushed them past
@@ -15,7 +16,9 @@ function files(dir) {
     entry.isDirectory() ? files(join(dir, entry.name)) : [join(dir, entry.name)]);
 }
 
-const all = files(PORTAL);
+// portal/vendor holds third-party files copied verbatim (MathJax): checked on their own below
+const VENDOR = join(PORTAL, 'vendor');
+const all = files(PORTAL).filter((file) => !file.startsWith(VENDOR));
 const pages = all.filter((file) => file.endsWith('.html'));
 
 test('every portal page is CSP-clean, unindexed, and loads the pinned supabase-js', () => {
@@ -41,4 +44,15 @@ test('no portal file uses an em dash, HTML injection, or inline styles', () => {
     expect(text, file).not.toMatch(/setAttribute\(\s*['"]style/);
     expect(text, file).not.toMatch(/javascript:/i);
   }
+});
+
+test('portal/vendor holds only MathJax, unchanged, with its license', () => {
+  const vendored = files(VENDOR).map((f) => f.slice(VENDOR.length + 1)).sort();
+  expect(vendored).toEqual(['mathjax/LICENSE', 'mathjax/README.txt', 'mathjax/tex-svg-full.js']);
+  expect(readFileSync(join(VENDOR, 'mathjax/LICENSE'), 'utf8')).toContain('Apache License');
+  const bundle = readFileSync(join(VENDOR, 'mathjax/tex-svg-full.js'));
+  expect(createHash('sha256').update(bundle).digest('hex')).toBe('a4354ff94fd868aea0cc6eaaa79a57fda0588646fc46ee3700a349ee0a11cbe6');
+  expect(readFileSync(join(VENDOR, 'mathjax/README.txt'), 'utf8')).toContain('a4354ff94fd868aea0cc6eaaa79a57fda0588646fc46ee3700a349ee0a11cbe6');
+  // no portal page loads it up front: math.js adds it when a page shows math
+  for (const page of pages) expect(readFileSync(page, 'utf8'), page).not.toContain('mathjax');
 });

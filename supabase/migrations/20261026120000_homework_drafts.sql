@@ -22,6 +22,10 @@
 --                    and may delete them; the admin reads every row. The
 --                    server also counts these rows for the daily limit (30
 --                    drafts per person in any 24 hours).
+-- tasks.details      may now hold 12000 characters (it held 5000): a drafted
+--                    assignment is a structured problem set, with a warm-up,
+--                    a worked example, practice, application, a challenge
+--                    and reflection, its math written in LaTeX.
 
 create table public.task_answer_keys (
   task_id    bigint primary key references public.tasks (id) on delete cascade,
@@ -106,3 +110,7 @@ create policy "read own drafts, the admin all" on public.homework_drafts
 create policy "delete own drafts" on public.homework_drafts
   for delete to authenticated
   using (created_by = (select auth.uid()));
+
+-- Room for a structured problem set in an assignment's instructions
+alter table public.tasks drop constraint tasks_details_check;
+alter table public.tasks add constraint tasks_details_check check (char_length(details) <= 12000);

@@ -487,7 +487,16 @@ export async function openMarkup({
     const canvas = document.createElement('canvas');
     for (let i = 0; i < pageCount && !state.closed; i += 1) {
       renderPage(layout, i, { canvas });
-      const { bytes } = await canvasJpeg(canvas);
+      let bytes;
+      try {
+        ({ bytes } = await canvasJpeg(canvas));
+      } catch (error) {
+        // A browser that will not read back a canvas with a formula image: TeX as text
+        if (error?.name !== 'SecurityError') throw error;
+        layout.mathAsText = true;
+        renderPage(layout, i, { canvas });
+        ({ bytes } = await canvasJpeg(canvas));
+      }
       if (state.closed) break;
       const url = URL.createObjectURL(new Blob([bytes], { type: 'image/jpeg' }));
       urls.push(url);
