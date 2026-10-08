@@ -6,16 +6,20 @@
 //       skeleton. Each card shows its own error with a retry; one failing never
 //       blanks the page or the other card.
 //   familyAboutCard(ctx, student)            a small read-only About card for a
-//       student or parent: grade, school and goals, read through family_profile()
-//       (families cannot read the table, which holds the learning notes). It stays
-//       hidden until the profile loads, and for good when there is nothing to show.
+//       student or parent: the student's photo and every profile field but the
+//       learning notes, read through family_profile() (families cannot read the
+//       table, which holds the learning notes), with an Edit link to #/profile.
+//       It stays hidden until the profile loads, and for good when there is
+//       nothing to show.
 //
 // The Profile card's Edit button opens the drawer (open=profile,
-// student-profile-drawer.js). Notes are added and deleted in place.
+// student-profile-drawer.js). While the student's own profile is not finished
+// (profile-model.js), the card says so, with what is missing, so a tutor can
+// nudge them. Notes are added and deleted in place.
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
-import { button, iconButton, field, setFieldError, busy } from './ui.js';
+import { button, iconButton, field, setFieldError, busy, pill } from './ui.js';
 import { buildHash, DRAWER_PARAMS } from './router.js';
 import { displayName, firstName } from './format.js';
 import {
@@ -23,6 +27,8 @@ import {
   checkNote, sortNotes, notesWindow, authorName, canDeleteNote, sinceText,
 } from './student-profile-model.js';
 import { loadFamilyProfile, addNote, deleteNote } from './student-profile-data.js';
+import { profileProgress, PROFILE_HREF } from './profile-model.js';
+import { personAvatar, photoPath } from './photos.js';
 
 // A note typed but not saved, kept while the view refreshes (a store change or
 // coming back to the tab re-renders the page); studentId -> text
@@ -61,6 +67,15 @@ function quietError(text, onRetry) {
     h('span', { class: 'ovw-card-empty-icon' }, icon('warning-circle')),
     h('p', {}, text),
     button({ label: 'Try again', size: 'sm', variant: 'ghost', icon: 'arrow-counter-clockwise', onClick: onRetry }));
+}
+
+// What the "Profile not filled in" line calls each missing field
+const DUE_WORDS = { grade_level: 'grade', school: 'school', interests: 'hobbies' };
+
+// "grade, school and hobbies"
+function listText(items) {
+  if (items.length <= 1) return items[0] ?? '';
+  return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
 // One labelled fact: dt over dd. A missing value reads "Not added".
@@ -120,12 +135,24 @@ function profileCard(ctx, student, { profile, parents, tutors, names }) {
       className: 'sp-edit',
     })
     : null;
-  card.append(head(titleId, 'Profile', 'identification-badge', edit));
+  // Not finished by the family yet (grade, school, hobbies): say so, and what is missing
+  const progress = profile.ok ? profileProgress('student', { profile: row, avatarPath: photoPath(student.id) }) : null;
+  const due = progress && !progress.complete;
+  card.append(head(titleId, 'Profile', 'identification-badge',
+    due ? pill({ label: 'Profile not filled in', tone: 'warning', icon: 'info' }) : null,
+    edit));
+  if (due) {
+    const missing = progress.steps.filter((s) => s.required && !s.done).map((s) => DUE_WORDS[s.key] ?? s.label.toLowerCase());
+    card.append(h('div', { class: 'sp-due' },
+      personAvatar(student.id, displayName(student), { size: 40 }),
+      h('p', { class: 'sp-due-text' },
+        `Still to add: ${listText(missing)}. Ask ${first} or a parent to finish it on their Profile page, or add it here.`)));
+  }
 
   if (!profile.ok) {
     card.append(quietError('We couldn’t load the profile.', () => ctx.store.invalidate(student.id)));
   } else {
-    if (blank) {
+    if (blank && !due) {
       card.append(quietEmpty(`Add ${first}’s grade, school and goals so every tutor knows who they are teaching.`, 'identification-badge'));
     }
     const chips = tutors.ok ? subjectChips(tutors.data, names) : [];
@@ -145,7 +172,11 @@ function profileCard(ctx, student, { profile, parents, tutors, names }) {
 
   card.append(parentsPart(ctx, student.id, parents));
 
-  const updated = profile.ok && row ? updatedText(row, names, ctx.now) : null;
+  // The family fills in their part too: "Updated by Maya" or "by Grace", not "by Staff"
+  const editors = new Map(names ?? []);
+  editors.set(String(student.id), displayName(student));
+  for (const p of parents.ok ? parents.data ?? [] : []) if (p.full_name) editors.set(String(p.parent_id), p.full_name);
+  const updated = profile.ok && row ? updatedText(row, editors, ctx.now) : null;
   if (updated) card.append(h('div', { class: 'card-foot sp-foot' }, h('p', { class: 'sp-updated' }, updated)));
   return card;
 }
@@ -316,11 +347,16 @@ export function familyAboutCard(ctx, student) {
     const facts = aboutFacts(row);
     if (!facts.length) return;
     const titleId = uid('sp-about');
-    const first = firstName(displayName(student));
+    const name = displayName(student);
+    const first = firstName(name);
+    const own = ctx.me?.role === 'student';
     card.setAttribute('aria-labelledby', titleId);
     card.append(
-      head(titleId, ctx.me?.role === 'student' ? 'About you' : `About ${first}`, 'identification-badge'),
-      h('dl', { class: 'sp-facts' }, facts.map((f) => fact({ label: f.label, value: f.value, long: f.long }))));
+      head(titleId, own ? 'About you' : `About ${first}`, 'identification-badge',
+        h('a', { class: 'link card-link', href: PROFILE_HREF, 'aria-label': own ? 'Edit your profile' : `Edit ${first}’s profile` }, 'Edit')),
+      h('div', { class: 'sp-about-body' },
+        personAvatar(student.id, name, { size: 40 }),
+        h('dl', { class: 'sp-facts' }, facts.map((f) => fact({ label: own && f.key === 'learning_style' ? 'How I learn best' : f.label, value: f.value, long: f.long })))));
     card.hidden = false;
   }).catch((error) => console.error(error));   // a quiet extra: no profile, no card
   return card;

@@ -13,9 +13,19 @@ const names = new Map([['t1', 'Daniel Ortiz'], ['t2', 'Priya Shah'], ['a1', 'Var
 
 describe('limits match the migration', () => {
   const sql = readFileSync(fileURLToPath(new URL('../../supabase/migrations/20261017120000_student_profiles.sql', import.meta.url)), 'utf8');
+  const photos = readFileSync(fileURLToPath(new URL('../../supabase/migrations/20261025120000_profiles_and_photos.sql', import.meta.url)), 'utf8');
   test.each([['grade_level', 40], ['school', 120], ['goals', 1000], ['learning_notes', 1000]])('%s is at most %i characters', (col, max) => {
     expect(LIMITS[col]).toBe(max);
     expect(sql).toContain(`check (char_length(${col}) <= ${max})`);
+  });
+
+  test.each([['pronouns', 40], ['interests', 500], ['favorite_subjects', 200], ['learning_style', 500]])('%s (profiles and photos) is at most %i characters', (col, max) => {
+    expect(LIMITS[col]).toBe(max);
+    expect(photos).toMatch(new RegExp(`add column ${col}\\s+text check \\(char_length\\(${col}\\) <= ${max}\\)`));
+  });
+
+  test('every field staff edit has a limit', () => {
+    for (const key of PROFILE_FIELDS) expect(LIMITS[key], key).toBeGreaterThan(0);
   });
 
   test('a note is at most 2000 characters', () => {
@@ -108,16 +118,21 @@ describe('normalizing the profile', () => {
   });
 
   test('checkProfile returns the saved values', () => {
-    const { values, errors } = checkProfile({ grade_level: ' 9th grade ', school: '', goals: 'Raise it', learning_notes: undefined });
-    expect(values).toEqual({ grade_level: '9th grade', school: null, goals: 'Raise it', learning_notes: null });
+    const { values, errors } = checkProfile({ grade_level: ' 9th grade ', school: '', goals: 'Raise it', learning_notes: undefined, pronouns: ' she/her ', interests: ' Soccer\n\n\n\nArt ' });
+    expect(values).toEqual({
+      grade_level: '9th grade', school: null, pronouns: 'she/her', interests: 'Soccer\n\nArt', favorite_subjects: null,
+      goals: 'Raise it', learning_style: null, learning_notes: null,
+    });
     expect(errors).toEqual({});
   });
 
   test('exactly the limit is fine, one over is an error naming the field', () => {
-    const at = checkProfile({ grade_level: 'x'.repeat(40), school: 'y'.repeat(120), goals: 'g'.repeat(1000), learning_notes: 'n'.repeat(1000) });
-    expect(at.errors).toEqual({});
-    const over = checkProfile({ grade_level: 'x'.repeat(41), school: 'y'.repeat(121), goals: 'g'.repeat(1001), learning_notes: 'n'.repeat(1001) });
+    const full = (extra) => Object.fromEntries(PROFILE_FIELDS.map((key) => [key, 'x'.repeat(LIMITS[key] + extra)]));
+    expect(checkProfile(full(0)).errors).toEqual({});
+    const over = checkProfile(full(1));
     expect(Object.keys(over.errors)).toEqual(PROFILE_FIELDS);
+    expect(over.errors.pronouns).toBe('Pronouns can be up to 40 characters. This is 41.');
+    expect(over.errors.learning_style).toBe('How they learn best can be up to 500 characters. This is 501.');
     expect(over.errors.grade_level).toBe('Grade can be up to 40 characters. This is 41.');
     expect(over.errors.learning_notes).toBe('Learning notes can be up to 1000 characters. This is 1001.');
   });
@@ -134,9 +149,10 @@ describe('normalizing the profile', () => {
 
 describe('profile state', () => {
   test('a draft turns the row into form strings', () => {
-    expect(profileDraft(null)).toEqual({ grade_level: '', school: '', goals: '', learning_notes: '' });
-    expect(profileDraft({ grade_level: '9th grade', school: null, goals: 'g', learning_notes: null, updated_at: 'x' }))
-      .toEqual({ grade_level: '9th grade', school: '', goals: 'g', learning_notes: '' });
+    const empty = { grade_level: '', school: '', pronouns: '', interests: '', favorite_subjects: '', goals: '', learning_style: '', learning_notes: '' };
+    expect(profileDraft(null)).toEqual(empty);
+    expect(profileDraft({ grade_level: '9th grade', school: null, goals: 'g', learning_notes: null, interests: 'Chess', updated_at: 'x' }))
+      .toEqual({ ...empty, grade_level: '9th grade', goals: 'g', interests: 'Chess' });
   });
 
   test('blank means no row or no text anywhere', () => {
@@ -171,7 +187,11 @@ describe('profile state', () => {
 
 describe('labels', () => {
   test('field labels are the words on the card and the form', () => {
-    expect(FIELD_LABELS).toEqual({ grade_level: 'Grade', school: 'School', goals: 'Goals', learning_notes: 'Learning notes' });
+    expect(FIELD_LABELS).toEqual({
+      grade_level: 'Grade', school: 'School', pronouns: 'Pronouns', interests: 'Hobbies and interests',
+      favorite_subjects: 'Favorite subjects', goals: 'Goals', learning_style: 'How they learn best', learning_notes: 'Learning notes',
+    });
+    expect(Object.keys(FIELD_LABELS)).toEqual(PROFILE_FIELDS);
   });
 
   test('a grade written as a number reads as a grade', () => {
@@ -195,18 +215,19 @@ describe('labels', () => {
   });
 
   test('the staff card lists every field, empty ones as null', () => {
-    const facts = profileFacts({ grade_level: '9', school: 'Arcadia High School', goals: null, learning_notes: 'Needs breaks' });
+    const facts = profileFacts({ grade_level: '9', school: 'Arcadia High School', goals: null, learning_notes: 'Needs breaks', interests: 'Soccer' });
     expect(facts.map((f) => [f.key, f.value])).toEqual([
-      ['grade_level', '9th grade'], ['school', 'Arcadia High School'], ['goals', null], ['learning_notes', 'Needs breaks'],
+      ['grade_level', '9th grade'], ['school', 'Arcadia High School'], ['pronouns', null], ['favorite_subjects', null],
+      ['interests', 'Soccer'], ['goals', null], ['learning_style', null], ['learning_notes', 'Needs breaks'],
     ]);
-    expect(facts.map((f) => f.long)).toEqual([false, false, true, true]);
+    expect(facts.map((f) => f.long)).toEqual([false, false, false, false, true, true, true, true]);
     expect(profileFacts(null).every((f) => f.value === null)).toBe(true);
   });
 
-  test('the family sees grade, school and goals that are filled in, never learning notes', () => {
-    const profile = { grade_level: '9', school: null, goals: 'Raise the algebra grade', learning_notes: 'Private: gets anxious before tests' };
+  test('the family sees every field that is filled in, never learning notes', () => {
+    const profile = { grade_level: '9', school: null, goals: 'Raise the algebra grade', learning_notes: 'Private: gets anxious before tests', pronouns: 'she/her', learning_style: 'Examples first' };
     const facts = aboutFacts(profile);
-    expect(facts.map((f) => f.key)).toEqual(['grade_level', 'goals']);
+    expect(facts.map((f) => f.key)).toEqual(['grade_level', 'pronouns', 'goals', 'learning_style']);
     expect(JSON.stringify(facts)).not.toContain('anxious');
     expect(aboutFacts({ learning_notes: 'only this' })).toEqual([]);
     expect(aboutFacts(null)).toEqual([]);

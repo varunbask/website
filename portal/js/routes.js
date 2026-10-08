@@ -21,6 +21,7 @@ import * as referrals from './views/referrals.js';
 import * as reviews from './views/reviews.js';
 import * as help from './views/help.js';
 import * as billing from './views/billing.js';
+import * as profile from './views/profile.js';
 import { normalizeFilter } from './review-model.js';
 
 export const ASSIGNMENT_SUBS = Object.freeze(['todo', 'in-review', 'graded', 'archived']);
@@ -45,6 +46,10 @@ function assignmentsEntry() {
 // view reads the role from ctx. Not scoped: it needs no student.
 const helpEntry = () => ({ mount: (ctx) => help.mount(ctx), title: fixed('Help') });
 
+// Profile: the student's own, a parent's child's (so it needs the child: scoped
+// on the parent page), or a tutor's or the admin's own on the staff page
+const profileEntry = ({ scoped = false } = {}) => ({ mount: (ctx) => profile.mount(ctx), title: fixed('Profile'), scoped });
+
 // Student-scoped views shared by every page that shows one student
 function studentViews({ overviewScoped }) {
   return {
@@ -60,10 +65,10 @@ function studentViews({ overviewScoped }) {
 
 // student.html and parent.html (page: 'student' | 'parent'). A parent with no
 // linked child only has Overview (the welcome), which is why Overview itself is
-// not scoped here. Billing is the parent's own statements, not about one child,
+// not scoped here. Profile is the student's own, or the parent's child's. Billing is the parent's own statements, not about one child,
 // so only the parent page has it: #/billing on student.html is an unknown view.
 export function familyRoutes(page = 'student') {
-  const views = { ...studentViews({ overviewScoped: false }), help: helpEntry() };
+  const views = { ...studentViews({ overviewScoped: false }), profile: profileEntry({ scoped: page === 'parent' }), help: helpEntry() };
   if (page !== 'parent') return views;
   return { ...views, billing: { mount: (ctx) => billing.mount(ctx), title: fixed('Billing'), scoped: false } };
 }
@@ -88,6 +93,7 @@ export function staffRoutes() {
     },
     students: { mount: (ctx) => students.mount(ctx), title: fixed('Students') },
     ...student,
+    profile: profileEntry(),
     help: helpEntry(),
     // One calendar route: scope=all is the Workspace calendar, otherwise the student's
     calendar: { ...student.calendar, scoped: (r) => r.params?.scope !== 'all' },

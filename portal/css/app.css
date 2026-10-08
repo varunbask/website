@@ -149,6 +149,8 @@
        .badge.is-danger                danger tone, no border
      span.new-pill                     "New"
      span.avatar (+ .avatar-24 .avatar-28 .avatar-32 .avatar-40; default 32) (+ .is-staff)
+       > initials (+ img[alt=""] over them when the person has a photo; .has-photo)
+     span.badge.is-dot > span.visually-hidden   an attention dot with no number (Profile)
      span.glyph.tone-*                 a tone-coloured status icon holder (svg.icon)
 
    Rows and groups (spec 5.1)
@@ -921,6 +923,17 @@ time { font-variant-numeric: tabular-nums; }
 }
 [aria-current] > .badge:not(.is-danger) { background-color: var(--surface-2); }
 
+/* An attention dot with no number (an unfinished profile); its words are hidden */
+.badge.is-dot,
+[aria-current] > .badge.is-dot {
+  min-width: 0;
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  background-color: var(--accent);
+}
+
 .new-pill {
   display: inline-flex;
   align-items: center;
@@ -1045,6 +1058,7 @@ time { font-variant-numeric: tabular-nums; }
     top: 4px;
     left: 23px;
   }
+  .nav-item > .badge.is-dot { top: 8px; left: 28px; }
   .nav-item > .new-pill,
   .nav-sub { display: none; }
   .sk-nav { width: 28px; height: 28px; margin: 8px auto; }
@@ -1206,6 +1220,7 @@ time { font-variant-numeric: tabular-nums; }
   top: -4px;
   left: calc(50% + 4px);
 }
+.tabbar-icon > .badge.is-dot { top: 2px; left: calc(50% + 8px); }
 .tabbar-label {
   max-width: 100%;
   font: 500 12px/16px var(--font-ui);
@@ -1763,6 +1778,18 @@ input[type="date"].input { font-variant-numeric: tabular-nums; }
   border-color: transparent;
   background-color: var(--accent-soft);
   color: var(--accent-text);
+}
+/* A profile photo covers the initials in the same box, so nothing moves while
+   it loads; if it fails, the image is removed and the initials show again */
+.avatar { position: relative; overflow: hidden; }
+.avatar > img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background-color: var(--surface-2);
 }
 
 
@@ -2689,6 +2716,7 @@ dialog::backdrop { background-color: transparent; }
 /* 27. Forced colors --------------------------------------------------------------- */
 
 @media (forced-colors: active) {
+  .badge.is-dot { forced-color-adjust: none; background-color: Highlight; }
   .pill,
   .badge,
   .new-pill,

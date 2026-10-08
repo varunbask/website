@@ -1,4 +1,6 @@
-// Students (#/students, staff; spec 5.13). One row per student with review
+// Students (#/students, staff; spec 5.13). One row per student, with their
+// photo and a "Profile not filled in" mark while the family has not filled in
+// grade, school and hobbies (so a tutor can nudge them), review
 // load, next tutoring session, next due work, last submission and the 30-day
 // completion (Completed out of Completed plus Missing, results.js), plus the
 // student's tutors with their subjects under the name, all
@@ -15,7 +17,9 @@
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
-import { avatar, emptyState, errorCallout, select, skeletonRows } from '../ui.js';
+import { emptyState, errorCallout, select, skeletonRows } from '../ui.js';
+import { personAvatar } from '../photos.js';
+import { profileProgress } from '../profile-model.js';
 import { displayName, byDue, visibleEmail } from '../format.js';
 import { reviewCounts } from '../app-model.js';
 import { deriveItems } from '../buckets.js';
@@ -67,12 +71,15 @@ export function lastSubmissionAt(submissions) {
 }
 
 // One summary per student, in the workspace order (by name):
-// { student, name, email, review, overdue, next, nextSession, tutors, lastAt, completion }
+// { student, name, email, review, overdue, next, nextSession, tutors, lastAt, completion, profileDue }
 //   overdue      how many open assignments and tasks are past due (the Overdue work filter)
 //   nextSession  the student's next upcoming session with any tutor, or null
 //   tutors       [{ id, name, subject, tone }] by name, from ws.links; names is
 //                the staffNames() Map that supplies each tutor's name
-export function studentSummaries(ws, now = new Date(), { names = new Map() } = {}) {
+//   profileDue   true when the student's profile is not filled in (grade, school,
+//                hobbies), from `profiles` (getStudentSummaries); false when
+//                profiles is null (not loaded), so nobody is marked by mistake
+export function studentSummaries(ws, now = new Date(), { names = new Map(), profiles = null } = {}) {
   const tasksBy = new Map();
   const subsBy = new Map();
   const sessionsBy = new Map();
@@ -103,6 +110,7 @@ export function studentSummaries(ws, now = new Date(), { names = new Map() } = {
       tutors: tutorEntries(linksBy.get(student.id) ?? [], names),
       lastAt: lastSubmissionAt(subs),
       completion: recentCompletion(tasks, subs, now),
+      profileDue: profiles ? !profileProgress('student', { profile: profiles.get(String(student.id)) ?? null }).complete : false,
     };
   });
 }
@@ -143,10 +151,15 @@ export function mount(ctx) {
     body.setAttribute('aria-busy', 'true');
     let ws;
     let names;
+    let profiles;
     try {
       // staffNames never rejects: without it the tutor chips say "Tutor". Nor do the
-      // tutors' colors: each chip is in its tutor's color.
-      [ws, names] = await Promise.all([ctx.store.getWorkspace(), staffNames(), ctx.store.getTutorColors()]);
+      // tutors' colors: each chip is in its tutor's color. The profiles are a quiet
+      // extra too: without them no row says "Profile not filled in".
+      [ws, names, , profiles] = await Promise.all([
+        ctx.store.getWorkspace(), staffNames(), ctx.store.getTutorColors(),
+        ctx.store.getStudentSummaries().catch(() => null),
+      ]);
     } catch (error) {
       if (!ctx.alive()) return;
       console.error(error);
@@ -164,7 +177,7 @@ export function mount(ctx) {
     // The viewer is a tutor or admin, so their own name is always known
     const known = new Map(names ?? []);
     if (ctx.me?.id && !known.has(String(ctx.me.id))) known.set(String(ctx.me.id), displayName(ctx.me));
-    const summaries = studentSummaries(ws, ctx.now, { names: known });
+    const summaries = studentSummaries(ws, ctx.now, { names: known, profiles });
     sessionsFailed = Boolean(ws.sessionsError);
     render(summaries);
     ctx.announce(`Students, ${countLabel(shownCount, summaries.length)}`);
@@ -383,6 +396,7 @@ export function mount(ctx) {
     const said = [s.name];
     if (s.email && s.email !== s.name) said.push(s.email);
     if (tutors.length) said.push(`tutors ${tutors.map(tutorText).join(', ')}`);
+    if (s.profileDue) said.push('profile not filled in');
     if (s.review > 0) said.push(`${s.review} to review`);
 
     let sessionContent;
@@ -443,9 +457,10 @@ export function mount(ctx) {
       dataset: { focusKey: `stu-${student.id}` },
     },
     h('span', { class: 'stu-who' },
-      avatar(s.name, { size: 32 }),
+      personAvatar(student.id, s.name, { size: 32 }),
       h('span', { class: 'stu-id' },
         h('span', { class: 'stu-name' }, s.name),
+        s.profileDue ? h('span', { class: 'stu-profile-due', 'aria-hidden': 'true' }, icon('info', { size: 12 }), h('span', {}, 'Profile not filled in')) : null,
         s.email && s.email !== s.name ? h('span', { class: 'stu-email' }, s.email) : null,
         tutorChips(tutors))),
     reviewCell,

@@ -7,7 +7,7 @@ import { sb } from './supabase.js';
 import { staffNames } from './updates-feed.js';
 import { profileChanges } from './student-profile-model.js';
 
-const PROFILE_FIELDS = 'student_id, grade_level, school, goals, learning_notes, updated_by, updated_at';
+const PROFILE_FIELDS = 'student_id, grade_level, school, pronouns, interests, favorite_subjects, goals, learning_style, learning_notes, updated_by, updated_at';
 const NOTE_FIELDS = 'id, student_id, author_id, body, created_at';
 
 // The student's profile row, or null when none was saved yet
@@ -17,18 +17,19 @@ export async function loadProfile(studentId) {
   return data ?? null;
 }
 
-// What a family may read of the profile: { grade_level, school, goals } or null.
+// What a family may read of the profile: { grade_level, school, goals,
+// pronouns, interests, favorite_subjects, learning_style, updated_at } or null.
 // Students and parents have no access to the table (it holds learning notes),
-// so they ask the database function, which returns only these three fields.
+// so they ask the database function, which never returns the learning notes.
 export async function loadFamilyProfile(studentId) {
   const { data, error } = await sb.rpc('family_profile', { p_student: studentId });
   if (error) throw error;
   return data?.[0] ?? null;
 }
 
-// Saves the profile and returns the saved row. `values` is the form's four
-// fields (from checkProfile) and `row` the profile the form was opened on, or
-// null when there was none.
+// Saves the profile and returns the saved row. `values` is the form's fields
+// (from checkProfile) and `row` the profile the form was opened on, or null
+// when there was none.
 //
 // With a row, only the fields that differ from it are sent, so two tutors editing
 // at once never overwrite each other's untouched fields; nothing differing sends

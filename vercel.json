@@ -57,7 +57,7 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://enwrankobjdivyxhmwus.supabase.co wss://enwrankobjdivyxhmwus.supabase.co; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+          "value": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob: https://enwrankobjdivyxhmwus.supabase.co; connect-src 'self' https://enwrankobjdivyxhmwus.supabase.co wss://enwrankobjdivyxhmwus.supabase.co; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
         },
         {
           "key": "Referrer-Policy",

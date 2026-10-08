@@ -3,7 +3,8 @@
 // these; palette.js shows them and runs their `target`.
 //
 // An item (see palette-model.js for the search fields) also carries:
-//   icon     an icons.js name, or avatar: a name to draw initials for
+//   icon     an icons.js name, or avatar: a name to draw initials for (with
+//            avatarId, the person whose photo shows when they have one)
 //   target   what Enter does:
 //              { href }                  router.go (a hash, ?student=..., a page)
 //              { drawer: { id, extra } } router.openDrawer: an assignment or task
@@ -48,6 +49,7 @@ const PAGE_WORDS = {
   report: 'progress report print attendance',
   billing: 'bills statements invoices payments',
   help: 'support questions contact faq',
+  profile: 'me photo picture avatar about grade school hobbies interests bio subjects',
   files: 'materials pdf documents links attachments handouts',
 };
 
@@ -79,7 +81,8 @@ export function pageItems({ role, page, scope = null, route = null, multiple = f
   const who = student && (staff || multiple) ? displayName(student) : null;
   const out = [];
   for (const g of model.groups) {
-    const ownPages = (g.key === 'student' || g.key === 'main') && student;
+    // A parent's Profile page is the child's too; staff's is their own
+    const ownPages = (g.key === 'student' || g.key === 'main' || (g.key === 'you' && role === 'parent')) && student;
     const own = ownPages && who ? { group: 'student-page', groupLabel: `${who}\u2019s pages` } : {};
     for (const it of g.items) {
       out.push({
@@ -156,6 +159,7 @@ export function childItems(children, currentId) {
     type: 'child',
     title: `Switch to ${displayName(c)}`,
     avatar: displayName(c),
+    avatarId: c.id,
     keywords: 'child change show',
     target: { switchTo: c.id },
     browse: true,
@@ -190,6 +194,7 @@ export function studentItems(students, { page = 'staff' } = {}) {
       title: name,
       meta: email && email !== name ? email : null,
       avatar: name,
+      avatarId: s.id,
       target: { href: `${base}?student=${encodeURIComponent(s.id)}#/overview` },
       weight: 2,
     };
