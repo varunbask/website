@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, dirname, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { helpSections, partsText } from '../../portal/js/help-model.js';
 
@@ -18,11 +18,64 @@ function literals(source) {
   return [...text.matchAll(/'((?:[^'\\\n]|\\.)*)'|`((?:[^`\\]|\\.)*)`|"((?:[^"\\\n]|\\.)*)"/g)].map((m) => m[1] ?? m[2] ?? m[3]);
 }
 
+// Every module a page loads through static imports (import ... from, export
+// ... from, import '...'), starting at its module script. import() is left
+// out: those load only when the code that calls them runs.
+function staticGraph(entry) {
+  const seen = new Set();
+  const walk = (file) => {
+    if (seen.has(file)) return;
+    seen.add(file);
+    const source = read(file).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    const specs = [
+      ...source.matchAll(/^\s*(?:import|export)\s[^;]*?\sfrom\s*['"]([^'"]+)['"]/gm),
+      ...source.matchAll(/^\s*import\s*['"]([^'"]+)['"]/gm),
+    ].map((m) => m[1]).filter((spec) => spec.startsWith('.'));
+    for (const spec of specs) walk(normalize(join(dirname(file), spec)));
+  };
+  walk(entry);
+  return seen;
+}
+const entryOf = (page) => read(`portal/${page}`).match(/<script type="module" src="\/(portal\/js\/[\w/-]+\.js)"><\/script>/)[1];
+
+describe('families never download the staff modules', () => {
+  const STAFF_ONLY = ['portal/js/item-form.js', 'portal/js/homework-draft.js', 'portal/js/homework-draft-model.js', 'portal/js/answer-key.js'];
+
+  test('student.html and parent.html reach none of them through static imports', () => {
+    for (const page of ['student.html', 'parent.html']) {
+      const graph = staticGraph(entryOf(page));
+      expect(graph.size, page).toBeGreaterThan(20);
+      expect(graph.has('portal/js/item-drawer.js'), page).toBe(true);   // the walk does reach the drawer
+      expect(STAFF_ONLY.filter((f) => graph.has(f)), page).toEqual([]);
+    }
+  });
+
+  test('the walk would catch a static import', () => {
+    const graph = staticGraph(entryOf('staff.html'));
+    expect(graph.has('portal/js/item-drawer.js')).toBe(true);
+    // staff load them the same lazy way
+    expect(STAFF_ONLY.filter((f) => graph.has(f))).toEqual([]);
+    const form = staticGraph('portal/js/item-form.js');
+    for (const f of STAFF_ONLY) expect(form.has(f), f).toBe(true);
+  });
+
+  test('the drawer imports them with import(), and only on staff paths', () => {
+    const drawer = read('portal/js/item-drawer.js');
+    expect(drawer).toContain("const staffForm = () => import('./item-form.js');");
+    expect(drawer).toContain("const answerKeyModule = () => import('./answer-key.js');");
+    expect(drawer).not.toMatch(/^import .*from '\.\/(item-form|answer-key|homework-draft)/m);
+    // the create form after the staff check, the edit form from the staff menu, the key when keyed
+    expect(drawer).toMatch(/if \(dctx\.audience !== 'staff' \|\| dctx\.readOnly\) \{\n {4}paintMissing\(dctx\);[\s\S]*?await staffForm\(\)/);
+    expect(drawer).toMatch(/async function enterEdit\(\) \{[\s\S]*?await staffForm\(\)/);
+    expect(drawer).toMatch(/keyed\n\s*\? answerKeyModule\(\)/);
+  });
+});
+
 describe('answer keys never reach families', () => {
   test('only the staff modules touch the answer key table or the drafts table', () => {
     const touching = portalJs.filter((f) => /task_answer_keys|homework_drafts/.test(code(f))).sort();
     expect(touching).toEqual(['portal/js/answer-key.js', 'portal/js/homework-draft.js']);
-    const importers = portalJs.filter((f) => /from '\.\/(answer-key|homework-draft)\.js'/.test(read(f))).sort();
+    const importers = portalJs.filter((f) => /from '\.\/(answer-key|homework-draft)\.js'|import\('\.\/(answer-key|homework-draft)\.js'\)/.test(read(f))).sort();
     expect(importers).toEqual(['portal/js/item-drawer.js', 'portal/js/item-form.js']);
     // what families load as their data never asks for a key
     for (const f of ['portal/js/store.js', 'portal/js/student.js', 'portal/js/parent.js', 'portal/js/submit-work.js', 'portal/js/views/assignments.js']) {
@@ -33,10 +86,9 @@ describe('answer keys never reach families', () => {
   test('the item drawer loads and builds the key for staff only, never for a task', () => {
     const drawer = read('portal/js/item-drawer.js');
     expect(drawer).toContain("const keyed = dctx.audience === 'staff' && found.task.kind !== 'task';");
-    expect(drawer).toMatch(/keyed \? loadAnswerKey\(found\.task\.id\)/);
+    expect(drawer).toContain('await loadAnswerKey(found.task.id)');
     expect(drawer).toContain('if (staff && !isTask && found.answerKey) {');
-    expect(drawer.match(/answerKeySection\(/g)).toHaveLength(1);
-    expect(drawer.match(/loadAnswerKey\(/g)).toHaveLength(1);
+    expect(drawer).toContain('found.answerKey.build(dctx, { taskId: task.id, body: found.answerKey.body })');
   });
 
   test('the create form (with the draft panel and the key field) is staff only', () => {
@@ -85,6 +137,15 @@ describe('the entry points', () => {
     expect(ses).toContain("${draft ? '&draft=1' : ''}");
   });
 
+  test('the form locks its student while a draft for it runs, and caps attachments', () => {
+    const form = read('portal/js/item-form.js');
+    expect(form).toMatch(/onBusy: \(on\) => \{\n\s*if \(!studentSelect\) return;\n\s*studentSelect\.disabled = on;/);
+    expect(form).toContain('const tooMany = editing ? \'\' : attachmentsProblem(pendingFiles.length, drafted?.attachCount() ?? 0);');
+    expect(form).toContain('attachRoom: () => MAX_ATTACHMENTS - pendingFiles.length,');
+    expect(form).toContain('before.push({ title: titleInput.value, details: details.value, answerKey: answerKeyInput.value });');
+    expect(form).toContain('const last = before.pop();');
+  });
+
   test('the create form drafts only while creating, fills the fields, and saves the key after the task', () => {
     const form = read('portal/js/item-form.js');
     expect(form).toMatch(/if \(!editing\) \{\n\s*drafted = draftPanel\(dctx,/);
@@ -105,6 +166,17 @@ describe('the entry points', () => {
     expect(panel).toContain("type: 'file', accept: 'image/*', multiple: true");
     expect(panel).toContain("capture: 'environment'");
     expect(panel).toMatch(/async function start\(\) \{\n\s*if \(active \|\| adding \|\| starting\) return;\n\s*starting = true;/);
+    // polling: only 404 is gone, the token is fresh for each call, a 401 forces a refresh
+    expect(panel).toContain('const outcome = pollOutcome(res.status);');
+    expect(panel).toContain("if (outcome === 'retry') continue;");
+    expect(panel).toContain('const token = await bearer();');
+    expect(panel).toContain('if (response.status === 401) refreshNext = true;');
+    // a finished draft fills the form only for the student it was drafted for
+    expect(panel).toContain('active = { id: res.body.id, studentId, startedAt: Date.now() };');
+    expect(panel).toMatch(/if \(status === 'ready' && !sameStudent\) \{\n\s*const text = elsewhereText\(/);
+    // photos added while the drawer closed have their links freed; files chosen mid-shrink wait in a queue
+    expect(panel).toMatch(/if \(!alive\(\)\) \{\n\s*\/\/ stop\(\) ran[^\n]*\n\s*queue\.length = 0;\n\s*for \(const p of photos\) URL\.revokeObjectURL\(p\.url\);/);
+    expect(panel).toMatch(/async function addPhotos\(files\) \{\n\s*queue\.push\(\.\.\.files\);\n\s*if \(adding\) return;/);
     expect(panel).toContain("callApi({ action: 'draft_status', id })");
     expect(panel).toContain("fetch('/api/grade'");
     expect(panel).toContain("dctx.signal?.addEventListener('abort', stop, { once: true });");

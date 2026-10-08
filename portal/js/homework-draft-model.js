@@ -28,9 +28,10 @@ export const DIFFICULTIES = Object.freeze([
 ]);
 
 export const POLL_MS = 5000;                 // how often a drafting draft is asked about
-export const STALE_MS = 6 * 60_000;          // drafting longer than this: it failed
 export const RECENT_DAYS = 7;
-export const STALE_ERROR = 'This draft took too long. Try again.';
+export const MAX_ATTACHMENTS = 10;           // files on a new assignment, as in item-form.js
+export const REFRESH_WITHIN_S = 60;          // refresh the sign-in token this close to its expiry
+export const GONE_ERROR = 'This draft is no longer available.';
 
 export const DRAFTING_TEXT = 'Drafting your homework. This can take a few minutes; you can keep working and come back.';
 export const READY_TEXT = 'The draft is in the form below. Check every problem and the answer key, then create the assignment.';
@@ -141,22 +142,60 @@ export function contextText({ subject, grade } = {}) {
 // ---------------------------------------------------------------------------
 // A finished draft
 
-// The form's fields from a draft's result: { title, details, answerKey }
+// The form's fields from a draft's result: { title, details, answerKey, notice }
+// (notice: the server's note that problems were left out, or null)
 export function formFromDraft(result) {
   const r = result && typeof result === 'object' ? result : {};
   return {
     title: String(r.title ?? '').trim().slice(0, 200),
     details: String(r.details ?? '').trim().slice(0, 5000),
     answerKey: String(r.answer_key_text ?? '').trim().slice(0, 20000),
+    notice: typeof r.notice === 'string' && r.notice.trim() ? r.notice.trim() : null,
   };
 }
 
-// 'drafting' | 'ready' | 'failed'; a draft drafting longer than STALE_MS failed
-export function draftState(row, now = new Date()) {
+// 'drafting' | 'ready' | 'failed', exactly as the server last said. A draft
+// that ran too long is the server's call (draft_status reports it failed),
+// never this browser's clock.
+export function draftState(row) {
   if (!row) return 'failed';
-  if (row.status === 'ready' || row.status === 'failed') return row.status;
-  const age = now.getTime() - Date.parse(row.created_at);
-  return Number.isFinite(age) && age > STALE_MS ? 'failed' : 'drafting';
+  return ['drafting', 'ready', 'failed'].includes(row.status) ? row.status : 'failed';
+}
+
+// What a draft_status answer means for polling:
+//   'apply'  200: take the server's status (and the result when ready)
+//   'gone'   404: the draft was deleted, or is not this person's
+//   'retry'  anything else (offline 0, 400, 401, 403, 429, 5xx): ask again next time
+export function pollOutcome(httpStatus) {
+  if (httpStatus === 200) return 'apply';
+  if (httpStatus === 404) return 'gone';
+  return 'retry';
+}
+
+// Whether to refresh the sign-in token before calling the API: it expires
+// within REFRESH_WITHIN_S, or the last call came back 401 (forced). A session
+// without an expiry (the local demo) is left alone unless forced.
+export function tokenNeedsRefresh(session, nowMs = Date.now(), { forced = false } = {}) {
+  if (!session) return forced;
+  if (forced) return true;
+  const expires = Number(session.expires_at);
+  return Number.isFinite(expires) && expires > 0 && expires * 1000 - nowMs < REFRESH_WITHIN_S * 1000;
+}
+
+// The message when files and lesson photos together would be too many for
+// one assignment, or ''
+export function attachmentsProblem(files, photos, max = MAX_ATTACHMENTS) {
+  const total = files + photos;
+  if (total <= max) return '';
+  const fileText = files === 1 ? '1 file' : `${files} files`;
+  const photoText = photos === 1 ? '1 lesson photo' : `${photos} lesson photos`;
+  return `An assignment can have at most ${max} attachments. This one has ${fileText} and ${photoText}. Remove some files, or untick Attach these photos.`;
+}
+
+// What to say when a draft finishes after the form moved to another student
+// (or none): the draft is kept in Recent drafts and never fills this form
+export function elsewhereText(name) {
+  return `Draft for ${name || 'another student'} is ready. Open it from Recent drafts.`;
 }
 
 // "0:05", "1:23", "12:03"
@@ -190,9 +229,10 @@ export function optionsText(options = {}) {
 
 // The newest draft for this student still drafting (one to pick up again
 // when the form reopens), or null
-export function activeDraft(rows, { studentId, now = new Date() } = {}) {
+export function activeDraft(rows, { studentId } = {}) {
+  if (studentId === null || studentId === undefined || studentId === '') return null;
   return (rows ?? [])
-    .filter((r) => String(r.student_id) === String(studentId) && draftState(r, now) === 'drafting')
+    .filter((r) => String(r.student_id) === String(studentId) && draftState(r) === 'drafting')
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
 }
 
@@ -202,7 +242,7 @@ export function shouldReopen(rows, { studentId, now = new Date() } = {}) {
   if (studentId === null || studentId === undefined) return false;
   return (rows ?? []).some((r) => {
     if (String(r.student_id) !== String(studentId)) return false;
-    const state = draftState(r, now);
+    const state = draftState(r);
     if (state === 'drafting') return true;
     const finished = Date.parse(r.finished_at ?? r.created_at);
     return state === 'ready' && now.getTime() - finished <= 3_600_000;

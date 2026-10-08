@@ -29,6 +29,9 @@
 // ticked, the photos as attachments. `draft` opens the panel at once (the
 // session drawer's "Make homework from this lesson").
 //
+// Staff only: item-drawer.js imports this module with import() on staff
+// paths, so families never download it, the draft panel or the answer key.
+//
 // The form puts its title in an h2.drawer-title and its buttons in the drawer
 // footer (dctx.setFooter). The caller inserts the element into dctx.body and
 // then calls dctx.setTitle(el.dataset.title) to name the dialog.
@@ -47,14 +50,13 @@ import {
   REPEATS, MIN_REPEAT_COUNT, checkRepeat, repeatSummary, repeatRows, followingText, seriesUpdates, groupUpdates, itemNoun,
 } from './task-repeat-model.js';
 import { draftPanel } from './homework-draft.js';
-import { draftContext } from './homework-draft-model.js';
+import { draftContext, attachmentsProblem, MAX_ATTACHMENTS } from './homework-draft-model.js';
 import { addAnswerKeys, MAX_ANSWER_KEY, ANSWER_KEY_HINT } from './answer-key.js';
 import { loadProfile } from './student-profile-data.js';
 import { gradeText } from './student-profile-model.js';
 
 const KIND_LABEL = { assignment: 'Assignment', task: 'Task' };
 const KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
-const MAX_ATTACHMENTS = 10;
 
 function titleFor(kind, editing) {
   return `${editing ? 'Edit' : 'New'} ${kind === 'task' ? 'task' : 'assignment'}`;
@@ -297,8 +299,8 @@ export function itemForm(dctx, {
     addAttachments = (files) => {
       const problems = [];
       for (const file of files) {
-        if (pendingFiles.length >= MAX_ATTACHMENTS) {
-          problems.push(`Attach at most ${MAX_ATTACHMENTS} files here. Add more from the assignment after you create it.`);
+        if (pendingFiles.length + (drafted?.attachCount() ?? 0) >= MAX_ATTACHMENTS) {
+          problems.push(`Attach at most ${MAX_ATTACHMENTS} files here, lesson photos included. Add more from the assignment after you create it.`);
           break;
         }
         const message = validateMaterialFile(file);
@@ -324,7 +326,10 @@ export function itemForm(dctx, {
   // Draft from lesson photos (creating): fills the title, instructions and answer key
   const formStudent = () => (lesson ? lesson.student_id : (studentSelect ? studentSelect.value || null : dctx.scope?.student?.id ?? null));
   let drafted = null;
-  let before = null;   // what the fields held before a draft filled them (Discard puts it back)
+  const before = [];   // what the fields held before each draft filled them (Discard puts it back)
+  const studentLock = h('p', { class: 'field-hint asg-student-lock', hidden: true },
+    'The student stays the same while the draft for them runs.');
+  studentField?.append(studentLock);
   if (!editing) {
     drafted = draftPanel(dctx, {
       getStudentId: formStudent,
@@ -335,8 +340,10 @@ export function itemForm(dctx, {
         ]);
         return draftContext({ lesson, links: ws?.links, studentId, tutorId: dctx.me?.id, gradeLevel: gradeText(profile?.grade_level) });
       },
+      // Each fill remembers what the fields held just before it, so Discard
+      // goes back one draft at a time (to the typed text after the first)
       onFill: (values) => {
-        before ??= { title: titleInput.value, details: details.value, answerKey: answerKeyInput.value };
+        before.push({ title: titleInput.value, details: details.value, answerKey: answerKeyInput.value });
         // A draft is homework: an assignment
         const assignment = typeGroup.querySelector('input[value="assignment"]');
         if (currentKind !== 'assignment' && assignment) {
@@ -348,13 +355,26 @@ export function itemForm(dctx, {
         answerKeyInput.value = values.answerKey;
         setFieldError(titleField, '');
       },
+      // -> whether the form still holds an earlier draft
       onDiscard: () => {
-        if (!before) return;
-        titleInput.value = before.title;
-        details.value = before.details;
-        answerKeyInput.value = before.answerKey;
-        before = null;
+        const last = before.pop();
+        if (!last) return false;
+        titleInput.value = last.title;
+        details.value = last.details;
+        answerKeyInput.value = last.answerKey;
+        return before.length > 0;
       },
+      // While a draft for this form runs, its student is locked: the draft's
+      // context (subject, grade) and its row belong to that student, and a
+      // finished draft must not fill another student's form. The lock goes
+      // when the draft is ready, fails or is deleted.
+      onBusy: (on) => {
+        if (!studentSelect) return;
+        studentSelect.disabled = on;
+        studentLock.hidden = !on;
+      },
+      // How many lesson photos may still be attached next to the files chosen
+      attachRoom: () => MAX_ATTACHMENTS - pendingFiles.length,
     });
     studentSelect?.addEventListener('change', () => drafted.studentChanged());
     if (draft) drafted.open();
@@ -558,6 +578,13 @@ export function itemForm(dctx, {
     }
     if (!studentId) {
       errorSlot.append(dangerCallout('Choose a student first.', 'Pick a student from the switcher, then try again.'));
+      return;
+    }
+    // Files and ticked lesson photos together stay within MAX_ATTACHMENTS
+    const tooMany = editing ? '' : attachmentsProblem(pendingFiles.length, drafted?.attachCount() ?? 0);
+    if (tooMany) {
+      errorSlot.append(dangerCallout('Too many attachments.', tooMany));
+      errorSlot.scrollIntoView?.({ block: 'nearest' });
       return;
     }
 

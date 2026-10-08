@@ -35,7 +35,8 @@ function answerKeyPart(answerKey) {
   return {
     type: 'text',
     text: `Answer key from the tutor (the student never sees this):\n<answer_key>\n${escapeKey(answerKey)}\n</answer_key>\n`
-      + 'Use the answer key to check the student\'s work. Never reveal it or quote it in the feedback, and never give its answers: say which problems to look at again instead.',
+      + 'Use the answer key to check the student\'s work. Never reveal it or quote it in the feedback. '
+      + 'The feedback must never state a final answer from the answer key, not even for a problem the student got wrong: say which problems to look at again and what to check, instead.',
   };
 }
 

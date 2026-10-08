@@ -1,7 +1,9 @@
 import { describe, test, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   MAX_PHOTOS, MAX_PHOTO_CHARS, SHRINK_TRIES, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES,
-  POLL_MS, STALE_MS, RECENT_DAYS, DRAFTING_TEXT, READY_TEXT,
+  POLL_MS, RECENT_DAYS, DRAFTING_TEXT, READY_TEXT, MAX_ATTACHMENTS, GONE_ERROR,
+  pollOutcome, tokenNeedsRefresh, attachmentsProblem, elsewhereText,
   fitSize, base64Length, isImageFile, sizeText, fitsBudget, overBudgetText, photoProblems, checkOptions, draftRequest,
   draftContext, contextText, formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft, shouldReopen,
 } from '../../portal/js/homework-draft-model.js';
@@ -17,7 +19,6 @@ describe('the browser and the server agree', () => {
     expect([MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS]).toEqual([server.MIN_PROBLEMS, server.MAX_PROBLEMS, server.DEFAULT_PROBLEMS]);
     expect(MAX_NOTES).toBe(server.MAX_NOTES);
     expect(DIFFICULTIES.map((d) => d.value)).toEqual(Object.keys(server.DIFFICULTIES));
-    expect(STALE_MS).toBe(server.DRAFT_STALE_MS);
   });
 
   test('the request body the panel builds passes the server check', () => {
@@ -132,20 +133,46 @@ describe('options', () => {
 describe('a finished draft fills the form', () => {
   test('title, details and the answer key text, clamped to the columns', () => {
     const result = { title: ' Factoring practice ', details: '1. Factor x^2 + 5x + 6.', answer_key_text: '1. (x + 2)(x + 3)', problems: [] };
-    expect(formFromDraft(result)).toEqual({ title: 'Factoring practice', details: '1. Factor x^2 + 5x + 6.', answerKey: '1. (x + 2)(x + 3)' });
+    expect(formFromDraft(result)).toEqual({ title: 'Factoring practice', details: '1. Factor x^2 + 5x + 6.', answerKey: '1. (x + 2)(x + 3)', notice: null });
+    expect(formFromDraft({ ...result, notice: '2 problems were left out.' }).notice).toBe('2 problems were left out.');
     const long = formFromDraft({ title: 't'.repeat(300), details: 'd'.repeat(6000), answer_key_text: 'k'.repeat(30000) });
     expect([long.title.length, long.details.length, long.answerKey.length]).toEqual([200, 5000, 20000]);
-    expect(formFromDraft(null)).toEqual({ title: '', details: '', answerKey: '' });
+    expect(formFromDraft(null)).toEqual({ title: '', details: '', answerKey: '', notice: null });
   });
 });
 
 describe('job status', () => {
-  test('a draft still drafting after 6 minutes has failed', () => {
-    expect(draftState({ status: 'drafting', created_at: ago(60_000) }, NOW)).toBe('drafting');
-    expect(draftState({ status: 'drafting', created_at: ago(STALE_MS + 1) }, NOW)).toBe('failed');
-    expect(draftState({ status: 'ready', created_at: ago(STALE_MS * 10) }, NOW)).toBe('ready');
-    expect(draftState({ status: 'failed', created_at: ago(1) }, NOW)).toBe('failed');
-    expect(draftState(null, NOW)).toBe('failed');
+  test('the state is what the server said: no clock check here (draft_status marks a stale one failed)', () => {
+    expect(draftState({ status: 'drafting', created_at: ago(60_000) })).toBe('drafting');
+    expect(draftState({ status: 'drafting', created_at: ago(server.DRAFT_STALE_MS * 10) })).toBe('drafting');
+    expect(draftState({ status: 'ready', created_at: ago(1) })).toBe('ready');
+    expect(draftState({ status: 'failed', created_at: ago(1) })).toBe('failed');
+    expect(draftState({ status: 'odd' })).toBe('failed');
+    expect(draftState(null)).toBe('failed');
+  });
+
+  test('polling: only a 404 means gone; every other answer that is not a 200 is asked again', () => {
+    expect(pollOutcome(200)).toBe('apply');
+    expect(pollOutcome(404)).toBe('gone');
+    for (const status of [0, 400, 401, 403, 408, 429, 500, 502, 503]) expect(pollOutcome(status), String(status)).toBe('retry');
+    expect(GONE_ERROR).toBe('This draft is no longer available.');
+  });
+
+  test('the sign-in token is refreshed near its expiry, or after a 401', () => {
+    const nowMs = NOW.getTime();
+    const expiresIn = (s) => ({ access_token: 't', expires_at: Math.floor(nowMs / 1000) + s });
+    expect(tokenNeedsRefresh(expiresIn(3600), nowMs)).toBe(false);
+    expect(tokenNeedsRefresh(expiresIn(59), nowMs)).toBe(true);
+    expect(tokenNeedsRefresh(expiresIn(-10), nowMs)).toBe(true);
+    expect(tokenNeedsRefresh(expiresIn(3600), nowMs, { forced: true })).toBe(true);
+    expect(tokenNeedsRefresh({ access_token: 'demo-token' }, nowMs)).toBe(false);   // no expiry: the local demo
+    expect(tokenNeedsRefresh(null, nowMs)).toBe(false);
+    expect(tokenNeedsRefresh(null, nowMs, { forced: true })).toBe(true);
+  });
+
+  test('a finished draft for another student says where to find it', () => {
+    expect(elsewhereText('Leo Park')).toBe('Draft for Leo Park is ready. Open it from Recent drafts.');
+    expect(elsewhereText(null)).toBe('Draft for another student is ready. Open it from Recent drafts.');
   });
 
   test('polling every 5 s; the elapsed timer reads m:ss', () => {
@@ -177,13 +204,18 @@ describe('job status', () => {
 
   test('the draft to pick up again when the form reopens: this student\'s newest still drafting', () => {
     const rows = [
-      { id: 1, student_id: 's1', status: 'drafting', created_at: ago(STALE_MS + 5) },
+      { id: 1, student_id: 's1', status: 'drafting', created_at: ago(server.DRAFT_STALE_MS + 5) },
       { id: 2, student_id: 's1', status: 'drafting', created_at: ago(90_000) },
       { id: 3, student_id: 's2', status: 'drafting', created_at: ago(10_000) },
       { id: 4, student_id: 's1', status: 'ready', created_at: ago(5_000) },
     ];
-    expect(activeDraft(rows, { studentId: 's1', now: NOW }).id).toBe(2);
-    expect(activeDraft(rows, { studentId: 's3', now: NOW })).toBeNull();
+    expect(activeDraft(rows, { studentId: 's1' }).id).toBe(2);
+    expect(activeDraft(rows, { studentId: 's3' })).toBeNull();
+    // no student in the form: never a draft, not even one saved without a student
+    const loose = [...rows, { id: 5, student_id: null, status: 'drafting', created_at: ago(1000) }];
+    expect(activeDraft(loose, { studentId: null })).toBeNull();
+    expect(activeDraft(loose, { studentId: undefined })).toBeNull();
+    expect(activeDraft(loose, { studentId: '' })).toBeNull();
   });
 
   test('one line about a draft\'s options', () => {
@@ -200,8 +232,26 @@ describe('reopening the panel by itself', () => {
     expect(shouldReopen([row()], { studentId: 's1', now: NOW })).toBe(true);
     expect(shouldReopen([row({ finished_at: ago(61 * 60_000) })], { studentId: 's1', now: NOW })).toBe(false);
     expect(shouldReopen([row({ status: 'failed' })], { studentId: 's1', now: NOW })).toBe(false);
-    expect(shouldReopen([row({ status: 'drafting', created_at: ago(STALE_MS + 1), finished_at: null })], { studentId: 's1', now: NOW })).toBe(false);
+    // still drafting as far as the server last said: reopen, and its status poll settles it
+    expect(shouldReopen([row({ status: 'drafting', created_at: ago(server.DRAFT_STALE_MS + 1), finished_at: null })], { studentId: 's1', now: NOW })).toBe(true);
     expect(shouldReopen([row()], { studentId: 's2', now: NOW })).toBe(false);
     expect(shouldReopen([row()], { studentId: null, now: NOW })).toBe(false);
+  });
+});
+
+describe('attachments', () => {
+  test('files and ticked lesson photos together stay within the 10 an assignment allows', () => {
+    expect(MAX_ATTACHMENTS).toBe(10);
+    expect(attachmentsProblem(4, 6)).toBe('');
+    expect(attachmentsProblem(10, 0)).toBe('');
+    expect(attachmentsProblem(5, 6)).toBe('An assignment can have at most 10 attachments. This one has 5 files and 6 lesson photos. Remove some files, or untick Attach these photos.');
+    expect(attachmentsProblem(1, 10)).toMatch(/1 file and 10 lesson photos/);
+    expect(attachmentsProblem(10, 1)).toMatch(/10 files and 1 lesson photo\./);
+  });
+
+  test('the form uses the same limit', () => {
+    const form = readFileSync(new URL('../../portal/js/item-form.js', import.meta.url), 'utf8');
+    expect(form).toContain("import { draftContext, attachmentsProblem, MAX_ATTACHMENTS } from './homework-draft-model.js';");
+    expect(form).not.toMatch(/const MAX_ATTACHMENTS = /);
   });
 });

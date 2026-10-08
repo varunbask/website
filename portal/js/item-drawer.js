@@ -3,7 +3,10 @@
 // and delete. The drawer host (drawer.js) owns the dialog; this file fills it.
 //
 // Staff see an assignment's answer key (answer-key.js), collapsed, with Edit.
-// It is loaded and built only for staff: families never fetch or see it.
+// The create and edit form (item-form.js, with the draft panel) and the answer
+// key are imported with import() on staff paths only, so student.html and
+// parent.html never download them or their staff wording. A test walks the
+// static imports from the family pages to keep it that way.
 //
 // Staff can also Extend an assignment still waiting on the student (To do,
 // Missing, or archived as missing): a new due date, checked like the review
@@ -36,7 +39,6 @@ import { workLabel, workIcon } from './labels.js';
 import { displayName, firstName } from './format.js';
 import { staffNames } from './updates-feed.js';
 import { taskCheck } from './task-check.js';
-import { itemForm } from './item-form.js';
 import { submitWorkSection } from './submit-work.js';
 import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, lessonLabel } from './materials-model.js';
@@ -49,7 +51,6 @@ import { PROFILE_DRAWER } from './student-profile-model.js';
 import { sb } from './supabase.js';
 import { answerView } from './rich-doc-dom.js';
 import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './task-repeat-model.js';
-import { loadAnswerKey, answerKeySection } from './answer-key.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SUBMITTED = 'Work submitted. Your tutor will review it soon.';
@@ -66,6 +67,10 @@ const HAS_WORK = 'This assignment has submitted work, so it cannot be deleted.';
 const SOME_HAVE_WORK = 'Some of these have submitted work, so they cannot be deleted. Refresh the page and try again.';
 
 const blank = (v) => v === null || v === undefined || v === '';
+
+// Staff-only modules, fetched when staff first need them (never by families)
+const staffForm = () => import('./item-form.js');
+const answerKeyModule = () => import('./answer-key.js');
 const sameId = (a, b) => String(a) === String(b);
 
 // "Oct 5", or "Oct 5, 2025" in another year (business zone)
@@ -131,6 +136,16 @@ async function renderCreate(dctx) {
     lesson = await findSession(dctx, dctx.params.session).catch(() => null);
     if (!dctx.alive()) return;
   }
+  let itemForm;
+  try {
+    ({ itemForm } = await staffForm());
+  } catch (error) {
+    if (!dctx.alive()) return;
+    console.error(error);
+    paintError(dctx, { onRetry: () => dctx.store.invalidate(null) });
+    return;
+  }
+  if (!dctx.alive()) return;
   // Keep what the tutor typed through any store change
   dctx.onRefresh(() => {});
   const form = itemForm(dctx, {
@@ -174,12 +189,17 @@ async function loadExtras(dctx, found) {
         .then((list) => list.find((s) => sameId(s.id, found.task.session_id)) ?? null)
         .catch(() => null)
       : null,
-    keyed ? loadAnswerKey(found.task.id).then((body) => ({ body })).catch((error) => { console.error(error); return null; }) : null,
+    keyed
+      ? answerKeyModule()
+        .then(async ({ loadAnswerKey, answerKeySection }) => ({ body: await loadAnswerKey(found.task.id), build: answerKeySection }))
+        .catch((error) => { console.error(error); return null; })
+      : null,
   ]);
   return {
     attachments: materials ? materialsFor(materials, { taskId: found.task.id }) : null,
     lesson,
-    // { body } for staff (body null when there is none); null for families or when it failed
+    // { body, build } for staff (body null when there is none; build makes the
+    // section); null for families, for tasks, or when it failed
     answerKey,
   };
 }
@@ -365,9 +385,18 @@ function renderItem(dctx) {
     slot.replaceChildren(callout({ tone: 'danger', icon: 'warning-circle', title: text, role: 'alert' }));
   }
 
-  function enterEdit() {
+  async function enterEdit() {
+    if (!state.found) return;
+    let itemForm;
+    try {
+      ({ itemForm } = await staffForm());
+    } catch (error) {
+      console.error(error);
+      if (dctx.alive()) showActionError('We couldn’t open the editor. Check your connection and try again.');
+      return;
+    }
     const found = state.found;
-    if (!found) return;
+    if (!found || !dctx.alive() || state.mode !== 'detail') return;
     state.mode = 'edit';
     state.seq += 1;
     const status = itemStatus(found.item, { audience: dctx.audience });
@@ -627,7 +656,7 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, keepAn
   // The answer key: staff only, collapsed, with Edit (never built for families)
   if (staff && !isTask && found.answerKey) {
     const kept = keepAnswerKey && keepAnswerKey.dataset.taskId === String(task.id) ? keepAnswerKey : null;
-    nodes.push(kept ?? answerKeySection(dctx, { taskId: task.id, body: found.answerKey.body }));
+    nodes.push(kept ?? found.answerKey.build(dctx, { taskId: task.id, body: found.answerKey.body }));
   }
 
   if (isTask) {

@@ -1,14 +1,18 @@
 // "Draft from lesson photos": the panel inside the staff create form
-// (item-form.js). Staff only; students and parents never load this module.
+// (item-form.js). Staff only: item-form.js is imported with import() on staff
+// paths (item-drawer.js), so student.html and parent.html never fetch this
+// module; a test walks their static imports to keep it that way.
 //
-// draftPanel(dctx, { getStudentId, getContext, onFill, onDiscard }) ->
-//   { opener, root, open(), attachFiles(), photoCount() }
+// draftPanel(dctx, { getStudentId, getContext, onFill, onDiscard, onBusy, attachRoom }) ->
+//   { opener, root, open(), peek(), attachFiles(), attachCount(), photoCount(), studentChanged() }
 //   opener        the button that opens the panel (the form places it)
 //   root          the panel (hidden until opened)
 //   getStudentId  () -> the form's student id now, or null
 //   getContext    async (studentId) -> { subject, grade } sent as context
 //   onFill        ({ title, details, answerKey }) when a draft is ready or opened
-//   onDiscard     () when the tutor discards the draft from the form
+//   onDiscard     () -> whether the form still holds an earlier draft
+//   onBusy        (on) while a draft for this form runs (the form locks its student)
+//   attachRoom    () -> how many photos may still be attached (MAX_ATTACHMENTS less the files)
 //   attachFiles   the photos as JPEG files when "Attach these photos" is ticked
 //
 // Photos are shrunk here (homework-draft-model.js has the numbers), kept in
@@ -29,9 +33,10 @@ import { relativeTime } from './dates.js';
 import { displayName } from './format.js';
 import {
   MAX_PHOTOS, SHRINK_TRIES, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES, POLL_MS, RECENT_DAYS,
-  DRAFTING_TEXT, READY_TEXT, STALE_ERROR,
+  DRAFTING_TEXT, READY_TEXT, GONE_ERROR,
   fitSize, isImageFile, fitsBudget, overBudgetText, photoProblems, checkOptions, draftRequest, contextText,
   formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft, shouldReopen,
+  pollOutcome, tokenNeedsRefresh, elsewhereText,
 } from './homework-draft-model.js';
 
 const LIST_FIELDS = 'id, student_id, status, options, error, created_at, finished_at, title:result->title';
@@ -40,14 +45,33 @@ const START_FAILED = 'We couldn’t start the draft. Check your connection and t
 // ---------------------------------------------------------------------------
 // The API (the same function as grading)
 
+// A fresh sign-in token for each call: refreshed when it is about to expire,
+// or after the last call came back 401. A draft can run for minutes, and the
+// tab may sit open far longer.
+let refreshNext = false;
+async function bearer() {
+  let { data: { session } } = await sb.auth.getSession();
+  if (tokenNeedsRefresh(session, Date.now(), { forced: refreshNext }) && typeof sb.auth.refreshSession === 'function') {
+    try {
+      const { data, error } = await sb.auth.refreshSession();
+      if (!error && data?.session) session = data.session;
+    } catch {
+      /* keep the token we have; the next call tries again */
+    }
+  }
+  refreshNext = false;
+  return session?.access_token ?? '';
+}
+
 async function callApi(body) {
   try {
-    const { data: { session } } = await sb.auth.getSession();
+    const token = await bearer();
     const response = await fetch('/api/grade', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${session?.access_token ?? ''}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    if (response.status === 401) refreshNext = true;
     const json = await response.json().catch(() => ({}));
     return { status: response.status, body: json };
   } catch {
@@ -92,12 +116,15 @@ async function shrinkPhoto(file, { maxEdge, quality }) {
 
 // ---------------------------------------------------------------------------
 
-export function draftPanel(dctx, { getStudentId = () => null, getContext = async () => ({}), onFill, onDiscard } = {}) {
+export function draftPanel(dctx, {
+  getStudentId = () => null, getContext = async () => ({}), onFill, onDiscard, onBusy, attachRoom = () => Infinity,
+} = {}) {
   const headingId = uid('hwd-head');
   const photos = [];           // { blob, dataUrl, chars, url, name }
-  let active = null;           // { id, startedAt } while a draft of this panel is drafting
+  let active = null;           // { id, studentId, startedAt } while a draft of this panel is drafting
   let filled = false;          // the form holds a draft
   let adding = false;
+  const queue = [];            // files chosen while earlier ones are still being shrunk
   let starting = false;        // a draft request is on its way (one at a time)
   let recent = [];
   let names = new Map();
@@ -152,8 +179,13 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
   const statusBox = h('div', { class: 'hwd-status-box', hidden: true, 'aria-hidden': 'true' },
     h('span', { class: 'hwd-spinner' }), h('span', { class: 'hwd-status-text' }, DRAFTING_TEXT), timer);
   const errorSlot = h('div', { class: 'hwd-error' });
+  // Staff only: problems the server left out to fit the assignment
+  const noticeText = h('span', {});
+  const noticeBox = h('p', { class: 'note hwd-notice', hidden: true }, icon('info'), noticeText);
+  const elsewhere = h('p', { class: 'note hwd-elsewhere', hidden: true }, icon('info'), h('span', {}));
   const resultBar = h('div', { class: 'hwd-result', hidden: true },
     h('p', { class: 'note' }, icon('check-circle'), h('span', {}, READY_TEXT)),
+    noticeBox,
     h('div', { class: 'hwd-result-actions' },
       button({ label: 'Try again', size: 'sm', icon: 'arrow-counter-clockwise', onClick: () => tryAgain(), focusKey: 'hwd-again' }),
       button({ label: 'Discard draft', size: 'sm', variant: 'ghost', icon: 'trash', onClick: () => discard(), focusKey: 'hwd-discard' })));
@@ -176,7 +208,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     contextNote,
     h('label', { class: 'check hwd-attach' }, attachBox, h('span', {}, 'Attach these photos to the assignment for the student')),
     h('div', { class: 'hwd-actions' }, draftBtn),
-    status, statusBox, errorSlot, resultBar, recentBox);
+    status, statusBox, errorSlot, elsewhere, resultBar, recentBox);
 
   const opener = button({
     label: 'Draft with AI from lesson photos', icon: 'note-pencil', size: 'sm', className: 'hwd-opener', focusKey: 'hwd-open',
@@ -197,7 +229,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     e.stopPropagation();
     addPhotos(images);
   });
-  fileDrop(photoField, { onFiles: (files) => addPhotos(files), enabled: () => !adding, label: 'Drop photos to add them', iconName: 'image-square' });
+  fileDrop(photoField, { onFiles: (files) => addPhotos(files), label: 'Drop photos to add them', iconName: 'image-square' });
   for (const input of [fileInput, cameraInput]) {
     input.addEventListener('change', () => {
       const files = [...(input.files ?? [])];
@@ -205,6 +237,19 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
       if (files.length) addPhotos(files);
     });
   }
+  // Ticking "Attach these photos" must leave room within the assignment's attachments
+  attachBox.addEventListener('change', () => {
+    if (!attachBox.checked) return;
+    const room = attachRoom();
+    if (photos.length <= room) {
+      showPhotoProblem('');
+      return;
+    }
+    attachBox.checked = false;
+    showPhotoProblem(room > 0
+      ? `Only ${room} more ${room === 1 ? 'attachment fits' : 'attachments fit'} on this assignment (at most 10 in all). Remove a file under Attachments or a photo here, then tick it again.`
+      : 'This assignment already has 10 attachments, the most it can have. Remove a file under Attachments to attach these photos.');
+  });
   countInput.addEventListener('input', () => setFieldError(countField, ''));
   notesInput.addEventListener('input', () => setFieldError(notesField, ''));
   dctx.signal?.addEventListener('abort', stop, { once: true });
@@ -218,7 +263,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
           const [gone] = photos.splice(i, 1);
           URL.revokeObjectURL(gone.url);
           renderPhotos();
-          photoProblem.replaceChildren();
+          showPhotoProblem('');
           addBtn.focus();
         },
       }))));
@@ -229,7 +274,13 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     cameraBtn.disabled = photos.length >= MAX_PHOTOS;
   }
 
+  function showPhotoProblem(text) {
+    photoProblem.replaceChildren(text ? h('p', { class: 'field-error', role: 'alert' }, icon('warning-circle'), h('span', {}, text)) : '');
+  }
+
+  // Files chosen while others are still being shrunk wait their turn
   async function addPhotos(files) {
+    queue.push(...files);
     if (adding) return;
     adding = true;
     root.setAttribute('aria-busy', 'true');
@@ -238,7 +289,8 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     let tooMany = 0;
     let overBudget = '';
     try {
-      for (const file of files) {
+      while (queue.length && alive()) {
+        const file = queue.shift();
         if (!isImageFile(file)) { notImages.push(file.name || 'A file'); continue; }
         if (photos.length >= MAX_PHOTOS) { tooMany += 1; continue; }
         let shot = null;
@@ -255,16 +307,22 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
           overBudget = overBudgetText(photos, shot.chars);
           continue;
         }
+        // The drawer may have closed while it was shrunk: no link to free later
+        if (!alive()) break;
         photos.push({ ...shot, name: file.name, url: URL.createObjectURL(shot.blob) });
       }
     } finally {
       adding = false;
       root.removeAttribute('aria-busy');
     }
-    if (!alive()) return;
+    if (!alive()) {
+      // stop() ran while photos were being added: free every link, the late ones too
+      queue.length = 0;
+      for (const p of photos) URL.revokeObjectURL(p.url);
+      return;
+    }
     renderPhotos();
-    const text = photoProblems({ notImages, unreadable, tooMany, overBudget });
-    photoProblem.replaceChildren(text ? h('p', { class: 'field-error', role: 'alert' }, icon('warning-circle'), h('span', {}, text)) : '');
+    showPhotoProblem(photoProblems({ notImages, unreadable, tooMany, overBudget }));
   }
 
   // Context, shown before it is sent ----------------------------------------
@@ -312,6 +370,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     else draftBtn.removeAttribute('aria-busy');
     draftBtn.querySelector('.btn-label').textContent = on ? 'Drafting…' : 'Draft homework';
     statusBox.hidden = !on;
+    onBusy?.(on);
     clearInterval(tickTimer);
     tickTimer = null;
     if (on && active) {
@@ -348,7 +407,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     setFieldError(countField, checked.errors.count ?? '');
     setFieldError(notesField, checked.errors.notes ?? '');
     if (!photos.length) {
-      photoProblem.replaceChildren(h('p', { class: 'field-error', role: 'alert' }, icon('warning-circle'), h('span', {}, 'Add at least one photo of the lesson.')));
+      showPhotoProblem(adding ? 'Wait for the photos to finish adding.' : 'Add at least one photo of the lesson.');
       addBtn.focus();
       return;
     }
@@ -364,7 +423,8 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
       showError(res.body?.error || START_FAILED, { retry: false });
       return;
     }
-    active = { id: res.body.id, startedAt: Date.now() };
+    active = { id: res.body.id, studentId, startedAt: Date.now() };
+    elsewhere.hidden = true;
     recent = [{ id: res.body.id, student_id: studentId, status: 'drafting', options: { ...checked.values, photos: photos.length }, error: null, created_at: res.body.created_at ?? new Date().toISOString(), title: null }, ...recent.filter((r) => r.id !== res.body.id)];
     resultBar.hidden = true;
     announce(DRAFTING_TEXT);
@@ -382,12 +442,16 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     start();
   }
 
+  // Puts back what the fields held before the last fill; after a second
+  // fill that is the first draft, which stays (with its Discard)
   function discard() {
-    filled = false;
-    resultBar.hidden = true;
-    onDiscard?.();
-    announce('Draft discarded.');
-    draftBtn.focus();
+    const earlier = Boolean(onDiscard?.());
+    filled = earlier;
+    resultBar.hidden = !earlier;
+    noticeText.textContent = '';
+    noticeBox.hidden = true;
+    announce(earlier ? 'Draft discarded. The form has the earlier draft again.' : 'Draft discarded.');
+    (earlier ? resultBar.querySelector('[data-focus-key="hwd-discard"]') : draftBtn)?.focus();
   }
 
   function fill(result, { announceIt = true } = {}) {
@@ -399,8 +463,10 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     onFill?.(values);
     filled = true;
     resultBar.hidden = false;
+    noticeText.textContent = values.notice ?? '';
+    noticeBox.hidden = !values.notice;
     errorSlot.replaceChildren();
-    if (announceIt) announce(`Draft ready. ${READY_TEXT}`);
+    if (announceIt) announce(`Draft ready. ${values.notice ? `${values.notice} ` : ''}${READY_TEXT}`);
   }
 
   // The live region is filled a moment after it is cleared, so the same
@@ -410,10 +476,10 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     setTimeout(() => { if (status.isConnected) status.textContent = text; }, 50);
   }
 
-  // Polling: the active draft and any of the caller's drafts still drafting
+  // Polling: the active draft and any of the caller's drafts the server last
+  // reported as drafting (the server decides when one has run too long)
   function watched() {
-    const now = new Date();
-    const ids = new Set(recent.filter((r) => draftState(r, now) === 'drafting').map((r) => r.id));
+    const ids = new Set(recent.filter((r) => draftState(r) === 'drafting').map((r) => r.id));
     if (active) ids.add(active.id);
     return [...ids];
   }
@@ -425,25 +491,44 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     pollTimer = setTimeout(pollOnce, soon ? Math.min(POLL_MS, 2000) : POLL_MS);
   }
 
+  // Only a 404 means the draft is gone; anything else that is not a 200
+  // (offline, 400, 401, 403, 429, 5xx) is asked about again next time
   async function pollOnce() {
     pollTimer = null;
     for (const id of watched()) {
       if (!alive()) return;
       const res = await draftStatus(id);
       if (!alive()) return;
-      if (res.status === 0 || res.status >= 500) continue;   // offline or a hiccup: ask again next time
+      const outcome = pollOutcome(res.status);
+      if (outcome === 'retry') continue;
+      const next = outcome === 'apply' ? res.body : { status: 'failed', error: GONE_ERROR };
+      const status = draftState(next);
       const row = recent.find((r) => r.id === id);
-      const next = res.status === 200 ? res.body : { status: 'failed', error: 'This draft is no longer available.' };
-      if (row) Object.assign(row, { status: next.status, error: next.error ?? null, title: next.result?.title ?? row.title ?? null });
-      if (active?.id === id && next.status !== 'drafting') {
-        active = null;
-        setDrafting(false);
-        if (next.status === 'ready') fill(next.result);
-        else showError(next.error || 'The draft did not finish. Try again.');
-      }
+      if (row) Object.assign(row, { status, error: next.error ?? null, title: next.result?.title ?? row.title ?? null });
+      if (active?.id === id && status !== 'drafting') finish(active, status, next);
     }
     renderRecent();
     schedulePoll();
+  }
+
+  // The panel's own draft is done. It fills the form only while the form is
+  // still on the student it was drafted for; otherwise it waits in Recent drafts.
+  function finish(job, status, next) {
+    active = null;
+    setDrafting(false);
+    const here = getStudentId();
+    const sameStudent = job.studentId === null || job.studentId === undefined
+      ? !here
+      : here !== null && here !== undefined && String(here) === String(job.studentId);
+    if (status === 'ready' && !sameStudent) {
+      const text = elsewhereText(names.get(String(job.studentId)) ?? null);
+      elsewhere.lastChild.textContent = text;
+      elsewhere.hidden = false;
+      announce(text);
+      return;
+    }
+    if (status === 'ready') fill(next.result);
+    else showError(next.error || 'The draft did not finish. Try again.');
   }
 
   // Recent drafts -----------------------------------------------------------
@@ -479,7 +564,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     if (!active) {
       const again = activeDraft(recent, { studentId: getStudentId() });
       if (again) {
-        active = { id: again.id, startedAt: Date.parse(again.created_at) || Date.now() };
+        active = { id: again.id, studentId: again.student_id ?? null, startedAt: Date.parse(again.created_at) || Date.now() };
         announce(DRAFTING_TEXT);
         setDrafting(true);
       }
@@ -495,6 +580,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     if (!alive()) return;
     trigger.disabled = false;
     if (res.status === 200 && res.body.status === 'ready') {
+      elsewhere.hidden = true;
       fill(res.body.result);
       return;
     }
@@ -520,6 +606,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
       active = null;
       setDrafting(false);
     }
+    elsewhere.hidden = true;
     recent = recent.filter((r) => r.id !== row.id);
     renderRecent();
     announce('Draft deleted.');
@@ -531,7 +618,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
     const rows = recentDrafts(recent, { studentId: getStudentId(), now });
     recentBox.hidden = rows.length === 0;
     recentList.replaceChildren(...rows.map((row) => {
-      const state = draftState(row, now);
+      const state = draftState(row);
       const who = names.get(String(row.student_id)) ?? null;
       const title = state === 'ready' && row.title ? String(row.title)
         : state === 'drafting' ? 'New draft' : state === 'failed' ? 'No draft' : 'Draft';
@@ -542,7 +629,7 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
       const openBtn = state === 'ready'
         ? button({ label: 'Open', size: 'sm', ariaLabel: `Open the draft ${title}`, onClick: (e) => openDraft(row, e.currentTarget) })
         : null;
-      const why = state === 'failed' ? (row.status === 'failed' ? row.error : STALE_ERROR) : null;
+      const why = state === 'failed' ? row.error : null;
       return h('li', { class: 'hwd-recent-item' },
         h('span', { class: 'hwd-recent-main' },
           h('span', { class: 'hwd-recent-name' }, title),
@@ -566,6 +653,8 @@ export function draftPanel(dctx, { getStudentId = () => null, getContext = async
       return photos.map((p, i) => new File([p.blob], `Lesson photo ${i + 1}.jpg`, { type: 'image/jpeg' }));
     },
     photoCount: () => photos.length,
+    // How many photos will be attached (0 unless the box is ticked)
+    attachCount: () => (attachBox.checked ? photos.length : 0),
     // When the form opens: a draft for this student still drafting, or one
     // just finished, opens the panel by itself (the tutor left while it ran)
     async peek() {

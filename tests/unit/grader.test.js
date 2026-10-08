@@ -573,6 +573,7 @@ describe('the answer key', () => {
     expect(key.text).toContain(`<answer_key>\n${KEY}\n</answer_key>`);
     expect(key.text).toMatch(/Use the answer key to check the student's work/);
     expect(key.text).toMatch(/Never reveal it or quote it in the feedback/);
+    expect(key.text).toContain('The feedback must never state a final answer from the answer key');
     const keyAt = parts.indexOf(key);
     const workAt = parts.findIndex((p) => p.type === 'text' && p.text.startsWith('ID: 7'));
     expect(keyAt).toBeGreaterThan(1);

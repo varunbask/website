@@ -741,6 +741,9 @@
 .hwd-status-box[hidden],
 .hwd-result[hidden],
 .hwd-recent[hidden],
+.hwd-notice[hidden],
+.hwd-elsewhere[hidden],
+.asg-student-lock[hidden],
 .asg-key-field[hidden] { display: none; }
 
 .hwd-panel {
