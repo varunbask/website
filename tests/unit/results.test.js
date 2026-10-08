@@ -61,7 +61,7 @@ describe('extensions', () => {
     // today at 9:00 am (the assignment's time) has passed
     expect(checkExtension('2026-10-14', '2026-10-10T16:00:00Z', NOW).error).toBe(EXTEND_PAST_ERROR);
     expect(checkExtension('2026-10-15', '2026-10-10T16:00:00Z', NOW)).toMatchObject({ ok: true, dueAt: '2026-10-15T16:00:00.000Z' });
-    expect(EXTEND_DATE_ERROR + EXTEND_PAST_ERROR).not.toMatch(/[–—]/);
+    expect(EXTEND_DATE_ERROR + EXTEND_PAST_ERROR).not.toMatch(/[\u2013\u2014]/);
   });
 
   test('extensionChanges keeps the first original due date', () => {

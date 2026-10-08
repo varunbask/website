@@ -36,5 +36,5 @@ test('the header explains who may write the new columns', () => {
 });
 
 test('the migration has no em or en dashes', () => {
-  expect(sql).not.toMatch(/[–—]/);
+  expect(sql).not.toMatch(/[\u2013\u2014]/);
 });
