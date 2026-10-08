@@ -75,6 +75,40 @@ export function createRepo(db) {
       return new Uint8Array(await data.arrayBuffer());
     },
 
+    // The tutor's answer key for an assignment, or null (only staff and the grader read it)
+    async getAnswerKey(taskId) {
+      const row = check(await db.from('task_answer_keys').select('body').eq('task_id', taskId).maybeSingle(), 'getAnswerKey');
+      return row?.body ?? null;
+    },
+
+    // Homework drafts this person asked for at or after a time (the daily limit)
+    async countDraftsSince(userId, since) {
+      const { count, error } = await db.from('homework_drafts')
+        .select('id', { count: 'exact', head: true })
+        .eq('created_by', userId).gte('created_at', since.toISOString());
+      if (error) throw new Error(`countDraftsSince: ${error.message}`);
+      return count ?? 0;
+    },
+
+    async createDraft({ createdBy, studentId, options }) {
+      return check(await db.from('homework_drafts')
+        .insert({ created_by: createdBy, student_id: studentId ?? null, options })
+        .select('id, status, created_at').single(), 'createDraft');
+    },
+
+    // Only a draft still drafting is finished, so a late answer never overwrites a stale one
+    async finishDraft(id, { status, result, error, finishedAt }) {
+      check(await db.from('homework_drafts')
+        .update({ status, result, error, finished_at: finishedAt.toISOString() })
+        .eq('id', id).eq('status', 'drafting'), 'finishDraft');
+    },
+
+    async getDraft(id) {
+      return check(await db.from('homework_drafts')
+        .select('id, created_by, student_id, status, options, result, error, created_at, finished_at')
+        .eq('id', id).maybeSingle(), 'getDraft');
+    },
+
     async listOrphanFiles(before, limit) {
       return check(await db.rpc('orphan_homework_files', { p_before: before.toISOString(), p_limit: limit }), 'listOrphanFiles');
     },

@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "api/grade.js": {
-      "maxDuration": 120
+      "maxDuration": 300
     },
     "api/google/*.js": {
       "maxDuration": 60
