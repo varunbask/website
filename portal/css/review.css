@@ -435,25 +435,27 @@
 
 .rvw-form { display: flex; flex-direction: column; gap: var(--s-4); }
 
-.rvw-score {
-  position: relative;
+/* The result: fieldset.rvw-result-field > legend.field-label +
+   div.segmented.is-block.rvw-result > label > input[type=radio].visually-hidden + span,
+   then p.field-error. A 40px control at every size, so the three words stay readable. */
+.rvw-result-field {
   display: flex;
-  align-items: center;
-  width: 148px;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
-.input.rvw-score-input {
-  height: 44px;
-  padding-right: 60px;
-  font: 500 20px/28px var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-.rvw-score-max {
-  position: absolute;
-  right: 12px;
-  font: 400 14px/20px var(--font-mono);
-  color: var(--text-3);
-  pointer-events: none;
+.rvw-result-field > legend { float: left; width: 100%; padding: 0; }
+.rvw-result-field > legend + * { clear: both; }
+.segmented.rvw-result { height: 40px; }
+.rvw-result > label { font-size: 14px; }
+.rvw-result > label:has(> input[aria-invalid="true"]) { color: var(--danger-text); }
+.input.rvw-due-input { max-width: 240px; }
+@media (pointer: coarse), (max-width: 1023.98px) {
+  .segmented.rvw-result { height: 44px; }
+  .input.rvw-due-input { max-width: none; }
 }
 .rvw-feedback { min-height: 200px; font: var(--t-read); }
 
@@ -478,13 +480,16 @@
   border-radius: var(--r-md);
   background-color: var(--surface-2);
 }
+/* The released result: a pill a little larger than in lists, and the original due date */
 .rvw-figure {
   display: flex;
-  align-items: baseline;
-  gap: 2px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-1) var(--s-3);
 }
-.rvw-figure-score { font: var(--t-figure); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--text); }
-.rvw-figure-max { font: 500 15px/20px var(--font-mono); color: var(--text-3); }
+.rvw-figure > .pill { height: 28px; padding: 0 10px 0 8px; font-size: 14px; line-height: 20px; }
+.rvw-figure > .pill > .icon { width: 16px; height: 16px; }
+.rvw-figure-note { font: 400 13px/18px var(--font-ui); color: var(--text-3); }
 .rvw-released-feedback { color: var(--text); }
 .rvw-released-by { font: 400 13px/18px var(--font-ui); color: var(--text-3); }
 
@@ -511,7 +516,7 @@
 /* Editor skeleton */
 .rvw-sk-line { width: 60%; height: 14px; }
 .rvw-sk-line.is-short { width: 40%; height: 12px; }
-.rvw-sk-input { width: 148px; height: 44px; border-radius: var(--r-sm); }
+.rvw-sk-input { width: 100%; height: 40px; border-radius: var(--r-sm); }
 .rvw-sk-area { width: 100%; height: 200px; border-radius: var(--r-sm); }
 
 /* Phones: the two editor buttons sit in a bar pinned above the safe area

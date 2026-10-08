@@ -205,7 +205,7 @@ export function gradeEditor(sub, grade, {
 
   const dueInput = h('input', {
     type: 'date',
-    class: 'input asg-date rvw-due-input',
+    class: 'input rvw-due-input',
     name: 'due',
     min: todayKey(now),
     dataset: { focusKey: 'rvw-due' },

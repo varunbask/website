@@ -12,7 +12,9 @@
        and span.asg-due-full)
      div.asg-action-error               staff action errors (delete, mark done)
      section.drawer-section > h3 + ...  Instructions, Grade, Submit, Submissions
-     div.well.asg-grade > div.asg-grade-top (p.asg-score) + p.asg-feedback + div.asg-grade-foot
+     div.well.asg-grade > div.asg-grade-top (p.asg-result > span.pill, or the staff span.draft-chip)
+       + p.asg-feedback + div.asg-grade-foot
+     section.drawer-section > h3 ("Extend", staff) + form.asg-extend > div.field + div.asg-extend-actions
      section.asg-submit (+ .is-busy) > div.asg-progress + h3 + form.asg-submit-form
        label.asg-dropzone (+ .is-over) > input.visually-hidden + span.asg-drop-icon +
          span.asg-drop-title + span.asg-drop-hint
@@ -115,22 +117,9 @@
   flex-wrap: wrap;
   gap: var(--s-2) var(--s-3);
 }
-.asg-score {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 2px;
-}
-.asg-score-value {
-  font: var(--t-figure);
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-}
-.asg-score-max {
-  font: 500 15px/20px var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--text-3);
-}
+.asg-result { display: inline-flex; }
+.asg-result > .pill { height: 26px; padding: 0 10px 0 8px; font-size: 13px; line-height: 18px; }
+.asg-result > .pill > .icon { width: 16px; height: 16px; }
 .asg-feedback { color: var(--text); }
 .asg-grade-foot {
   display: flex;
@@ -145,6 +134,16 @@
   font: 400 13px/18px var(--font-ui);
   color: var(--text-3);
 }
+
+/* Drawer: Extend (staff). The date and its button sit side by side, wrapping on phones. */
+.asg-extend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--s-3);
+}
+.asg-extend > .field { flex: 1 1 240px; }
+.asg-extend-actions { display: flex; align-items: center; min-height: 40px; margin-top: 24px; }
 
 
 /* Drawer: submit ------------------------------------------------------------ */
