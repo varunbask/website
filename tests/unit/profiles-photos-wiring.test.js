@@ -44,7 +44,7 @@ describe('photos everywhere, signed in batches', () => {
   const surfaces = [
     'portal/js/shell.js', 'portal/js/views/people.js', 'portal/js/views/students.js', 'portal/js/views/overview.js',
     'portal/js/session-drawer.js', 'portal/js/views/review.js', 'portal/js/review-row.js', 'portal/js/views/today.js',
-    'portal/js/updates-feed.js', 'portal/js/student-profile-card.js', 'portal/js/profile-nudge.js',
+    'portal/js/updates-feed.js', 'portal/js/student-profile-card.js', 'portal/js/profile-nudge.js', 'portal/js/palette.js',
   ];
 
   test('every surface that shows a person draws them with personAvatar', () => {

@@ -3,7 +3,8 @@
 // these; palette.js shows them and runs their `target`.
 //
 // An item (see palette-model.js for the search fields) also carries:
-//   icon     an icons.js name, or avatar: a name to draw initials for
+//   icon     an icons.js name, or avatar: a name to draw initials for (with
+//            avatarId, the person whose photo shows when they have one)
 //   target   what Enter does:
 //              { href }                  router.go (a hash, ?student=..., a page)
 //              { drawer: { id, extra } } router.openDrawer: an assignment or task
@@ -158,6 +159,7 @@ export function childItems(children, currentId) {
     type: 'child',
     title: `Switch to ${displayName(c)}`,
     avatar: displayName(c),
+    avatarId: c.id,
     keywords: 'child change show',
     target: { switchTo: c.id },
     browse: true,
@@ -192,6 +194,7 @@ export function studentItems(students, { page = 'staff' } = {}) {
       title: name,
       meta: email && email !== name ? email : null,
       avatar: name,
+      avatarId: s.id,
       target: { href: `${base}?student=${encodeURIComponent(s.id)}#/overview` },
       weight: 2,
     };

@@ -21,7 +21,8 @@
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
-import { avatar, iconButton } from './ui.js';
+import { iconButton } from './ui.js';
+import { personAvatar } from './photos.js';
 import { menuIndex } from './overlays.js';
 import {
   rank, browse, group, remember, parseRecent, resolveRecent, prepareQuery,
@@ -205,7 +206,7 @@ export function mountPalette({ me, page, store, context, go, openDrawer, switchS
 
   function optionEl(item, position) {
     const lead = item.avatar
-      ? avatar(item.avatar, { size: 24 })
+      ? personAvatar(item.avatarId, item.avatar, { size: 24 })
       : h('span', { class: 'palette-glyph' }, icon(item.icon ?? 'magnifying-glass'));
     return h('div', {
       class: 'palette-option',

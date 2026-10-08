@@ -242,7 +242,8 @@ function photoCard(ctx, target, name, { onChange }) {
   }
 
   function showError(error) {
-    console.error(error);
+    // A picture that is too big or not a picture is the person's to fix, not a fault
+    if (!(error instanceof PhotoError)) console.error(error);
     const text = error instanceof PhotoError
       ? error.message
       : 'We couldn’t save the photo. Check your connection and try again.';
@@ -284,14 +285,15 @@ function photoCard(ctx, target, name, { onChange }) {
     errorSlot.replaceChildren();
     setWorking(true);
     status.textContent = PHOTO_STEPS.removing;
+    let removed = false;
     try {
       await removePhoto(person.id);
       if (!ctx.alive()) return;
+      removed = true;
       status.textContent = 'Photo removed.';
       paintPreview();
       paintButtons();
       onChange(null);
-      choose.focus();
     } catch (error) {
       if (!ctx.alive()) return;
       console.error(error);
@@ -300,6 +302,10 @@ function photoCard(ctx, target, name, { onChange }) {
     } finally {
       setWorking(false);
     }
+    // Remove photo is gone now: focus goes to Add a photo (enabled again); after
+    // a failure it goes back to Remove photo
+    if (removed && choose.isConnected) choose.focus();
+    else if (!removed && remove.isConnected) remove.focus();
   }
 
   return h('section', { class: 'card prf-photo-card', 'aria-labelledby': titleId },
