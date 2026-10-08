@@ -143,7 +143,17 @@ function readBody(req) {
 }
 
 // The static demo (no caching) and the two draft actions
-export function createServer({ root, jobs }) {
+// cspFor(pathname) returns the Content-Security-Policy to send for a page, or
+// null. With --csp-from <vercel.json> the demo sends the same policies the
+// live site does, so blob PDFs, frames and images behave as they will there.
+export function vercelCsp(config) {
+  const rules = (config?.headers ?? []).flatMap((h) => (h.headers ?? [])
+    .filter((x) => x.key === 'Content-Security-Policy')
+    .map((x) => ({ re: new RegExp(`^${h.source}$`), value: x.value })));
+  return (pathname) => rules.find((r) => r.re.test(pathname))?.value ?? null;
+}
+
+export function createServer({ root, jobs, cspFor = () => null }) {
   const base = resolve(root);
   const send = (res, status, body, type = 'application/json') => {
     res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
@@ -183,10 +193,12 @@ export function createServer({ root, jobs }) {
       } catch {
         return send(res, 404, 'Not found', 'text/plain');
       }
+      const csp = cspFor(url.pathname);
       res.writeHead(200, {
         'Content-Type': TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream',
         'Content-Length': info.size,
         'Cache-Control': 'no-store',
+        ...(csp ? { 'Content-Security-Policy': csp } : {}),
       });
       if (req.method === 'HEAD') return res.end();
       createReadStream(path).pipe(res);
@@ -200,20 +212,22 @@ export function createServer({ root, jobs }) {
 function main(argv) {
   const args = argv.slice(2);
   let envFile = null;
+  let cspFrom = null;
   const rest = [];
   for (let i = 0; i < args.length; i += 1) {
-    if (args[i] === '--env-file') { envFile = args[i + 1] ?? null; i += 1; } else rest.push(args[i]);
+    if (args[i] === '--env-file') { envFile = args[i + 1] ?? null; i += 1; } else if (args[i] === '--csp-from') { cspFrom = args[i + 1] ?? null; i += 1; } else rest.push(args[i]);
   }
   const [portArg, dirArg] = rest;
   const port = Number(portArg);
   if (!Number.isInteger(port) || port <= 0 || !dirArg) {
-    console.error('Usage: node tools/demo/serve-ai.mjs <port> <demo dir> [--env-file <path>]');
+    console.error('Usage: node tools/demo/serve-ai.mjs <port> <demo dir> [--env-file <path>] [--csp-from <vercel.json>]');
     process.exit(2);
   }
   const fileText = envFile ? readFileSync(envFile, 'utf8') : null;
   const env = modelEnv({ fileText });
   const jobs = createJobs({ env, log: (line) => console.log(line) });
-  const server = createServer({ root: dirArg, jobs });
+  const cspFor = cspFrom ? vercelCsp(JSON.parse(readFileSync(cspFrom, 'utf8'))) : undefined;
+  const server = createServer({ root: dirArg, jobs, cspFor });
   server.listen(port, '127.0.0.1', () => {
     const ready = env.LLM_ENDPOINT && env.LLM_KEY ? 'set' : 'NOT set (drafts will fail)';
     console.log(`demo with live drafts on http://127.0.0.1:${port}/portal/staff.html?as=tutor&ai=live#/today (model settings ${ready})`);
