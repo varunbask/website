@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   greeting, studentLede, parentSummary, parentTitle, weekCounts, dueNext, overdueItems, comingUp,
   openTasks, gradedItems, weekStrip, stripLabel, chipStyle, shortDay, firstLine, lastUpdateLabel,
-  scoreWindow, trendText, averageMetric, onTimeMetric, dueMetric, reviewEntries, isOpen,
+  completionWindow, completionMetric, onTimeMetric, dueMetric, reviewEntries, isOpen,
 } from '../../portal/js/overview-model.js';
 import { deriveItems } from '../../portal/js/buckets.js';
 import { zonedIso } from '../../portal/js/dates.js';
@@ -23,9 +23,8 @@ const task = (id, extra = {}) => ({
 const sub = (id, taskId, createdAt, status = 'ai_graded', grade = null) => ({
   id, task_id: taskId, student_id: 's1', status, error: null, created_at: createdAt, grade,
 });
-const released = (at, score = 90, feedback = 'Good work') => ({ score, feedback, reviewed_at: at, released_at: at });
+const released = (at, result = 'completed', feedback = 'Good work') => ({ result, feedback, reviewed_at: at, released_at: at });
 const items = (tasks, subs = [], audience = 'family') => deriveItems(tasks, subs, NOW, { audience });
-const grade = (score, at) => ({ score, released_at: at });
 
 describe('greeting', () => {
   test('uses the viewer local hour', () => {
@@ -46,14 +45,14 @@ describe('greeting', () => {
 });
 
 describe('studentLede', () => {
-  test('overdue and due', () => {
-    expect(studentLede({ overdue: 1, dueThisWeek: 2 })).toBe('1 assignment is overdue and 2 are due this week.');
-    expect(studentLede({ overdue: 2, dueThisWeek: 1 })).toBe('2 assignments are overdue and 1 is due this week.');
+  test('missing and due', () => {
+    expect(studentLede({ overdue: 1, dueThisWeek: 2 })).toBe('1 assignment is missing and 2 are due this week.');
+    expect(studentLede({ overdue: 2, dueThisWeek: 1 })).toBe('2 assignments are missing and 1 is due this week.');
   });
 
-  test('overdue only', () => {
-    expect(studentLede({ overdue: 1 })).toBe('1 assignment is overdue.');
-    expect(studentLede({ overdue: 2 })).toBe('2 assignments are overdue.');
+  test('missing only', () => {
+    expect(studentLede({ overdue: 1 })).toBe('1 assignment is missing.');
+    expect(studentLede({ overdue: 2 })).toBe('2 assignments are missing.');
   });
 
   test('due only', () => {
@@ -69,13 +68,16 @@ describe('studentLede', () => {
   test('adds the new grades sentence', () => {
     expect(studentLede({ newGrades: 1 })).toBe('Nothing is due this week. 1 new grade is ready.');
     expect(studentLede({ overdue: 1, dueThisWeek: 2, newGrades: 2 }))
-      .toBe('1 assignment is overdue and 2 are due this week. 2 new grades are ready.');
+      .toBe('1 assignment is missing and 2 are due this week. 2 new grades are ready.');
   });
 
   test('names tasks by kind when there are any', () => {
     expect(studentLede({ dueThisWeek: 2, overdueTasks: 1 })).toBe('1 task is overdue and 2 assignments are due this week.');
     expect(studentLede({ overdueTasks: 1 })).toBe('1 task is overdue.');
-    expect(studentLede({ overdue: 1, overdueTasks: 2 })).toBe('1 assignment and 2 tasks are overdue.');
+    expect(studentLede({ overdue: 1, overdueTasks: 2 })).toBe('1 assignment is missing and 2 tasks are overdue.');
+    expect(studentLede({ overdue: 1, overdueTasks: 1, dueThisWeek: 1 }))
+      .toBe('1 assignment is missing and 1 task is overdue. 1 assignment is due this week.');
+    expect(studentLede({ overdue: 2, tasksDueThisWeek: 1 })).toBe('2 assignments are missing and 1 task is due this week.');
     expect(studentLede({ dueThisWeek: 1, tasksDueThisWeek: 1 })).toBe('1 assignment and 1 task are due this week.');
     expect(studentLede({ dueThisWeek: 2, tasksDueThisWeek: 1, overdueTasks: 1 }))
       .toBe('1 task is overdue. 2 assignments and 1 task are due this week.');
@@ -84,10 +86,10 @@ describe('studentLede', () => {
 
 describe('parentSummary and parentTitle', () => {
   test('every template', () => {
-    expect(parentSummary('Maya', { dueThisWeek: 2, overdue: 1 })).toBe('Maya has 2 assignments due this week and 1 overdue.');
-    expect(parentSummary('Maya', { dueThisWeek: 1, overdue: 3 })).toBe('Maya has 1 assignment due this week and 3 overdue.');
-    expect(parentSummary('Maya', { overdue: 1 })).toBe('Maya has 1 overdue assignment.');
-    expect(parentSummary('Maya', { overdue: 2 })).toBe('Maya has 2 overdue assignments.');
+    expect(parentSummary('Maya', { dueThisWeek: 2, overdue: 1 })).toBe('Maya has 2 assignments due this week and 1 missing.');
+    expect(parentSummary('Maya', { dueThisWeek: 1, overdue: 3 })).toBe('Maya has 1 assignment due this week and 3 missing.');
+    expect(parentSummary('Maya', { overdue: 1 })).toBe('Maya has 1 missing assignment.');
+    expect(parentSummary('Maya', { overdue: 2 })).toBe('Maya has 2 missing assignments.');
     expect(parentSummary('Maya', { dueThisWeek: 2 })).toBe('Maya has 2 assignments due this week.');
     expect(parentSummary('Maya', { dueThisWeek: 1 })).toBe('Maya has 1 assignment due this week.');
     expect(parentSummary('Maya', {})).toBe('Maya is all caught up.');
@@ -98,9 +100,9 @@ describe('parentSummary and parentTitle', () => {
     expect(parentSummary('Maya', { overdueTasks: 2 })).toBe('Maya has 2 overdue tasks.');
     expect(parentSummary('Maya', { tasksDueThisWeek: 1 })).toBe('Maya has 1 task due this week.');
     expect(parentSummary('Maya', { dueThisWeek: 2, tasksDueThisWeek: 1, overdue: 1, overdueTasks: 1 }))
-      .toBe('Maya has 2 assignments and 1 task due this week, plus 1 overdue assignment and 1 overdue task.');
+      .toBe('Maya has 2 assignments and 1 task due this week, plus 1 missing assignment and 1 overdue task.');
     expect(parentSummary('Maya', { dueThisWeek: 2, overdue: 1, overdueTasks: 1 }))
-      .toBe('Maya has 2 assignments due this week, 1 overdue assignment and 1 overdue task.');
+      .toBe('Maya has 2 assignments due this week, 1 missing assignment and 1 overdue task.');
   });
 
   test('title uses a curly apostrophe', () => {
@@ -210,11 +212,12 @@ describe('lists', () => {
     expect(openTasks(list, 1).map((i) => i.task.id)).toEqual([2]);
   });
 
-  test('gradedItems: newest release first, drafts never count', () => {
-    const staffList = items([task(1), task(2), task(3)], [
-      sub(10, 1, ago(10 * DAY), 'ai_graded', released(ago(9 * DAY), 80)),
-      sub(20, 2, ago(3 * DAY), 'ai_graded', released(ago(2 * DAY), 95)),
-      sub(30, 3, ago(DAY), 'ai_graded', { score: 70, feedback: 'x', reviewed_at: null, released_at: null }),
+  test('gradedItems: newest release first; drafts and extensions never count', () => {
+    const staffList = items([task(1), task(2), task(3), task(4, { due_at: ahead(3 * DAY) })], [
+      sub(10, 1, ago(10 * DAY), 'ai_graded', released(ago(9 * DAY), 'missing')),
+      sub(20, 2, ago(3 * DAY), 'ai_graded', released(ago(2 * DAY), 'completed')),
+      sub(30, 3, ago(DAY), 'ai_graded', { result: 'completed', feedback: 'x', reviewed_at: null, released_at: null }),
+      sub(40, 4, ago(DAY), 'ai_graded', released(ago(HOUR), 'extended')),
     ], 'staff');
     expect(gradedItems(staffList).map((i) => i.task.id)).toEqual([2, 1]);
   });
@@ -254,7 +257,7 @@ describe('weekStrip', () => {
       task(2, { kind: 'task', title: 'Read chapter 3', due_at: dueOn('2026-10-14'), completed_at: ago(HOUR) }),
     ]);
     const [today, tomorrow] = weekStrip(list, '2026-10-14');
-    expect(stripLabel(today)).toBe('Wednesday, October 14, today. 2 items: Algebra worksheet, overdue; Read chapter 3, done');
+    expect(stripLabel(today)).toBe('Wednesday, October 14, today. 2 items: Algebra worksheet, missing; Read chapter 3, done');
     expect(stripLabel(tomorrow)).toBe('Thursday, October 15. Nothing due.');
   });
 });
@@ -281,6 +284,23 @@ describe('chipStyle', () => {
       { variant: 'graded', icon: 'check-circle' },
       { variant: 'done', icon: 'check-square' },
       { variant: 'open', icon: 'check-square' },
+    ]);
+  });
+
+  test('results: Completed graded, Missing danger, Extended like due soon', () => {
+    const list = items([
+      task(1, { due_at: ahead(DAY) }),
+      task(2, { due_at: ahead(DAY) }),
+      task(3, { due_at: ahead(5 * DAY), extended_from: ago(DAY) }),
+    ], [
+      sub(10, 1, ago(DAY), 'ai_graded', released(ago(HOUR), 'completed')),
+      sub(20, 2, ago(DAY), 'ai_graded', released(ago(HOUR), 'missing')),
+      sub(30, 3, ago(DAY), 'ai_graded', released(ago(HOUR), 'extended')),
+    ]);
+    expect(list.map((i) => chipStyle(i))).toEqual([
+      { variant: 'graded', icon: 'check-circle' },
+      { variant: 'attention', icon: 'minus-circle' },
+      { variant: 'soon', icon: 'clock' },
     ]);
   });
 });
@@ -311,71 +331,50 @@ describe('text helpers', () => {
   });
 });
 
-describe('scoreWindow', () => {
-  test('averages the last 30 days and compares with the 30 before', () => {
-    const w = scoreWindow([
-      grade(90, ago(DAY)),
-      grade(81, ago(29 * DAY)),
-      grade(80, ago(31 * DAY)),
-      grade(70, ago(59 * DAY)),
-      grade(10, ago(61 * DAY)),
-    ], NOW);
-    expect(w).toEqual({ avg: 86, prevAvg: 75, delta: 11, count: 2, total: 5, lastAt: ago(DAY) });
+describe('completionWindow', () => {
+  const t = (id, extra = {}) => task(id, { due_at: ago(40 * DAY), ...extra });
+  const s = (id, at, result) => sub(id, id, ago(41 * DAY), 'ai_graded', released(at, result));
+
+  test('results decided in the last 30 days: released ones, and work never handed in', () => {
+    const tasks = [t(1), t(2), t(3), t(4, { due_at: ago(2 * DAY) }), t(5), t(6, { due_at: ahead(DAY) })];
+    const subs = [s(1, ago(DAY), 'completed'), s(2, ago(29 * DAY), 'missing'), s(3, ago(31 * DAY), 'completed')];
+    // 1 completed, 2 missing (released), 4 missing (never handed in, due 2 days ago);
+    // 3 released 31 days ago and 5 due 40 days ago fall outside; 6 is not due yet
+    expect(completionWindow(tasks, subs, NOW)).toEqual({ completed: 1, missing: 2, total: 3, rate: 1 / 3, extended: 0 });
   });
 
-  test('window edges: exactly 30 days is current, exactly 60 is previous', () => {
-    const w = scoreWindow([grade(80, ago(30 * DAY)), grade(60, ago(60 * DAY))], NOW);
-    expect(w.avg).toBe(80);
-    expect(w.prevAvg).toBe(60);
-    const past = scoreWindow([grade(80, ago(30 * DAY + 1)), grade(60, ago(60 * DAY + 1))], NOW);
-    expect(past.avg).toBeNull();
-    expect(past.prevAvg).toBe(80);
+  test('window edges: exactly 30 days is in, a moment more is out', () => {
+    expect(completionWindow([t(1)], [s(1, ago(30 * DAY), 'completed')], NOW).completed).toBe(1);
+    expect(completionWindow([t(1)], [s(1, ago(30 * DAY + 1), 'completed')], NOW).completed).toBe(0);
   });
 
   test('a release stamped a moment in the future still counts', () => {
-    expect(scoreWindow([grade(88, ahead(2000))], NOW).avg).toBe(88);
+    expect(completionWindow([t(1)], [s(1, ahead(2000), 'completed')], NOW).completed).toBe(1);
   });
 
-  test('only released numeric scores count', () => {
-    const w = scoreWindow([
-      { score: 100, released_at: null },
-      { score: null, released_at: ago(DAY) },
-      { score: '72', released_at: ago(DAY) },
-    ], NOW);
-    expect(w).toMatchObject({ avg: 72, count: 1, total: 1 });
-  });
-
-  test('no previous window gives no delta; no grades gives nulls', () => {
-    expect(scoreWindow([grade(90, ago(DAY))], NOW)).toMatchObject({ prevAvg: null, delta: null, count: 1 });
-    expect(scoreWindow([], NOW)).toEqual({ avg: null, prevAvg: null, delta: null, count: 0, total: 0, lastAt: null });
-  });
-
-  test('delta compares the rounded averages', () => {
-    const w = scoreWindow([grade(85.4, ago(DAY)), grade(84.6, ago(40 * DAY))], NOW);
-    expect(w).toMatchObject({ avg: 85, prevAvg: 85, delta: 0 });
+  test('drafts never count; extensions are counted apart', () => {
+    const tasks = [t(1), t(2, { due_at: ahead(2 * DAY) })];
+    const subs = [
+      sub(1, 1, ago(DAY), 'ai_graded', { result: 'completed', feedback: 'x', reviewed_at: null, released_at: null }),
+      sub(2, 2, ago(DAY), 'ai_graded', released(ago(HOUR), 'extended')),
+    ];
+    expect(completionWindow(tasks, subs, NOW)).toEqual({ completed: 0, missing: 0, total: 0, rate: null, extended: 1 });
   });
 });
 
 describe('metrics', () => {
-  test('trendText', () => {
-    expect(trendText(4)).toBe('Up 4 from the 30 days before');
-    expect(trendText(-3)).toBe('Down 3 from the 30 days before');
-    expect(trendText(0)).toBe('Same as the 30 days before');
-  });
-
-  test('averageMetric states', () => {
-    expect(averageMetric([], NOW)).toMatchObject({ value: 'No grades yet', isText: true, line: null });
-    expect(averageMetric([grade(90, '2026-09-02T19:00:00Z')], NOW))
-      .toMatchObject({ value: 'None this month', isText: true, line: 'Last grade Sep 2' });
-    expect(averageMetric([grade(90, ago(DAY)), grade(86, ago(40 * DAY))], NOW))
-      .toMatchObject({ value: '90', isText: false, line: 'Up 4 from the 30 days before', trend: 'up' });
-    expect(averageMetric([grade(83, ago(DAY)), grade(86, ago(40 * DAY))], NOW))
-      .toMatchObject({ value: '83', line: 'Down 3 from the 30 days before', trend: 'down' });
-    expect(averageMetric([grade(86, ago(DAY)), grade(86, ago(40 * DAY))], NOW))
-      .toMatchObject({ line: 'Same as the 30 days before', trend: null });
-    expect(averageMetric([grade(90, ago(DAY)), grade(80, ago(2 * DAY)), grade(70, ago(3 * DAY))], NOW))
-      .toMatchObject({ value: '80', line: 'Based on 3 grades' });
-    expect(averageMetric([grade(90, ago(DAY))], NOW)).toMatchObject({ line: 'Based on 1 grade' });
+  test('completionMetric states', () => {
+    const t = (id, extra = {}) => task(id, { due_at: ago(40 * DAY), ...extra });
+    const s = (id, at, result) => sub(id, id, ago(41 * DAY), 'ai_graded', released(at, result));
+    expect(completionMetric([], [], NOW)).toMatchObject({ value: 'No results yet', isText: true, line: null });
+    expect(completionMetric([t(1, { due_at: ahead(DAY), extended_from: ago(DAY) })], [], NOW))
+      .toMatchObject({ value: 'No results yet', line: '1 extended' });
+    expect(completionMetric([t(1)], [s(1, ago(45 * DAY), 'completed')], NOW))
+      .toMatchObject({ value: 'None this month', isText: true, line: 'Nothing missing' });
+    expect(completionMetric([t(1), t(2), t(3)], [s(1, ago(DAY), 'completed'), s(2, ago(2 * DAY), 'completed'), s(3, ago(DAY), 'missing')], NOW))
+      .toMatchObject({ value: '2', suffix: 'of 3', isText: false, line: '1 missing', danger: false });
+    expect(completionMetric([t(1), t(2, { due_at: ahead(DAY) })], [s(1, ago(DAY), 'completed'), s(2, ago(HOUR), 'extended')], NOW))
+      .toMatchObject({ value: '1', suffix: 'of 1', line: 'Nothing missing, 1 extended' });
   });
 
   test('onTimeMetric', () => {

@@ -96,12 +96,12 @@ describe('rowAside', () => {
     expect(rowAside(fresh, NOW).text).toBe('Submitted just now');
   });
   test('graded work shows the release date, in each audience’s words', () => {
-    const subs = [{ status: 'ai_graded', created_at: daysAgo(3), grade: { score: 86, reviewed_at: daysAgo(1), released_at: daysAgo(1) } }];
+    const subs = [{ status: 'ai_graded', created_at: daysAgo(3), grade: { result: 'completed', reviewed_at: daysAgo(1), released_at: daysAgo(1) } }];
     const family = rowAside(itemFor({ due_at: daysAgo(4) }, subs), NOW);
     expect(family.text).toBe('Graded Oct 13');
     expect(family.label).toBe('Graded Oct 13');
     expect(family.full).toMatch(/^Graded October 13, 2026 at /);
-    // Staff rows show a "Released" pill beside the score, so the column is the bare date
+    // Staff rows show the bare date beside the result pill
     const staff = rowAside(itemFor({ due_at: daysAgo(4) }, subs, 'staff'), NOW, { audience: 'staff' });
     expect(staff.text).toBe('Oct 13');
     expect(staff.label).toBe('Released Oct 13');
@@ -120,12 +120,20 @@ describe('rowAside', () => {
 });
 
 describe('rowMeta', () => {
-  test('resubmissions show the attempt and the previous released score', () => {
+  test('resubmissions show the attempt and the previous released result', () => {
     const subs = [
       { status: 'pending', created_at: minutesAgo(5) },
-      { status: 'ai_graded', created_at: daysAgo(9), grade: { score: 86, reviewed_at: daysAgo(8), released_at: daysAgo(8) } },
+      { status: 'ai_graded', created_at: daysAgo(9), grade: { result: 'missing', reviewed_at: daysAgo(8), released_at: daysAgo(8) } },
     ];
-    expect(rowMeta(itemFor({ due_at: daysAgo(10) }, subs))).toEqual(['Attempt 2 of 5', 'Previous score 86']);
+    expect(rowMeta(itemFor({ due_at: daysAgo(10) }, subs))).toEqual(['Attempt 2 of 5', 'Previous result Missing']);
+    const extended = [subs[0], { ...subs[1], grade: { ...subs[1].grade, result: 'extended' } }];
+    expect(rowMeta(itemFor({ due_at: daysAgo(10) }, extended))).toEqual(['Attempt 2 of 5', 'Previous result Extended']);
+  });
+  test('an extended assignment shows its new due date in the date column', () => {
+    const subs = [{ status: 'ai_graded', created_at: daysAgo(3), grade: { result: 'extended', reviewed_at: daysAgo(1), released_at: daysAgo(1) } }];
+    const item = itemFor({ due_at: '2026-10-18T06:59:00.000Z', extended_from: daysAgo(2) }, subs);
+    expect(item.bucket).toBe('todo');
+    expect(rowAside(item, NOW).text).toMatch(/^Due /);
   });
   test('student name and kind when asked', () => {
     const item = itemFor({ kind: 'task', due_at: null });

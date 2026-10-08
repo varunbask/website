@@ -6,6 +6,7 @@ import { one, byDue } from './format.js';
 import { staffStatus } from './labels.js';
 import { MAX_SUBMISSIONS, sortSubs } from './buckets.js';
 import { todayKey, dayKey, addDays, businessTime, parseKey, viewerIsInBusinessZone } from './dates.js';
+import { RESULTS, checkExtension } from './results.js';
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -201,31 +202,40 @@ export function subsByTask(subs) {
 }
 
 // ---------------------------------------------------------------------------
-// Grade editor validation (preserved from the old tutor view)
+// Grade editor validation
 
-export const SCORE_ERROR = 'Enter a score from 0 to 100.';
-export const FEEDBACK_ERROR = 'Write feedback before releasing.';
-export const EMPTY_DRAFT_ERROR = 'Enter a score or feedback before you save.';
+export const RESULT_ERROR = 'Choose Completed, Missing or Extended.';
+export const EMPTY_DRAFT_ERROR = 'Choose a result or write feedback before you save.';
 
-// Raw form strings -> { ok, values: { score, feedback }, errors: { score?, feedback? } }.
-// A draft may leave one field blank, but not both. A saved draft marks the grade
-// as reviewed, and the grader does not write over a reviewed grade.
-// Releasing (or saving a released grade) needs a score from 0 to 100 and feedback.
-export function validateGrade({ score, feedback } = {}, { release = false } = {}) {
-  const raw = String(score ?? '').trim();
+// Raw form values -> { ok, values: { result, feedback }, dueAt, errors: { result?, dueDate? } }.
+// A draft may leave one of result and feedback blank, but not both. A saved
+// draft marks the grade as reviewed, and the grader does not write over a
+// reviewed grade. Releasing (or saving a released grade) needs a result;
+// feedback is optional. Extended also needs a new due date whose due time
+// (the assignment's time of day, see results.js) is still ahead: dueAt is then
+// the new due_at, else null. With keepDate, the assignment's current due day
+// is accepted as it is (a released Extended whose date is not being changed).
+//   options: release, dueAt (the assignment's due_at now), now, keepDate
+export function validateGrade({ result, feedback, dueDate } = {}, {
+  release = false, dueAt = null, now = new Date(), keepDate = false,
+} = {}) {
+  const picked = RESULTS.includes(result) ? result : null;
   const text = String(feedback ?? '').trim();
-  // Plain decimals only, to two places (the column is numeric(5,2)): "1e1" and
-  // "0x10" are not scores, and 85.555 would be stored as 85.56
-  const plain = /^\d{1,3}(\.\d{1,2})?$/.test(raw);
-  const value = raw === '' ? null : (plain ? Number(raw) : NaN);
-  const bad = value !== null && (!Number.isFinite(value) || value < 0 || value > 100);
+  const day = String(dueDate ?? '').trim();
   const errors = {};
-  if (bad || (release && value === null)) errors.score = SCORE_ERROR;
-  if (release && !text) errors.feedback = FEEDBACK_ERROR;
-  if (!release && raw === '' && !text) errors.score = EMPTY_DRAFT_ERROR;
+  let newDue = null;
+  if (release && !picked) errors.result = RESULT_ERROR;
+  if (!release && !picked && !text) errors.result = EMPTY_DRAFT_ERROR;
+  const unchanged = keepDate && dueAt && day === dayKey(dueAt);
+  if (release && picked === 'extended' && !unchanged) {
+    const check = checkExtension(day, dueAt, now);
+    if (check.ok) newDue = check.dueAt;
+    else errors.dueDate = check.error;
+  }
   return {
     ok: Object.keys(errors).length === 0,
-    values: { score: bad ? null : value, feedback: text || null },
+    values: { result: picked, feedback: text || null },
+    dueAt: newDue,
     errors,
   };
 }

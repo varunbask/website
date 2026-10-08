@@ -23,7 +23,7 @@ const due = (key, time = '23:59') => zonedIso(key, time);
 const sub = (id, taskId, extra = {}) => ({
   id, task_id: taskId, student_id: 's1', status: 'pending', error: null, created_at: ago(HOUR), grade: null, ...extra,
 });
-const released = (score = 90, at = ago(DAY)) => ({ score, feedback: 'ok', reviewed_at: at, released_at: at });
+const released = (result = 'completed', at = ago(DAY)) => ({ result, feedback: 'ok', reviewed_at: at, released_at: at });
 
 const items = (tasks, subs = [], audience = 'family') => deriveItems(tasks, subs, NOW, { audience });
 const item = (t, subs = [], audience = 'family') => items([t], subs, audience)[0];
@@ -304,18 +304,30 @@ describe('chipKind and dotsFor', () => {
     expect(chipKind(item(missed), 'family')).toEqual({ kind: 'missed', icon: 'minus-circle' });
   });
 
+  test('results: Completed graded, a released Missing missed, Extended like due soon', () => {
+    const t = task(1, { due_at: past });
+    const graded = (result) => [sub(9, 1, { status: 'ai_graded', grade: released(result) })];
+    for (const audience of ['family', 'staff']) {
+      expect(chipKind(item(t, graded('completed'), audience), audience)).toEqual({ kind: 'graded', icon: 'check-circle' });
+      expect(chipKind(item(t, graded('missing'), audience), audience)).toEqual({ kind: 'missed', icon: 'minus-circle' });
+      const extended = task(1, { due_at: due('2026-10-18'), extended_from: past });
+      expect(chipKind(item(extended, graded('extended'), audience), audience)).toEqual({ kind: 'soon', icon: 'clock' });
+    }
+  });
+
   test('in review: families see submitted; staff see drafts and failures', () => {
     const t = task(1, { due_at: past });
-    const draftSub = sub(9, 1, { status: 'ai_graded', grade: { score: 80, feedback: 'x', reviewed_at: null, released_at: null } });
+    const draftSub = sub(9, 1, { status: 'ai_graded', grade: { result: 'completed', feedback: 'x', reviewed_at: null, released_at: null } });
     const failed = sub(9, 1, { status: 'failed', error: 'Unreadable' });
     const pending = sub(9, 1, { status: 'pending' });
     expect(chipKind(item(t, [pending]), 'family')).toEqual({ kind: 'submitted', icon: 'hourglass-medium' });
     expect(chipKind(item(t, [draftSub]), 'family')).toEqual({ kind: 'submitted', icon: 'hourglass-medium' });
     expect(chipKind(item(t, [draftSub], 'staff'), 'staff')).toEqual({ kind: 'draft', icon: 'pencil-simple-line' });
-    const editedSub = sub(9, 1, { status: 'ai_graded', grade: { score: 80, feedback: 'x', reviewed_at: ago(HOUR), released_at: null } });
+    const editedSub = sub(9, 1, { status: 'ai_graded', grade: { result: 'missing', feedback: 'x', reviewed_at: ago(HOUR), released_at: null } });
     expect(chipKind(item(t, [editedSub], 'staff'), 'staff')).toEqual({ kind: 'draft', icon: 'pencil-simple-line' });
     expect(chipKind(item(t, [failed], 'staff'), 'staff')).toEqual({ kind: 'failed', icon: 'x-circle' });
-    expect(chipKind(item(t, [failed]), 'family')).toEqual({ kind: 'failed', icon: 'x-circle' });
+    // families never hear that grading failed: it is submitted work, waiting
+    expect(chipKind(item(t, [failed]), 'family')).toEqual({ kind: 'submitted', icon: 'hourglass-medium' });
     expect(chipKind(item(t, [pending], 'staff'), 'staff')).toEqual({ kind: 'submitted', icon: 'hourglass-medium' });
   });
 
@@ -340,7 +352,7 @@ describe('dayLabel', () => {
       task(2, { title: 'Read chapter 3', kind: 'task', due_at: due('2026-10-14'), completed_at: ago(HOUR) }),
     ]);
     expect(dayLabel(TODAY, list, TODAY, 'family'))
-      .toBe('Wednesday, October 14, today. 2 items: Algebra worksheet, overdue; Read chapter 3, done');
+      .toBe('Wednesday, October 14, today. 2 items: Algebra worksheet, missing; Read chapter 3, done');
   });
 
   test('an empty day', () => {
@@ -351,7 +363,7 @@ describe('dayLabel', () => {
   test('one item, another year, staff wording and student names', () => {
     const t = task(1, { title: 'Essay', due_at: due('2027-01-05') });
     expect(dayLabel('2027-01-05', [item(t)], TODAY, 'family')).toBe('Tuesday, January 5, 2027. 1 item: Essay, to do');
-    const draftSub = sub(9, 1, { status: 'ai_graded', grade: { score: 80, feedback: 'x', reviewed_at: null, released_at: null } });
+    const draftSub = sub(9, 1, { status: 'ai_graded', grade: { result: 'completed', feedback: 'x', reviewed_at: null, released_at: null } });
     const staffItem = { ...item(task(1, { title: 'Essay', due_at: due('2026-10-10') }), [draftSub], 'staff'), studentName: 'Maya Chen' };
     expect(dayLabel('2026-10-10', [staffItem], TODAY, 'staff')).toBe('Saturday, October 10. 1 item: Essay for Maya Chen, AI draft');
     const famItem = item(task(1, { title: 'Essay', due_at: due('2026-10-10') }), [draftSub]);

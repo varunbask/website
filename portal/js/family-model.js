@@ -13,6 +13,7 @@ import {
 import { nextSessionOf, nextSessionParts } from './schedule-summary.js';
 import { overdueItems, gradedItems } from './overview-model.js';
 import { displayName, firstName } from './format.js';
+import { resultOf, resultLabel } from './results.js';
 
 export const RECENT_LIMIT = 3;
 export const RECAP_PREVIEW_CHARS = 280;
@@ -130,7 +131,8 @@ export function childHref(id) {
 // the rest still shows.
 //   { id, name, first, hasWork, hasSchedule, next, overdue, grade }
 //   next   { id, subject, day, time, text, today, tomorrow } for the next session, or null
-//   grade  { score, title, releasedAt } for the newest released grade, or null
+//   grade  { result, title, releasedAt } for the newest released result
+//          (Completed or Missing), or null
 export function childSummary({ child, items = null, sessions = null, now = new Date(), viewerInZone } = {}) {
   const name = displayName(child);
   const today = todayKey(now);
@@ -149,7 +151,7 @@ export function childSummary({ child, items = null, sessions = null, now = new D
     const newest = gradedItems(items)[0];
     if (newest) {
       out.grade = {
-        score: Number(newest.grade.score),
+        result: resultOf(newest.grade),
         title: newest.task.title || 'Untitled',
         releasedAt: newest.grade.released_at,
       };
@@ -188,7 +190,7 @@ export function childLines(summary) {
     : null;
   const grade = summary.hasWork
     ? {
-      text: summary.grade ? `Latest grade ${summary.grade.score}, ${summary.grade.title}` : 'No grades yet',
+      text: summary.grade ? `Latest: ${summary.grade.title}, ${resultLabel(summary.grade.result)}` : 'No grades yet',
       tone: null,
     }
     : null;
@@ -198,7 +200,7 @@ export function childLines(summary) {
     summary.hasWork
       ? (summary.overdue > 0 ? counted(summary.overdue, 'overdue item', 'overdue items') : 'nothing overdue')
       : 'work unavailable',
-    summary.hasWork && summary.grade ? `latest grade ${summary.grade.score} out of 100, ${summary.grade.title}` : null,
+    summary.hasWork && summary.grade ? `latest grade ${summary.grade.title}, ${resultLabel(summary.grade.result)}` : null,
   ];
   return { next, overdue, grade, label: spoken.filter(Boolean).join(', ') };
 }

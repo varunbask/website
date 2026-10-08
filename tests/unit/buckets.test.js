@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import {
   ARCHIVE_GRADED_AFTER_DAYS, ARCHIVE_MISSED_AFTER_DAYS, DUE_SOON_HOURS, MAX_SUBMISSIONS,
   DONE_RECENT_DAYS, GRADED_RECENT_DAYS,
-  sortSubs, bucketOf, archiveReason, dueState, deriveItems, groupTodo, groupInReviewStaff,
+  sortSubs, bucketOf, archiveReason, dueState, isExtended, deriveItems, groupTodo, groupInReviewStaff,
   inReviewFamily, groupGraded, groupArchived, groupTasks, navCounts,
 } from '../../portal/js/buckets.js';
 
@@ -21,9 +21,9 @@ const task = (id, extra = {}) => ({
 const sub = (id, taskId, createdAt, status = 'ai_graded', grade = null, extra = {}) => ({
   id, task_id: taskId, student_id: 's1', status, error: null, created_at: createdAt, grade, ...extra,
 });
-const draft = (score = 80) => ({ score, feedback: 'ok', reviewed_at: null, released_at: null });
-const edited = (score = 80) => ({ score, feedback: 'ok', reviewed_at: ago(HOUR), released_at: null });
-const released = (at, score = 90) => ({ score, feedback: 'ok', reviewed_at: at, released_at: at });
+const draft = (result = 'completed') => ({ result, feedback: 'ok', reviewed_at: null, released_at: null });
+const edited = (result = 'completed') => ({ result, feedback: 'ok', reviewed_at: ago(HOUR), released_at: null });
+const released = (at, result = 'completed') => ({ result, feedback: 'ok', reviewed_at: at, released_at: at });
 
 const one = (t, subs = [], opts = { audience: 'staff' }) => deriveItems([t], subs, NOW, opts)[0];
 
@@ -84,12 +84,12 @@ describe('bucketOf and archiveReason', () => {
 
   test('a resubmission after a release goes back to in review', () => {
     const subs = [
-      sub(1, 1, ago(10 * DAY), 'ai_graded', released(ago(9 * DAY), 86)),
+      sub(1, 1, ago(10 * DAY), 'ai_graded', released(ago(9 * DAY), 'missing')),
       sub(2, 1, ago(HOUR), 'pending'),
     ];
     expect(bucketOf(task(1), subs, NOW)).toBe('in-review');
     const item = one(task(1), subs);
-    expect(item.previousScore).toBe(86);
+    expect(item.previousResult).toBe('missing');
     expect(item.latest.id).toBe(2);
     expect(item.grade).toBeNull();
   });
@@ -102,6 +102,72 @@ describe('bucketOf and archiveReason', () => {
 
   test('tasks have their own bucket', () => {
     expect(bucketOf(task(1, { kind: 'task' }), [], NOW)).toBe('task');
+  });
+});
+
+describe('results: Completed, Missing and Extended', () => {
+  test('a released Completed or Missing is graded', () => {
+    expect(bucketOf(task(1), [sub(1, 1, ago(DAY), 'ai_graded', released(ago(HOUR), 'completed'))], NOW)).toBe('graded');
+    expect(bucketOf(task(1), [sub(1, 1, ago(DAY), 'ai_graded', released(ago(HOUR), 'missing'))], NOW)).toBe('graded');
+  });
+
+  test('a released Extended goes back to To do, due on the new date', () => {
+    const t = task(1, { due_at: ahead(3 * DAY), extended_from: ago(2 * DAY) });
+    const subs = [sub(1, 1, ago(3 * DAY), 'ai_graded', released(ago(DAY), 'extended'))];
+    expect(bucketOf(t, subs, NOW)).toBe('todo');
+    expect(dueState(t, subs, NOW)).toBe('upcoming');
+    expect(isExtended(t, subs)).toBe(true);
+    const item = one(t, subs, { audience: 'family' });
+    expect(item).toMatchObject({ bucket: 'todo', dueState: 'upcoming', extended: true, attempts: 1 });
+    expect(item.grade.result).toBe('extended');
+    expect(dueState({ ...t, due_at: ahead(HOUR) }, subs, NOW)).toBe('soon');
+  });
+
+  test('an extension that runs out is overdue (Missing), then archived 30 days on', () => {
+    const subs = [sub(1, 1, ago(10 * DAY), 'ai_graded', released(ago(9 * DAY), 'extended'))];
+    expect(dueState(task(1, { due_at: ago(HOUR) }), subs, NOW)).toBe('overdue');
+    expect(bucketOf(task(1, { due_at: ago(HOUR) }), subs, NOW)).toBe('todo');
+    expect(bucketOf(task(1, { due_at: ago(31 * DAY) }), subs, NOW)).toBe('archived');
+    expect(archiveReason(task(1, { due_at: ago(31 * DAY) }), subs, NOW)).toBe('missed');
+  });
+
+  test('the student hands in again: in review as usual, and no longer extended', () => {
+    const t = task(1, { due_at: ahead(3 * DAY), extended_from: ago(2 * DAY) });
+    const subs = [
+      sub(1, 1, ago(3 * DAY), 'ai_graded', released(ago(DAY), 'extended')),
+      sub(2, 1, ago(HOUR), 'pending'),
+    ];
+    expect(bucketOf(t, subs, NOW)).toBe('in-review');
+    expect(dueState(t, subs, NOW)).toBe('done');
+    expect(isExtended(t, subs)).toBe(false);
+    const item = one(t, subs, { audience: 'family' });
+    expect(item.previousResult).toBe('extended');
+    expect(item.canSubmit).toBe(false);
+    expect(one(t, subs, { audience: 'family', canSubmit: true }).canSubmit).toBe(true);
+  });
+
+  test('a drafted Extended is still in review: only a release opens it again', () => {
+    const subs = [sub(1, 1, ago(DAY), 'ai_graded', edited('extended'))];
+    expect(bucketOf(task(1, { due_at: ago(HOUR) }), subs, NOW)).toBe('in-review');
+    expect(isExtended(task(1), subs)).toBe(false);
+  });
+
+  test('staff extended the due date before anything came in', () => {
+    const t = task(1, { due_at: ahead(2 * DAY), extended_from: ago(DAY) });
+    expect(isExtended(t, [])).toBe(true);
+    expect(one(t, [])).toMatchObject({ bucket: 'todo', extended: true });
+    expect(isExtended(task(1, { due_at: ahead(DAY) }), [])).toBe(false);
+    expect(isExtended(task(1, { kind: 'task', extended_from: ago(DAY) }), [])).toBe(false);
+  });
+
+  test('a graded assignment keeps graded even with an older extension', () => {
+    const subs = [
+      sub(1, 1, ago(5 * DAY), 'ai_graded', released(ago(4 * DAY), 'extended')),
+      sub(2, 1, ago(2 * DAY), 'ai_graded', released(ago(DAY), 'completed')),
+    ];
+    const t = task(1, { due_at: ago(3 * DAY), extended_from: ago(6 * DAY) });
+    expect(bucketOf(t, subs, NOW)).toBe('graded');
+    expect(isExtended(t, subs)).toBe(false);
   });
 });
 
@@ -121,19 +187,20 @@ describe('dueState', () => {
 describe('deriveItems', () => {
   test('builds one item per task with its own submissions', () => {
     const tasks = [task(1), task(2), task(3, { kind: 'task' })];
-    const subs = [sub(10, 1, ago(2 * DAY), 'failed'), sub(11, 1, ago(DAY), 'ai_graded', draft(84)), sub(20, 2, ago(DAY), 'pending')];
+    const subs = [sub(10, 1, ago(2 * DAY), 'failed'), sub(11, 1, ago(DAY), 'ai_graded', draft('missing')), sub(20, 2, ago(DAY), 'pending')];
     const items = deriveItems(tasks, subs, NOW, { audience: 'staff' });
     expect(items).toHaveLength(3);
     const [a, b, c] = items;
     expect(a.task.id).toBe(1);
     expect(a.subs.map((s) => s.id)).toEqual([11, 10]);
     expect(a.latest.id).toBe(11);
-    expect(a.grade).toEqual(draft(84));
+    expect(a.grade).toEqual(draft('missing'));
     expect(a.attempts).toBe(2);
     expect(a.bucket).toBe('in-review');
     expect(a.dueState).toBe('done');
     expect(a.archiveReason).toBeNull();
-    expect(a.previousScore).toBeNull();
+    expect(a.previousResult).toBeNull();
+    expect(a.extended).toBe(false);
     expect(b.attempts).toBe(1);
     expect(c.bucket).toBe('task');
     expect(c.latest).toBeNull();
@@ -141,7 +208,7 @@ describe('deriveItems', () => {
   });
 
   test('families never receive an unreleased grade, even if one slips through', () => {
-    const item = one(task(1), [sub(1, 1, ago(DAY), 'ai_graded', draft(84))], { audience: 'family' });
+    const item = one(task(1), [sub(1, 1, ago(DAY), 'ai_graded', draft('completed'))], { audience: 'family' });
     expect(item.grade).toBeNull();
     expect(item.latest.grade).toBeNull();
     expect(item.bucket).toBe('in-review');
@@ -175,7 +242,8 @@ describe('groupTodo', () => {
     const items = deriveItems(tasks, [sub(1, 10, ago(HOUR), 'pending')], NOW, { audience: 'family' });
     const groups = groupTodo(items, NOW);
     expect(groups.map((g) => g.key)).toEqual(['overdue', 'today', 'next7', 'later', 'undated']);
-    expect(groups.map((g) => g.label)).toEqual(['Overdue', 'Today', 'Next 7 days', 'Later', 'No due date']);
+    // An assignment past due with nothing handed in is Missing
+    expect(groups.map((g) => g.label)).toEqual(['Missing', 'Today', 'Next 7 days', 'Later', 'No due date']);
     const ids = (key) => groups.find((g) => g.key === key).items.map((i) => i.task.id);
     expect(ids('overdue')).toEqual([6, 5]);
     expect(ids('today')).toEqual([8, 1]);

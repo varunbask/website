@@ -569,7 +569,7 @@ td.is-today .cal-num {
   transition: border-color var(--dur-1) var(--ease-out), background-color var(--dur-1) var(--ease-out);
 }
 /* Titles wrap at spaces to two lines rather than cutting to a few letters.
-   The score (floated right), initials and kind icon flow inline at the start,
+   The initials and kind icon flow inline at the start,
    so the second line gets the chip's full width. Words never break; a word
    too long for its line ends in an ellipsis. */
 .cal-chip-title {
@@ -602,13 +602,6 @@ td.is-today .cal-num {
 .cal-month.cap-1 .cal-day {
   position: relative;
   padding: var(--s-1);
-}
-.cal-chip-score {
-  float: right;
-  margin-left: var(--s-1);
-  font: 500 12px/16px var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
 }
 @media (hover: hover) {
   .cal-chip:hover { border-color: color-mix(in srgb, currentColor 40%, transparent); }

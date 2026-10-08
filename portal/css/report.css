@@ -1,6 +1,5 @@
-/* Progress report (#/report). Prefix: rpt-. Tokens and components come from app.css;
-   the score chart is the Overview's (.ovw-chart-*, overview.css). No raw hex outside
-   the print block, which is black on white whatever the theme.
+/* Progress report (#/report). Prefix: rpt-. Tokens and components come from app.css.
+   No raw hex outside the print block, which is black on white whatever the theme.
 
    Markup (portal/js/views/report.js)
      div.rpt-root                          the view column
@@ -13,7 +12,7 @@
                          + dl.rpt-meta
          section.rpt-section > h3.rpt-h + dl.rpt-stats > div.rpt-stat (+ .is-good .is-warn .is-bad .is-text)
                                           > dt.rpt-stat-label + dd.rpt-stat-value + dd.rpt-stat-note
-                             + p.rpt-foot | p.rpt-empty | div.rpt-chart | ol.rpt-notes > li.rpt-note
+                             + p.rpt-foot | p.rpt-empty | ol.rpt-notes > li.rpt-note
 */
 
 .rpt-root {
@@ -125,14 +124,6 @@
 .rpt-foot + .rpt-foot { margin-top: var(--s-1); }
 .rpt-empty { font: var(--t-read); color: var(--text-2); }
 
-.rpt-chart {
-  margin-top: var(--s-5);
-  padding-top: var(--s-4);
-  border-top: 1px solid var(--line);
-  break-inside: avoid;
-}
-.rpt-chart-title { margin-bottom: var(--s-3); font: 500 13px/18px var(--font-ui); color: var(--text-2); }
-
 .rpt-notes { display: flex; flex-direction: column; gap: var(--s-5); margin: 0; padding: 0; list-style: none; }
 .rpt-note {
   padding-left: var(--s-4);
@@ -190,7 +181,7 @@
 
   .rpt-root { display: block; max-width: none; }
 
-  /* Light, high-contrast tokens for everything inside the sheet, the chart included */
+  /* Light, high-contrast tokens for everything inside the sheet */
   .rpt-sheet {
     --text: #000;
     --text-2: #111;

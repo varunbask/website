@@ -1307,8 +1307,6 @@ export function mount(ctx) {
   function dueChip(item, { link = false, drag = true } = {}) {
     const { kind, icon: iconName } = chipKind(item, audience);
     const name = item.task.title || 'Untitled';
-    const score = item.grade?.score;
-    const showScore = staff && kind === 'graded' && score !== null && score !== undefined;
     const props = { class: `cal-chip is-${kind}`, dataset: { taskId: String(item.task.id) } };
     if (link) {
       props.href = drawerHref(currentHash(), item.task.id);
@@ -1317,11 +1315,11 @@ export function mount(ctx) {
     } else {
       props.title = item.studentName ? `${name}, ${item.studentName}` : name;
     }
-    // The score (floated right), initials and icon sit inline in the title,
-    // so a wrapped title's later lines get the chip's full width
+    // The initials and icon sit inline in the title, so a wrapped title's
+    // later lines get the chip's full width. The icon shows the result
+    // (chipKind): a check for Completed, a minus for Missing.
     const el = h(link ? 'a' : 'span', props,
       h('span', { class: 'cal-chip-title' },
-        showScore ? h('span', { class: 'cal-chip-score' }, String(score)) : null,
         item.studentName ? h('span', { class: 'cal-chip-who' }, initials(item.studentName)) : null,
         icon(iconName, { size: 12 }),
         name));

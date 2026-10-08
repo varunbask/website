@@ -1,6 +1,7 @@
 // Students (#/students, staff; spec 5.13). One row per student with review
 // load, next tutoring session, next due work, last submission and the 30-day
-// average, plus the student's tutors with their subjects under the name, all
+// completion (Completed out of Completed plus Missing, results.js), plus the
+// student's tutors with their subjects under the name, all
 // read from the staff workspace in the store, so the counts match the nav and
 // switcher. Search filters by name and email in memory; it never goes into the
 // URL. Quick filter chips (Needs review, Overdue work, No lesson booked), the
@@ -9,17 +10,18 @@
 // refresh, while the search text only survives a refresh. The rules for all of
 // it live in students-filter-model.js.
 //
-// Pure helpers (nextDue, recentAverage, lastSubmissionAt, studentSummaries,
+// Pure helpers (nextDue, recentCompletion, lastSubmissionAt, studentSummaries,
 // countLabel) are exported for tests and never touch the DOM.
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import { avatar, emptyState, errorCallout, select, skeletonRows } from '../ui.js';
-import { displayName, byDue, one, visibleEmail } from '../format.js';
+import { displayName, byDue, visibleEmail } from '../format.js';
 import { reviewCounts } from '../app-model.js';
 import { deriveItems } from '../buckets.js';
 import { dueLabel, relativeTime, todayKey } from '../dates.js';
-import { overdueItems, scoreWindow } from '../overview-model.js';
+import { overdueItems, completionWindow } from '../overview-model.js';
+import { completionText } from '../results.js';
 import { staffNames } from '../updates-feed.js';
 import { nextSessionOf, nextSessionParts, tutorEntries, tutorText } from '../schedule-summary.js';
 import {
@@ -29,7 +31,7 @@ import {
 
 export { countLabel };
 
-export const AVERAGE_DAYS = 30;
+export const COMPLETION_DAYS = 30;
 const ENTER_LIMIT = 8;
 const TUTOR_CHIPS = 3;   // more tutors than this collapse into "+N"
 
@@ -47,11 +49,11 @@ export function nextDue(items) {
     .sort((a, b) => byDue(a.task, b.task))[0] ?? null;
 }
 
-// Mean of the released scores from the last `days` days, rounded; null when none.
-// One rule with the Overview's "Average score, last 30 days" (scoreWindow).
-export function recentAverage(submissions, now = new Date(), { days = AVERAGE_DAYS } = {}) {
-  const grades = (submissions ?? []).map((sub) => one(sub.grade)).filter(Boolean);
-  return scoreWindow(grades, now, { days }).avg;
+// Completion over the last `days` days: { completed, missing, total, rate,
+// extended }, with a null rate when nothing was decided. One rule with the
+// Overview's "Completed, last 30 days" (completionWindow).
+export function recentCompletion(tasks, submissions, now = new Date(), { days = COMPLETION_DAYS } = {}) {
+  return completionWindow(tasks, submissions, now, { days });
 }
 
 // ISO time of the newest submission, or null
@@ -65,7 +67,7 @@ export function lastSubmissionAt(submissions) {
 }
 
 // One summary per student, in the workspace order (by name):
-// { student, name, email, review, overdue, next, nextSession, tutors, lastAt, avg }
+// { student, name, email, review, overdue, next, nextSession, tutors, lastAt, completion }
 //   overdue      how many open assignments and tasks are past due (the Overdue work filter)
 //   nextSession  the student's next upcoming session with any tutor, or null
 //   tutors       [{ id, name, subject, tone }] by name, from ws.links; names is
@@ -87,7 +89,8 @@ export function studentSummaries(ws, now = new Date(), { names = new Map() } = {
 
   return (ws?.students ?? []).map((student) => {
     const subs = subsBy.get(student.id) ?? [];
-    const items = deriveItems(tasksBy.get(student.id) ?? [], subs, now, { audience: 'staff' });
+    const tasks = tasksBy.get(student.id) ?? [];
+    const items = deriveItems(tasks, subs, now, { audience: 'staff' });
     return {
       student,
       name: displayName(student),
@@ -99,7 +102,7 @@ export function studentSummaries(ws, now = new Date(), { names = new Map() } = {
       nextSession: nextSessionOf(sessionsBy.get(student.id) ?? [], now),
       tutors: tutorEntries(linksBy.get(student.id) ?? [], names),
       lastAt: lastSubmissionAt(subs),
-      avg: recentAverage(subs, now),
+      completion: recentCompletion(tasks, subs, now),
     };
   });
 }
@@ -116,7 +119,8 @@ let keptView = null;   // { userId, view }
 
 // "Up next", not "Next due": the column leads with overdue work (nextDue).
 // "Next session" is the tutoring schedule.
-const COLUMNS = ['Student', 'To review', 'Next session', 'Up next', 'Last submission', '30-day average'];
+// "Completed" is the last 30 days' completion, "3 of 5" (the stacked rows say so)
+const COLUMNS = ['Student', 'To review', 'Next session', 'Up next', 'Last submission', 'Completed'];
 
 export function mount(ctx) {
   const title = 'Students';
@@ -417,11 +421,12 @@ export function mount(ctx) {
       lastContent = h('span', { class: 'stu-none' }, 'No work yet');
       said.push('no work yet');
     }
-    said.push(s.avg === null ? '30-day average none' : `30-day average ${s.avg}`);
+    const done = s.completion;
+    said.push(done?.total ? `completed ${completionText(done)} in the last 30 days` : 'no results in the last 30 days');
 
-    const avgContent = s.avg === null
-      ? h('span', { class: 'stu-none' }, 'None')
-      : h('span', { class: 'stu-avg-value mono' }, String(s.avg));
+    const doneContent = done?.total
+      ? h('span', { class: 'stu-done-value mono' }, completionText(done))
+      : h('span', { class: 'stu-none' }, 'None');
 
     const reviewCell = s.review > 0
       ? h('span', { class: 'stu-cell stu-review' },
@@ -447,7 +452,7 @@ export function mount(ctx) {
     cell('session', 'Next session', sessionContent),
     cell('next', 'Up next', nextContent),
     cell('last', 'Last submission', lastContent),
-    cell('avg', '30-day average', avgContent),
+    cell('done', 'Completed, 30 days', doneContent),
     caret);
   }
 

@@ -206,9 +206,9 @@ describe('childSummary', () => {
     id, student_id: 's1', kind: 'assignment', title: `Task ${id}`, details: '',
     due_at: null, completed_at: null, created_at: '2026-09-01T00:00:00Z', ...extra,
   });
-  const graded = (id, taskId, score, releasedAt) => ({
+  const graded = (id, taskId, result, releasedAt) => ({
     id, task_id: taskId, student_id: 's1', status: 'ai_graded', error: null, created_at: releasedAt,
-    grade: { score, feedback: 'Good', reviewed_at: releasedAt, released_at: releasedAt },
+    grade: { result, feedback: 'Good', reviewed_at: releasedAt, released_at: releasedAt },
   });
   const items = (tasks, subs = []) => deriveItems(tasks, subs, NOW, { audience: 'family' });
   const maya = { id: 's1', full_name: 'Maya Lin', email: 'maya@example.com' };
@@ -222,8 +222,8 @@ describe('childSummary', () => {
       task(5, { title: 'Essay' }),
     ];
     const subs = [
-      graded(10, 4, 88, '2026-10-06T20:00:00Z'),
-      graded(11, 5, 95, '2026-10-12T20:00:00Z'),
+      graded(10, 4, 'missing', '2026-10-06T20:00:00Z'),
+      graded(11, 5, 'completed', '2026-10-12T20:00:00Z'),
     ];
     const sessions = [
       session('2026-10-09', '16:00', '17:00'),
@@ -233,8 +233,15 @@ describe('childSummary', () => {
     ];
     const s = childSummary({ child: maya, items: items(tasks, subs), sessions, now: NOW, viewerInZone: true });
     expect(s).toMatchObject({ id: 's1', name: 'Maya Lin', first: 'Maya', hasWork: true, hasSchedule: true, overdue: 2 });
-    expect(s.grade).toEqual({ score: 95, title: 'Essay', releasedAt: '2026-10-12T20:00:00Z' });
+    expect(s.grade).toEqual({ result: 'completed', title: 'Essay', releasedAt: '2026-10-12T20:00:00Z' });
     expect(s.next).toMatchObject({ subject: 'Algebra', day: 'Fri, Oct 16', time: '4:00 pm', today: false, tomorrow: false });
+  });
+
+  test('a released Extended is not the newest grade: the work is back in To do', () => {
+    const tasks = [task(1, { title: 'Essay', due_at: at('2026-10-20', '23:59'), extended_from: at('2026-10-10', '23:59') })];
+    const s = childSummary({ child: maya, items: items(tasks, [graded(10, 1, 'extended', '2026-10-12T20:00:00Z')]), sessions: [], now: NOW });
+    expect(s.grade).toBeNull();
+    expect(s.overdue).toBe(0);
   });
 
   test('a grade the family cannot see yet is not the newest grade', () => {
@@ -283,11 +290,13 @@ describe('childLines', () => {
   const next = { id: 4, subject: 'Algebra', day: 'Fri, Oct 16', time: '4:00 pm', text: 'Fri, Oct 16 at 4:00 pm', today: false, tomorrow: false };
 
   test('next session, overdue count and latest grade in plain words', () => {
-    const lines = childLines({ ...base, next, overdue: 2, grade: { score: 95, title: 'Essay', releasedAt: '2026-10-12T20:00:00Z' } });
+    const lines = childLines({ ...base, next, overdue: 2, grade: { result: 'completed', title: 'Essay', releasedAt: '2026-10-12T20:00:00Z' } });
     expect(lines.next).toEqual({ text: 'Fri, Oct 16 at 4:00 pm', tone: null });
     expect(lines.overdue).toEqual({ text: '2 overdue', tone: 'danger' });
-    expect(lines.grade).toEqual({ text: 'Latest grade 95, Essay', tone: null });
-    expect(lines.label).toBe('Maya Lin, next session Fri, Oct 16 at 4:00 pm, 2 overdue items, latest grade 95 out of 100, Essay');
+    expect(lines.grade).toEqual({ text: 'Latest: Essay, Completed', tone: null });
+    expect(lines.label).toBe('Maya Lin, next session Fri, Oct 16 at 4:00 pm, 2 overdue items, latest grade Essay, Completed');
+    expect(childLines({ ...base, grade: { result: 'missing', title: 'Quiz', releasedAt: '2026-10-12T20:00:00Z' } }).grade.text)
+      .toBe('Latest: Quiz, Missing');
   });
 
   test('today and tomorrow read as words', () => {

@@ -9,6 +9,7 @@
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
 import { itemStatus } from './status.js';
+import { resultOf, resultLabel } from './results.js';
 import { dueLabel, relativeTime, shortDay } from './dates.js';
 import { DRAWER_PARAMS } from './router.js';
 import { MAX_SUBMISSIONS } from './buckets.js';
@@ -64,8 +65,8 @@ function stamped(verb, iso, now) {
 }
 
 // Graded work: "Graded Oct 5", the same words as the Overview (spec 5.5).
-// Staff rows carry a "Released" pill beside the score, so their date column is
-// the bare date; label keeps "Released Oct 5" for the row's accessible name.
+// Staff rows show the bare date beside the result; label keeps "Released
+// Oct 5" for the row's accessible name.
 function released(iso, now, audience) {
   const day = shortDay(iso, now);
   const verb = audience === 'staff' ? 'Released' : 'Graded';
@@ -115,7 +116,7 @@ export function rowMeta(item, { showStudent = false, studentName = '', variant }
   if (variant === 'mixed') parts.push(item.task.kind === 'task' ? 'Task' : 'Assignment');
   if (item.task.kind !== 'task' && item.bucket === 'in-review') {
     if (item.attempts > 1) parts.push(`Attempt ${item.attempts} of ${MAX_SUBMISSIONS}`);
-    if (item.previousScore !== null && item.previousScore !== undefined) parts.push(`Previous score ${item.previousScore}`);
+    if (resultLabel(item.previousResult)) parts.push(`Previous result ${resultLabel(item.previousResult)}`);
   }
   return parts;
 }
@@ -222,16 +223,11 @@ export function pill(status) {
   return h('span', { class: cls }, status.icon ? icon(status.icon, { size: 14 }) : null, h('span', {}, status.label));
 }
 
-// "86/100" in Mono. Scores are never coloured by value.
-export function scoreChip(score) {
-  return h('span', { class: 'score-chip' },
-    h('span', { class: 'score' }, String(score)),
-    h('span', { class: 'score-max' }, '/100'));
-}
-
-// "Draft 84" (staff only)
-export function draftChip(score) {
-  return h('span', { class: 'draft-chip' }, `Draft ${score}`);
+// "Draft: Completed", the result an unreleased grade holds (staff only);
+// null when the draft has no result yet
+export function draftChip(grade) {
+  const label = resultLabel(resultOf(grade));
+  return label ? h('span', { class: 'draft-chip' }, `Draft: ${label}`) : null;
 }
 
 // A count badge with hidden context ("4 to do, 1 overdue"); null at zero.
@@ -280,7 +276,7 @@ export function timeEl(iso, now = new Date()) {
 //   now          the view's clock (default: new Date())
 export function itemRow(item, { audience = 'family', href, showStudent = false, studentName = '', variant, meta, now = new Date() } = {}) {
   const { task } = item;
-  const status = itemStatus(item, { audience });
+  const status = itemStatus(item, { audience, now });
   const glyph = status.glyph ?? { icon: status.icon, tone: status.tone };
   const aside = rowAside(item, now, { audience });
 
@@ -289,25 +285,18 @@ export function itemRow(item, { audience = 'family', href, showStudent = false, 
   else if (meta !== undefined && meta !== null) metaContent = [].concat(meta).filter(Boolean).join(', ');
   else metaContent = rowMeta(item, { showStudent, studentName, variant }).join(', ');
 
-  const draft = audience === 'staff' && item.bucket === 'in-review' && item.grade
-    && !item.grade.released_at && item.grade.score !== null && item.grade.score !== undefined
-    ? draftChip(item.grade.score) : null;
+  const draft = audience === 'staff' && item.bucket === 'in-review' && item.grade && !item.grade.released_at
+    ? draftChip(item.grade) : null;
 
   const metaEl = metaContent || draft
     ? h('span', { class: 'row-meta' }, metaContent || null, draft)
     : null;
-
-  const showScore = (item.bucket === 'graded' || (item.bucket === 'archived' && item.archiveReason === 'graded'))
-    && item.grade && item.grade.score !== null && item.grade.score !== undefined;
 
   let dueEl = null;
   if (aside) {
     const toneClass = aside.tone === 'danger' ? 'is-danger' : aside.tone === 'warning' ? 'is-warning' : null;
     dueEl = h('span', { class: ['row-due', 'num', toneClass].filter(Boolean).join(' '), title: aside.full }, aside.text);
   }
-
-  // Staff see the "Released" pill beside the score chip (spec 5.5)
-  const releasedPill = showScore && audience === 'staff' ? pill(status) : null;
 
   // Spell the row out for screen readers: the cells would otherwise run together.
   // A meta line that is a sentence loses its final period so the parts join
@@ -318,7 +307,7 @@ export function itemRow(item, { audience = 'family', href, showStudent = false, 
     labelPart(metaText),
     draft ? draft.textContent : null,
     aside ? (aside.label ?? aside.text) : null,
-    showScore ? `Score ${item.grade.score} out of 100` : status.label,
+    status.label,
   ].filter(Boolean).join(', ');
 
   const link = h('a', {
@@ -333,7 +322,7 @@ export function itemRow(item, { audience = 'family', href, showStudent = false, 
     metaEl),
   h('span', { class: 'row-aside' },
     dueEl,
-    h('span', { class: 'row-status' }, releasedPill, showScore ? scoreChip(item.grade.score) : pill(status))),
+    h('span', { class: 'row-status' }, pill(status))),
   icon('caret-right'));
   link.lastChild.classList.add('row-caret');
   return h('li', {}, link);

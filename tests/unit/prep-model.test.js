@@ -30,9 +30,9 @@ const task = (id, extra = {}) => ({
 const sub = (id, taskId, status = 'ai_graded', grade = null, extra = {}) => ({
   id, task_id: taskId, student_id: 's1', status, error: null, created_at: '2026-10-05T18:00:00Z', grade, ...extra,
 });
-const draft = (score = 80) => ({ score, feedback: null, reviewed_at: null, released_at: null });
-const edited = (score = 80) => ({ score, feedback: 'ok', reviewed_at: '2026-10-05T20:00:00Z', released_at: null });
-const released = (score = 90) => ({ score, feedback: 'Good', reviewed_at: '2026-10-05T20:00:00Z', released_at: '2026-10-05T21:00:00Z' });
+const draft = (result = 'completed') => ({ result, feedback: null, reviewed_at: null, released_at: null });
+const edited = (result = 'completed') => ({ result, feedback: 'ok', reviewed_at: '2026-10-05T20:00:00Z', released_at: null });
+const released = (result = 'completed') => ({ result, feedback: 'Good', reviewed_at: '2026-10-05T20:00:00Z', released_at: '2026-10-05T21:00:00Z' });
 const derive = (tasks, subs = []) => deriveItems(tasks, subs, NOW, { audience: 'staff' });
 const ids = (rows) => rows.map((i) => i.task.id);
 
@@ -241,7 +241,7 @@ describe('homeworkSince', () => {
     ];
     const subs = [
       sub(10, 2, 'ai_graded', draft()),
-      sub(11, 3, 'ai_graded', released(88)),
+      sub(11, 3, 'ai_graded', released('missing')),
       sub(12, 4, 'pending'),
     ];
     const { rows } = homeworkSince(derive(tasks, subs), { last: lesson, session: cur(), now: NOW });
@@ -249,7 +249,7 @@ describe('homeworkSince', () => {
     const byId = new Map(rows.map((i) => [i.task.id, i]));
     expect(byId.get(1).bucket).toBe('todo');
     expect(byId.get(2).bucket).toBe('in-review');
-    expect(byId.get(3)).toMatchObject({ bucket: 'graded', grade: expect.objectContaining({ score: 88 }) });
+    expect(byId.get(3)).toMatchObject({ bucket: 'graded', grade: expect.objectContaining({ result: 'missing' }) });
     expect(byId.get(4).bucket).toBe('in-review');
   });
 

@@ -39,7 +39,7 @@
     };
     db.submissions.push(sub);
     db.grades.push({
-      submission_id: sub.id, student_id: task.student_id, score: 90, feedback: 'Clear work.', reviewed_by: 'u-daniel',
+      submission_id: sub.id, student_id: task.student_id, result: 'completed', score: null, feedback: 'Clear work.', reviewed_by: 'u-daniel',
       reviewed_at: h.ago(daysAgo - 0.5), released_at: h.ago(Math.max(0, daysAgo - 1)),
     });
   }

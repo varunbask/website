@@ -15,7 +15,7 @@
      .visually-hidden                  clip pattern, stays in the accessibility tree
      .skip-link                        a.skip-link[href="#main"], shows on focus
      .num                              tabular numerals (counts, badges, dates)
-     .mono                             Geist Mono (scores, metrics)
+     .mono                             Geist Mono (counts, metrics)
      .t-caption .t-meta .t-ui .t-read .t-h3 .t-h2 .t-h1 .t-display .t-figure .t-date
                                        type tiers from spec 2.4 (font + tracking)
      .text-2 .text-3                   secondary and meta text colours
@@ -144,8 +144,7 @@
 
    Status and figures
      span.pill.tone-* (+ .is-dashed for staff drafts) > svg.icon (14) + span
-     span.score-chip > span.score (86) + span.score-max ("/100")
-     span.draft-chip                   "Draft 84", Mono 12/500 on --surface-2
+     span.draft-chip                   "Draft: Completed" (an unreleased result), UI 12/500 on --surface-2
      span.badge > span[aria-hidden="true"] (n or "99+") + span.visually-hidden (context)
        .badge.is-danger                danger tone, no border
      span.new-pill                     "New"
@@ -158,7 +157,7 @@
          span.row-lead.tone-* > svg.icon          status glyph (or an avatar)
          span.row-main > span.row-title + span.row-meta
          span.row-aside > span.row-due.num (+ .is-warning | .is-danger)[title]
-                          + span.row-status (pill, score chip or both)
+                          + span.row-status (pill: the status, or the result)
          svg.icon.row-caret                       caret-right
        .row.is-done (title struck through), .row.is-muted (title in --text-2)
        any other li child (inline error, note) spans the full row width
@@ -1728,22 +1727,6 @@ input[type="date"].input { font-variant-numeric: tabular-nums; }
   color: var(--tone-solid, var(--neutral-solid));
 }
 
-.score-chip {
-  display: inline-flex;
-  align-items: baseline;
-  flex: none;
-  gap: 1px;
-  height: 24px;
-  padding: 0 8px;
-  border-radius: var(--r-xs);
-  background-color: var(--surface-2);
-  font: 500 13px/24px var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--text);
-  white-space: nowrap;
-}
-.score-max { color: var(--text-3); }
-
 .draft-chip {
   display: inline-flex;
   align-items: center;
@@ -1752,8 +1735,7 @@ input[type="date"].input { font-variant-numeric: tabular-nums; }
   padding: 0 6px;
   border-radius: var(--r-xs);
   background-color: var(--surface-2);
-  font: 500 12px/16px var(--font-mono);
-  font-variant-numeric: tabular-nums;
+  font: 500 12px/16px var(--font-ui);
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -2710,7 +2692,6 @@ dialog::backdrop { background-color: transparent; }
   .pill,
   .badge,
   .new-pill,
-  .score-chip,
   .draft-chip,
   .nav-item[aria-current="page"],
   .nav-subitem[aria-current="page"],

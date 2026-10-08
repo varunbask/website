@@ -101,20 +101,23 @@ export function cellText({ key, inMonth }) {
 
 // How a calendar entry looks. kind: open | soon | overdue | submitted | graded
 // | done | missed | draft (staff) | failed. icon: the chip's leading icon.
+// Results: Completed is graded, a released Missing (or one archived) is
+// missed, Extended looks like work due soon.
 export function chipKind(item, audience = 'family') {
   const kindIcon = item.task.kind === 'task' ? 'check-square' : 'clipboard-text';
   const status = itemStatus(item, { audience });
   switch (status.key) {
     case 'overdue': return { kind: 'overdue', icon: 'warning-circle' };
     case 'soon': return { kind: 'soon', icon: kindIcon };
+    case 'extended': return { kind: 'soon', icon: 'clock' };
     case 'todo': return { kind: 'open', icon: kindIcon };
     case 'done': return { kind: 'done', icon: kindIcon };
+    case 'completed':
     case 'graded': return { kind: 'graded', icon: 'check-circle' };
-    case 'not-turned-in': return { kind: 'missed', icon: 'minus-circle' };
+    case 'missing': return { kind: 'missed', icon: 'minus-circle' };
     case 'draft':
     case 'edited': return { kind: 'draft', icon: 'pencil-simple-line' };
-    case 'failed':
-    case 'needs-attention': return { kind: 'failed', icon: 'x-circle' };
+    case 'failed': return { kind: 'failed', icon: 'x-circle' };
     default: return { kind: 'submitted', icon: 'hourglass-medium' };
   }
 }

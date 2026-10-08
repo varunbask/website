@@ -84,9 +84,10 @@ export function createRepo(db) {
       if (error) throw new Error(`removeFiles: ${error.message}`);
     },
 
-    // Never overwrites a grade a person has already touched or released
-    async saveAiGrade(id, { score, feedback }) {
-      check(await db.from('grades').update({ score, feedback })
+    // The AI's suggested result ('completed' or 'missing') and feedback, as a
+    // draft. Never overwrites a grade a person has already touched or released.
+    async saveAiGrade(id, { result, feedback }) {
+      check(await db.from('grades').update({ result, feedback })
         .eq('submission_id', id).is('released_at', null).is('reviewed_at', null), 'saveAiGrade');
     },
 

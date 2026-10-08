@@ -149,32 +149,33 @@
     const row = {
       id: id(), student_id: student, created_by: extra.by ?? 'u-daniel', kind, title, details: extra.details ?? null,
       due_at: offset === null ? null : dueAt(offset), completed_at: extra.done ? ago(1) : null, created_at: ago(extra.made ?? 8),
-      session_id: null, series_id: null,
+      session_id: null, series_id: null, extended_from: null,
     };
     db.tasks.push(row);
     return row;
   };
-  const submit = (t, { daysAgo = 1, body, status = 'ai_graded', score = null, feedback = null, released = false, attempts = 1 }) => {
+  // result: 'completed' | 'missing' | 'extended' (an unreleased one is the AI's suggestion)
+  const submit = (t, { daysAgo = 1, body, status = 'ai_graded', result = null, feedback = null, released = false, attempts = 1 }) => {
     const s = {
       id: id(), student_id: t.student_id, task_id: t.id, storage_path: body ? null : `${t.student_id}/${t.id}/work.svg`, file_type: body ? null : 'image/svg+xml',
       note: null, status, attempts, error: null, status_changed_at: ago(daysAgo, '19:30'), created_at: ago(daysAgo, '19:00'), body: body ?? null, body_doc: null,
     };
     db.submissions.push(s);
-    if (score !== null) {
-      db.grades.push({ submission_id: s.id, student_id: s.student_id, score, feedback, reviewed_by: released ? 'u-daniel' : null, reviewed_at: released ? ago(daysAgo - 0.5) : null, released_at: released ? ago(Math.max(0, daysAgo - 1)) : null });
+    if (result !== null) {
+      db.grades.push({ submission_id: s.id, student_id: s.student_id, result, score: null, feedback, reviewed_by: released ? 'u-daniel' : null, reviewed_at: released ? ago(daysAgo - 0.5) : null, released_at: released ? ago(Math.max(0, daysAgo - 1)) : null });
     }
     return s;
   };
   const ratio = task('u-leo', 'assignment', 'Ratio word problems', 2, { details: 'Problems 1 to 12 on the worksheet. Show your work.' });
-  submit(ratio, { daysAgo: 0.3, body: 'Problem 1: 3 to 5 means 3 parts to 5 parts, so 24 out of 40.\nProblem 2: 12/18 = 2/3.', score: 82, feedback: 'Strong setup on 1 to 8. On 9 to 12, label the units so you can see which quantity you are scaling.' });
+  submit(ratio, { daysAgo: 0.3, body: 'Problem 1: 3 to 5 means 3 parts to 5 parts, so 24 out of 40.\nProblem 2: 12/18 = 2/3.', result: 'completed', feedback: 'Strong setup on 1 to 8. On 9 to 12, label the units so you can see which quantity you are scaling.' });
   const systems = task('u-maya', 'assignment', 'Systems of equations practice', 1, { details: 'Solve by substitution and by elimination.' });
-  submit(systems, { daysAgo: 0.5, score: 91, feedback: 'Clean elimination work. Double-check the sign on number 7.' });
+  submit(systems, { daysAgo: 0.5, result: 'completed', feedback: 'Clean elimination work. Double-check the sign on number 7.' });
   const decimals = task('u-leo', 'assignment', 'Decimals practice', -3);
-  submit(decimals, { daysAgo: 4, status: 'ai_graded', score: 74, feedback: 'Watch place value when you multiply by 10 and 100.', released: true });
+  submit(decimals, { daysAgo: 4, status: 'ai_graded', result: 'completed', feedback: 'Watch place value when you multiply by 10 and 100.', released: true });
   const quadratics = task('u-maya', 'assignment', 'Quadratics: factoring', -6);
-  submit(quadratics, { daysAgo: 7, score: 95, feedback: 'Excellent. Every factor checked by expanding.', released: true });
+  submit(quadratics, { daysAgo: 7, result: 'completed', feedback: 'Excellent. Every factor checked by expanding.', released: true });
   const essay = task('u-ava', 'assignment', 'Persuasive essay draft', 3, { by: 'u-priya', details: 'Five paragraphs on whether school should start later. Use two sources.' });
-  submit(essay, { daysAgo: 0.2, body: 'Every morning, thousands of teenagers drag themselves out of bed before their brains are ready to learn...', status: 'pending', score: null });
+  submit(essay, { daysAgo: 0.2, body: 'Every morning, thousands of teenagers drag themselves out of bed before their brains are ready to learn...', status: 'pending', result: null });
   task('u-maya', 'assignment', 'SAT Reading set 4', 4, { by: 'u-priya', details: 'Timed: 32 minutes. Note the questions you guessed on.' });
   task('u-leo', 'assignment', 'Percent change quiz review', 5);
   task('u-maya', 'task', 'Bring graphing calculator', 1);
@@ -183,7 +184,7 @@
   task('u-ava', 'task', 'Vocabulary list 3', 0, { by: 'u-priya' });
   task('u-mateo', 'assignment', 'Create task: digital portfolio outline', 6, { by: 'u-admin' });
   const late = task('u-leo', 'assignment', 'Integers worksheet', -10);
-  submit(late, { daysAgo: 11, score: 88, feedback: 'Good. Two sign slips on the last row.', released: true });
+  submit(late, { daysAgo: 11, result: 'completed', feedback: 'Good. Two sign slips on the last row.', released: true });
 
   // ---- updates from tutors to families
   const update = (student, author, body, daysAgo, visible = true) => db.updates.push({ id: id(), student_id: student, author_id: author, body, visible_to_student: visible, created_at: ago(daysAgo, '18:30') });
@@ -408,7 +409,7 @@
     notify();
   }
 
-  // Embedded relations in select strings, e.g. grade:grades(score, ...)
+  // Embedded relations in select strings, e.g. grade:grades(result, ...)
   function embed(table, row, cols) {
     const out = { ...row };
     // JSON path aliases, e.g. month_cents:snapshot->month_cents
@@ -589,7 +590,8 @@
     if (db.grades.some((g) => g.submission_id === s.id)) return;
     s.status = 'ai_graded';
     s.status_changed_at = new Date().toISOString();
-    db.grades.push({ submission_id: s.id, student_id: s.student_id, score: 86, feedback: 'Demo draft: clear work on most problems. Check the last two answers.', reviewed_by: null, reviewed_at: null, released_at: null });
+    // The AI suggests a result; the tutor picks it on the review page
+    db.grades.push({ submission_id: s.id, student_id: s.student_id, result: 'completed', score: null, feedback: 'Clear work on most problems. Check the last two answers.', reviewed_by: null, reviewed_at: null, released_at: null });
     notify();
   }
 

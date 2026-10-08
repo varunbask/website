@@ -1,6 +1,6 @@
 // Pure logic for the Progress report (#/report): the reporting period, session
-// attendance, homework outcomes, released grades and their trend, session
-// notes, and the tutors and subjects named in the header. No DOM, no network.
+// attendance, homework outcomes, released results, session notes, and the
+// tutors and subjects named in the header. No DOM, no network.
 //
 // Days are business-zone day keys (dates.js), the same zone every other date in
 // the portal uses. A period always ends today and its start day is included, so
@@ -18,14 +18,17 @@
 //              not finished. Open: not finished and not due yet (later today).
 //              An assignment is finished by its first submission; a task by its
 //              tick (tasks.completed_at).
-//   Grades     only released grades, for every viewer. One score per assignment:
-//              its latest released attempt, counted when that release falls in
-//              the period.
+//   Results    Completed and Missing per assignment, by completionCounts in
+//              results.js (the same rule as the Overview and Students): the
+//              latest released result, or missing once past due with nothing
+//              handed in, counted when that was decided in the period. Only
+//              released results count, for every viewer. Extended work is
+//              counted apart until its new due date passes.
 //   Notes      the recap of each finished, not cancelled session in the period.
 
 import { dayKey, todayKey, addDays, parseKey, daysBetween } from './dates.js';
 import { one } from './format.js';
-import { scoreSeries, average } from './progress.js';
+import { resultOf, completionCounts } from './results.js';
 import { sessionTitle, durationMinutes, shortDayText, isCancelled } from './sessions-model.js';
 import { sortSubs } from './buckets.js';
 
@@ -43,8 +46,6 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const ms = (v) => (v instanceof Date ? v.getTime() : Date.parse(v));
 const validTime = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(ms(v));
 const blank = (v) => v === null || v === undefined || String(v).trim() === '';
-const isScore = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
-const plural = (n, one_, many) => `${n} ${n === 1 ? one_ : many}`;
 
 // The business-zone day of a timestamp, or null when it is missing or not a date
 function dayOf(value) {
@@ -140,9 +141,12 @@ export function sessionSummary(sessions, period, now = new Date()) {
 
 // When the work was finished (ms), or null. An assignment is finished by its
 // first submission (the database stamps tasks.completed_at with that time, but
-// the app never reads it for assignments); a task by its tick.
+// the app never reads it for assignments); a task by its tick. An assignment
+// whose latest attempt was released as Extended is back in To do: not finished.
 function finishedAt(task, subs) {
   if (task.kind === 'task') return validTime(task.completed_at) ? ms(task.completed_at) : null;
+  const latest = sortSubs(subs)[0];
+  if (latest && one(latest.grade)?.released_at && resultOf(latest.grade) === 'extended') return null;
   let first = null;
   for (const sub of subs ?? []) {
     if (!validTime(sub.created_at)) continue;
@@ -192,65 +196,14 @@ export function homeworkSummary(tasks, submissions, period, now = new Date()) {
 }
 
 // ---------------------------------------------------------------------------
-// Grades (released ones only, for families and staff alike)
+// Results (released ones only, for families and staff alike)
 
-// The latest released attempt of each assignment: [{ score, released_at }]
-function releasedScores(submissions) {
-  const latest = new Map();
-  for (const sub of submissions ?? []) {
-    const grade = one(sub?.grade);
-    if (!grade || !validTime(grade.released_at) || !isScore(grade.score)) continue;
-    const key = String(sub.task_id);
-    const current = latest.get(key);
-    if (!current || ms(grade.released_at) > ms(current.released_at)) {
-      latest.set(key, { score: Number(grade.score), released_at: grade.released_at });
-    }
-  }
-  return [...latest.values()];
+// { completed, missing, total, rate, extended } for results decided in the period
+export function resultSummary(tasks, submissions, period, now = new Date()) {
+  return completionCounts(tasks, submissions, now, { within: (at) => inPeriod(at, period) });
 }
 
-// The first scores against the latest ones: with n scores in date order, the
-// first floor(n / 2) against the last floor(n / 2), as rounded averages. Null
-// with fewer than two scores. { size, first, latest, delta, direction }
-export function scoreTrend(series) {
-  const n = series?.length ?? 0;
-  if (n < 2) return null;
-  const size = Math.floor(n / 2);
-  const first = Math.round(average(series.slice(0, size)));
-  const latest = Math.round(average(series.slice(n - size)));
-  const delta = latest - first;
-  return { size, first, latest, delta, direction: delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat' };
-}
-
-// "Up 7 points", "Down 1 point", "No change"
-export function trendText(trend) {
-  if (!trend) return '';
-  if (trend.direction === 'up') return `Up ${plural(trend.delta, 'point', 'points')}`;
-  if (trend.direction === 'down') return `Down ${plural(-trend.delta, 'point', 'points')}`;
-  return 'No change';
-}
-
-// "First score 78, latest 85" or "First 2 scores averaged 78, latest 2 averaged 85"
-export function trendDetail(trend) {
-  if (!trend) return '';
-  if (trend.size === 1) return `First score ${trend.first}, latest ${trend.latest}`;
-  return `First ${trend.size} scores averaged ${trend.first}, latest ${trend.size} averaged ${trend.latest}`;
-}
-
-// { count, average, series, trend }: graded assignments whose latest released
-// grade fell in the period, their rounded average, the scores oldest first
-// ([{ date, score }], what scoreChart draws) and the trend
-export function gradeSummary(submissions, period) {
-  const series = scoreSeries(releasedScores(submissions).filter((g) => inPeriod(g.released_at, period)));
-  return {
-    count: series.length,
-    average: series.length ? Math.round(average(series)) : null,
-    series,
-    trend: scoreTrend(series),
-  };
-}
-
-// Assignments in the period whose latest attempt has a score that is not
+// Assignments in the period whose latest attempt has a result that is not
 // released yet (an assignment belongs to the period as in homeworkSummary: by
 // its due day, or its created day without a due date). Only staff ever load
 // these (the database hides them from families), so the view can tell them what
@@ -267,7 +220,7 @@ export function unreleasedCount(tasks, submissions, period) {
     if (!task || !inPeriod(homeworkAnchor(task), period)) continue;
     const latest = sortSubs(byTask.get(String(task.id)))[0];
     const grade = one(latest?.grade);
-    if (grade && isScore(grade.score) && !grade.released_at) n += 1;
+    if (grade && resultOf(grade) && !grade.released_at) n += 1;
   }
   return n;
 }
@@ -366,7 +319,7 @@ export function buildReport({
     people: reportPeople({ tutors, sessions, period, names }),
     sessions: sessionSummary(sessions, period, now),
     homework: homeworkSummary(tasks, submissions, period, now),
-    grades: gradeSummary(submissions, period),
+    results: resultSummary(tasks, submissions, period, now),
     notes: sessionNotes(sessions, period, { now, tutors, names }),
     unreleased: unreleasedCount(tasks, submissions, period),
   };

@@ -52,7 +52,7 @@ describe('student', () => {
   });
 
   test('badges and New', () => {
-    expect(find(model, 'todo').badge).toEqual({ n: 4, text: '4', tone: 'danger', context: '4 to do, 1 overdue' });
+    expect(find(model, 'todo').badge).toEqual({ n: 4, text: '4', tone: 'danger', context: '4 to do, 1 missing' });
     expect(find(model, 'in-review').badge).toEqual({ n: 2, text: '2', tone: 'neutral', context: '2 in review' });
     expect(find(model, 'tasks').badge).toEqual({ n: 3, text: '3', tone: 'neutral', context: '3 open tasks' });
     expect(find(model, 'graded')).toMatchObject({ isNew: true, badge: null });

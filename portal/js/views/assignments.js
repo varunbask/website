@@ -13,6 +13,7 @@ import {
 } from '../buckets.js';
 import { displayName, firstName } from '../format.js';
 import { getSeen, markSeen, isNewSince } from '../seen.js';
+import { resultLabel } from '../results.js';
 
 const LABELS = { todo: 'To do', 'in-review': 'In review', graded: 'Graded', archived: 'Archived' };
 const DOC_TITLES = {
@@ -66,7 +67,7 @@ export function mount(ctx) {
       current: key === sub,
       count: counts ? (key === 'todo' ? counts.todo : key === 'in-review' ? counts.inReview : 0) : 0,
       context: counts && key === 'todo'
-        ? `${counts.todo} to do${counts.todoOverdue ? `, ${counts.todoOverdue} overdue` : ''}`
+        ? `${counts.todo} to do${counts.todoOverdue ? `, ${counts.todoOverdue} missing` : ''}`
         : counts && key === 'in-review' ? `${counts.inReview} in review` : undefined,
     })),
   });
@@ -157,10 +158,10 @@ function todoList(items, opts) {
   return [groups.flatMap((g) => groupBlock(g, render)), total];
 }
 
-// "Attempt 2 of 5, previous score 86"
+// "Attempt 2 of 5, previous result Missing"
 function attemptMeta(item) {
   const parts = [`Attempt ${Math.max(1, item.attempts)} of ${MAX_SUBMISSIONS}`];
-  if (item.previousScore !== null && item.previousScore !== undefined) parts.push(`previous score ${item.previousScore}`);
+  if (resultLabel(item.previousResult)) parts.push(`previous result ${resultLabel(item.previousResult)}`);
   return parts.join(', ');
 }
 
@@ -212,7 +213,7 @@ function gradedList(items, opts) {
     const meta = isNew
       ? h('span', { class: 'asg-meta' }, newPill(), visuallyHidden(', '), feedback)
       : feedback;
-    // Staff rows get the "Released" pill from itemRow
+    // Every row shows its result (Completed or Missing) from itemRow
     return rowFor(item, opts, { meta });
   };
   return [groups.flatMap((g) => groupBlock(g, render)), total];

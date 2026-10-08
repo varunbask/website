@@ -94,13 +94,18 @@ describe('contact', () => {
 });
 
 describe('families', () => {
-  test('homework: the real attempt limit, the AI draft, tutor check, and where feedback appears', () => {
+  test('homework: the real attempt limit, the tutor review, the results, and where feedback appears', () => {
     for (const role of ['student', 'parent']) {
       const text = textsOf(helpSections(role).find((s) => s.id === 'homework')).join('\n');
       expect(text).toContain(`up to ${MAX_SUBMISSIONS} times`);
-      expect(text).toMatch(/AI assistant drafts a grade/);
-      expect(text).toMatch(/tutor checks every grade/);
+      expect(text).toMatch(/tutor reviews (the|your) work and marks it Completed, Missing or Extended, with feedback/);
       expect(text).toContain('Graded');
+      expect(text).not.toMatch(/\bAI\b|assistant|draft/);
+      // the three results, explained, and no score anywhere
+      expect(text).toMatch(/Completed: the work was done/);
+      expect(text).toMatch(/Missing: nothing usable was handed in/);
+      expect(text).toMatch(/Extended: more time, so the assignment goes back to To do with a new due date/);
+      expect(text).not.toMatch(/score/i);
       expect(text).toContain('20 MB');
     }
   });
@@ -121,11 +126,14 @@ describe('families', () => {
     expect(parent).toMatch(/Your child can turn them on/);
   });
 
-  test('rescheduling: no notice period and no charge for cancelling', () => {
+  test('rescheduling: who to tell, and nothing about notice periods or what cancelling costs', () => {
+    expect(textsOf(helpSections('student').find((s) => s.id === 'schedule')).join('\n'))
+      .toContain('Need to reschedule or cancel a lesson? Tell your tutor or email us.');
+    expect(textsOf(helpSections('parent').find((s) => s.id === 'schedule')).join('\n'))
+      .toContain('Need to reschedule or cancel a lesson? Tell your child’s tutor or email us.');
     for (const role of ['student', 'parent']) {
-      const text = textsOf(helpSections(role).find((s) => s.id === 'schedule')).join('\n');
-      expect(text).toContain('There is no charge for cancelling.');
-      expect(text).not.toMatch(/24 hours|Late cancellations/);
+      const text = allText(role);
+      expect(text).not.toMatch(/24 hours|Late cancellations|\bcharges?\b|\bfees?\b|\bfree\b/i);
     }
   });
 
@@ -144,6 +152,10 @@ describe('staff', () => {
     expect(text('notes')).toMatch(/family reads your notes/);
     expect(text('grading')).toContain('Release to family');
     expect(text('grading')).toMatch(/see nothing until you release/);
+    expect(text('grading')).toMatch(/Choose Completed when the work was done, Missing when nothing usable came in, or Extended/);
+    expect(text('grading')).toMatch(/pick the new due date/);
+    expect(text('grading')).toContain('use Extend');
+    expect(text('grading')).not.toMatch(/score/i);
     expect(text('google')).toContain('VP Education sessions');
     expect(text('google')).toContain('Reconnect Google Calendar');
     expect(text('keyboard')).toContain('Page Up and Page Down');

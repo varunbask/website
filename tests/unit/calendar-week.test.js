@@ -192,7 +192,7 @@ describe('sessions on the month', () => {
     const due = items([task(1, { title: 'Algebra worksheet', due_at: zonedIso(TODAY, '09:00') })]);
     const whoFor = () => 'Daniel Ortiz';
     expect(dayLabel(TODAY, due, TODAY, 'family', { sessions: [afternoon], whoFor, now: NOW }))
-      .toBe('Wednesday, October 14, today. 1 session: Algebra with Daniel Ortiz, 4:00 to 5:00 pm. 1 item: Algebra worksheet, overdue');
+      .toBe('Wednesday, October 14, today. 1 session: Algebra with Daniel Ortiz, 4:00 to 5:00 pm. 1 item: Algebra worksheet, missing');
     const tomorrow = [
       session('2026-10-15', '09:00', '10:00', { subject: 'SAT Reading' }),
       session('2026-10-15', '16:00', '17:00'),

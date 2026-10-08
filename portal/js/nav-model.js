@@ -42,7 +42,7 @@ function studentItems({ route, counts, fresh, family, staff }) {
   const sub = route?.sub ?? 'todo';
   const todoBadge = badge(
     counts.todo,
-    counts.todoOverdue > 0 ? `${counts.todo} to do, ${counts.todoOverdue} overdue` : `${counts.todo} to do`,
+    counts.todoOverdue > 0 ? `${counts.todo} to do, ${counts.todoOverdue} missing` : `${counts.todo} to do`,
     counts.todoOverdue > 0 ? 'danger' : 'neutral',
   );
   const subBadges = {

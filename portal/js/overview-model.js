@@ -1,5 +1,5 @@
 // Pure logic for the Overview views (spec 5.2 to 5.4): greetings, ledes, the
-// Due next pick, the rolling week strip, the 30-day score window, progress
+// Due next pick, the rolling week strip, the 30-day completion window, progress
 // metric wording and the staff review order for one student. No DOM, no network.
 //
 // "This week" is always rolling: today plus the next 6 days, keyed in the
@@ -12,6 +12,7 @@ import { byDue } from './format.js';
 import { itemStatus } from './status.js';
 import { queueOrder, attemptInfo } from './review-model.js';
 import { completionStats } from './progress.js';
+import { resultOf, completionCounts } from './results.js';
 
 export const WINDOW_DAYS = 30;
 export const WEEK_DAYS = 7;
@@ -23,7 +24,6 @@ const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const ms = (v) => (v instanceof Date ? v.getTime() : Date.parse(v));
 const counted = (n, one_, many) => `${n} ${n === 1 ? one_ : many}`;
 const verb = (n) => (n === 1 ? 'is' : 'are');
-const isScore = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
 
 // An item still waiting on the student: a To do assignment or an open task
 export function isOpen(item) {
@@ -63,24 +63,26 @@ function joinAnd(parts) {
 
 // Student lede: the work sentence, then the new-grades sentence. Counts come
 // from weekCounts; tasks are named only when there are some, so an
-// assignments-only week keeps the short wording.
+// assignments-only week keeps the short wording. An assignment past due with
+// nothing handed in is missing; a task past due is overdue.
 export function studentLede({
   overdue = 0, dueThisWeek = 0, overdueTasks = 0, tasksDueThisWeek = 0, newGrades = 0,
 } = {}) {
-  const lateTotal = overdue + overdueTasks;
+  const lateParts = [];
+  if (overdue > 0) lateParts.push(`${counted(overdue, 'assignment', 'assignments')} ${verb(overdue)} missing`);
+  if (overdueTasks > 0) lateParts.push(`${counted(overdueTasks, 'task', 'tasks')} ${verb(overdueTasks)} overdue`);
+  const late = lateParts.join(' and ');
   const dueTotal = dueThisWeek + tasksDueThisWeek;
-  const late = kindList(overdue, overdueTasks);
   const due = kindList(dueThisWeek, tasksDueThisWeek);
   const plain = overdueTasks === 0 && tasksDueThisWeek === 0;
   let text;
-  if (lateTotal > 0 && dueTotal > 0) {
-    if (plain) text = `${late} ${verb(lateTotal)} overdue and ${dueTotal} ${verb(dueTotal)} due this week.`;
-    // Both kinds on one side would stack two "and"s: two sentences instead
-    else if (late.includes(' and ') || due.includes(' and ')) {
-      text = `${late} ${verb(lateTotal)} overdue. ${due} ${verb(dueTotal)} due this week.`;
-    } else text = `${late} ${verb(lateTotal)} overdue and ${due} ${verb(dueTotal)} due this week.`;
-  } else if (lateTotal > 0) {
-    text = `${late} ${verb(lateTotal)} overdue.`;
+  if (late && dueTotal > 0) {
+    if (plain) text = `${late} and ${dueTotal} ${verb(dueTotal)} due this week.`;
+    // Two "and"s in one sentence read badly: two sentences instead
+    else if (lateParts.length > 1 || due.includes(' and ')) text = `${late}. ${due} ${verb(dueTotal)} due this week.`;
+    else text = `${late} and ${due} ${verb(dueTotal)} due this week.`;
+  } else if (late) {
+    text = `${late}.`;
   } else if (dueTotal > 0) {
     text = `${due} ${verb(dueTotal)} due this week.`;
   } else {
@@ -92,8 +94,8 @@ export function studentLede({
   return text;
 }
 
-// Parent lede, worded by kind:
-// "Maya has 2 assignments due this week and 1 overdue."
+// Parent lede, worded by kind (an assignment past due is missing, a task overdue):
+// "Maya has 2 assignments due this week and 1 missing."
 // "Maya has 2 assignments due this week and 1 overdue task."
 export function parentSummary(firstName, {
   overdue = 0, dueThisWeek = 0, overdueTasks = 0, tasksDueThisWeek = 0,
@@ -102,14 +104,14 @@ export function parentSummary(firstName, {
   const plural = (n, one_, many) => (n === 1 ? one_ : many);
   if (overdueTasks === 0 && tasksDueThisWeek === 0) {
     if (overdue > 0 && dueThisWeek > 0) {
-      return `${name} has ${counted(dueThisWeek, 'assignment', 'assignments')} due this week and ${overdue} overdue.`;
+      return `${name} has ${counted(dueThisWeek, 'assignment', 'assignments')} due this week and ${overdue} missing.`;
     }
-    if (overdue > 0) return `${name} has ${overdue} overdue ${plural(overdue, 'assignment', 'assignments')}.`;
+    if (overdue > 0) return `${name} has ${overdue} missing ${plural(overdue, 'assignment', 'assignments')}.`;
     if (dueThisWeek > 0) return `${name} has ${counted(dueThisWeek, 'assignment', 'assignments')} due this week.`;
     return `${name} is all caught up.`;
   }
   const late = [];
-  if (overdue > 0) late.push(`${overdue} overdue ${plural(overdue, 'assignment', 'assignments')}`);
+  if (overdue > 0) late.push(`${overdue} missing ${plural(overdue, 'assignment', 'assignments')}`);
   if (overdueTasks > 0) late.push(`${overdueTasks} overdue ${plural(overdueTasks, 'task', 'tasks')}`);
   const due = kindList(dueThisWeek, tasksDueThisWeek);
   if (!due) return `${name} has ${joinAnd(late)}.`;
@@ -193,10 +195,11 @@ export function openTasks(items, limit = 5) {
     .slice(0, limit);
 }
 
-// Items whose latest attempt has a released grade, newest release first
+// Items whose latest attempt was released as Completed or Missing, newest
+// release first (a released Extended is back in To do instead)
 export function gradedItems(items) {
   return (items ?? [])
-    .filter((i) => isAssignment(i) && i.grade?.released_at && isScore(i.grade.score))
+    .filter((i) => isAssignment(i) && i.grade?.released_at && ['completed', 'missing'].includes(resultOf(i.grade)))
     .sort((a, b) => ms(b.grade.released_at) - ms(a.grade.released_at));
 }
 
@@ -239,15 +242,16 @@ export function stripLabel(day, { audience = 'family' } = {}) {
 const CHIP = {
   overdue: ['overdue', 'warning-circle'],
   soon: ['soon', null],
+  extended: ['soon', 'clock'],
   todo: ['open', null],
-  'not-turned-in': ['open', null],
+  missing: ['attention', 'minus-circle'],
   submitted: ['submitted', 'hourglass-medium'],
   grading: ['submitted', 'hourglass-medium'],
-  'needs-attention': ['attention', 'x-circle'],
   failed: ['attention', 'x-circle'],
   draft: ['draft', 'pencil-simple-line'],
   edited: ['draft', 'pencil-simple-line'],
   graded: ['graded', 'check-circle'],
+  completed: ['graded', 'check-circle'],
   done: ['done', null],
 };
 
@@ -287,53 +291,42 @@ export function lastUpdateLabel(updates, now = new Date()) {
 }
 
 // ---------------------------------------------------------------------------
-// Progress (only released grades ever count, for every role)
+// Progress (only released results count, for every role, plus work never
+// handed in; the rules are completionCounts in results.js)
 
-const mean = (list) => list.reduce((sum, g) => sum + Number(g.score), 0) / list.length;
-
-// Released grades in the last 30 days against the 30 days before.
-// avg and prevAvg are rounded; delta = avg - prevAvg (null without both);
-// count is the grades in the current window; lastAt the newest release.
-export function scoreWindow(grades, now = new Date(), { days = WINDOW_DAYS } = {}) {
+// Completion over the last 30 days: the results decided in that window
+// (released, or a due date that passed with nothing handed in).
+// { completed, missing, total, rate, extended }
+export function completionWindow(tasks, submissions, now = new Date(), { days = WINDOW_DAYS } = {}) {
   const t = ms(now);
   const span = days * DAY;
-  const released = (grades ?? []).filter((g) => g?.released_at && isScore(g.score) && Number.isFinite(ms(g.released_at)));
-  const age = (g) => t - ms(g.released_at);
-  const current = released.filter((g) => age(g) <= span);
-  const previous = released.filter((g) => age(g) > span && age(g) <= 2 * span);
-  const avg = current.length ? Math.round(mean(current)) : null;
-  const prevAvg = previous.length ? Math.round(mean(previous)) : null;
-  const newest = released.reduce((best, g) => (!best || ms(g.released_at) > ms(best) ? g.released_at : best), null);
-  return {
-    avg,
-    prevAvg,
-    delta: avg !== null && prevAvg !== null ? avg - prevAvg : null,
-    count: current.length,
-    total: released.length,
-    lastAt: newest,
-  };
+  return completionCounts(tasks, submissions, now, { within: (at) => t - ms(at) <= span });
 }
 
-// "Up 4 from the 30 days before" / "Down 3 ..." / "Same as the 30 days before"
-export function trendText(delta) {
-  if (delta > 0) return `Up ${delta} from the 30 days before`;
-  if (delta < 0) return `Down ${-delta} from the 30 days before`;
-  return 'Same as the 30 days before';
+// "2 missing", "Nothing missing", "2 missing, 1 extended"
+function missingLine(missing, extended) {
+  const head = missing > 0 ? `${missing} missing` : 'Nothing missing';
+  return extended > 0 ? `${head}, ${extended} extended` : head;
 }
 
 // Metric wording. Each returns { value, suffix, isText, line, trend, danger }.
 
-export function averageMetric(grades, now = new Date()) {
-  const w = scoreWindow(grades, now);
-  if (!w.total) return { value: 'No grades yet', suffix: null, isText: true, line: null, trend: null, danger: false };
-  if (!w.count) {
-    return { value: 'None this month', suffix: null, isText: true, line: `Last grade ${shortDay(w.lastAt, now)}`, trend: null, danger: false };
+// "Completed, last 30 days": 8 of 10, "2 missing"
+export function completionMetric(tasks, submissions, now = new Date()) {
+  const all = completionCounts(tasks, submissions, now);
+  const w = completionWindow(tasks, submissions, now);
+  if (!all.total) {
+    return {
+      value: 'No results yet', suffix: null, isText: true,
+      line: w.extended ? `${w.extended} extended` : null, trend: null, danger: false,
+    };
   }
-  if (w.delta !== null) {
-    const trend = w.delta > 0 ? 'up' : w.delta < 0 ? 'down' : null;
-    return { value: String(w.avg), suffix: null, isText: false, line: trendText(w.delta), trend, danger: false };
+  if (!w.total) {
+    return { value: 'None this month', suffix: null, isText: true, line: missingLine(0, w.extended), trend: null, danger: false };
   }
-  return { value: String(w.avg), suffix: null, isText: false, line: `Based on ${counted(w.count, 'grade', 'grades')}`, trend: null, danger: false };
+  return {
+    value: String(w.completed), suffix: `of ${w.total}`, isText: false, line: missingLine(w.missing, w.extended), trend: null, danger: false,
+  };
 }
 
 // tasks: raw task rows (due_at, completed_at); a first submission sets

@@ -1,6 +1,6 @@
 import { describe, test, expect, vi } from 'vitest';
 import {
-  RESULTS_FORMAT, parseResults, buildMessageParts, requestGrade, gradeClaimed, sweep, removeOrphanFiles, MAX_ATTEMPTS,
+  RESULTS_FORMAT, AI_RESULTS, parseResults, buildMessageParts, requestGrade, gradeClaimed, sweep, removeOrphanFiles, MAX_ATTEMPTS,
   loadAssignmentFiles, MAX_ASSIGNMENT_FILES,
 } from '../../api/_lib/grader.js';
 import { PermanentGradingError } from '../../api/_lib/errors.js';
@@ -11,23 +11,34 @@ import { RGB_12X16, GRAY_16X8, fakeJpeg } from './jpeg-fixtures.js';
 
 describe('parseResults', () => {
   test('keeps well-formed results for ids in the batch', () => {
-    const data = completion({ results: [{ id: 7, feedback: 'Good', score: 92 }] });
-    expect(parseResults(data, [7])).toEqual([{ id: 7, feedback: 'Good', score: 92 }]);
+    const data = completion({ results: [{ id: 7, feedback: 'Good', result: 'completed' }] });
+    expect(parseResults(data, [7])).toEqual([{ id: 7, feedback: 'Good', result: 'completed' }]);
+    const missing = completion({ results: [{ id: 7, feedback: 'Blank page', result: 'missing' }] });
+    expect(parseResults(missing, [7])).toEqual([{ id: 7, feedback: 'Blank page', result: 'missing' }]);
   });
 
   test('drops malformed results and ids outside the batch', () => {
     const data = completion({
       results: [
-        { id: '1', feedback: 'OK', score: 80 },
-        { id: 2, feedback: 'No score' },
-        { id: 99, feedback: 'Not in batch', score: 50 },
+        { id: '1', feedback: 'OK', result: 'completed' },
+        { id: 2, feedback: 'No result' },
+        { id: 99, feedback: 'Not in batch', result: 'completed' },
       ],
     });
-    expect(parseResults(data, [1, 2])).toEqual([{ id: 1, feedback: 'OK', score: 80 }]);
+    expect(parseResults(data, [1, 2])).toEqual([{ id: 1, feedback: 'OK', result: 'completed' }]);
+  });
+
+  test('only completed or missing: extended is the tutor\'s call, and scores are gone', () => {
+    for (const result of ['extended', 'Completed', 'done', '', null, 92]) {
+      const data = completion({ results: [{ id: 1, feedback: 'x', result }] });
+      expect(parseResults(data, [1]), String(result)).toEqual([]);
+    }
+    const scored = completion({ results: [{ id: 1, feedback: 'x', score: 92 }] });
+    expect(parseResults(scored, [1])).toEqual([]);
   });
 
   test('tolerates a bare array', () => {
-    const data = { choices: [{ message: { content: JSON.stringify([{ id: 3, feedback: 'x', score: 1 }]) } }] };
+    const data = { choices: [{ message: { content: JSON.stringify([{ id: 3, feedback: 'x', result: 'missing' }]) } }] };
     expect(parseResults(data, [3])).toHaveLength(1);
   });
 
@@ -41,6 +52,15 @@ describe('RESULTS_FORMAT', () => {
     expect(RESULTS_FORMAT.type).toBe('json_schema');
     expect(RESULTS_FORMAT.json_schema.strict).toBe(true);
     expect(RESULTS_FORMAT.json_schema.schema.required).toEqual(['results']);
+  });
+
+  test('each item is an id, feedback and a result of completed or missing; no score', () => {
+    const item = RESULTS_FORMAT.json_schema.schema.properties.results.items;
+    expect(item.required).toEqual(['id', 'feedback', 'result']);
+    expect(item.additionalProperties).toBe(false);
+    expect(item.properties.result).toEqual({ type: 'string', enum: ['completed', 'missing'] });
+    expect(AI_RESULTS).toEqual(['completed', 'missing']);
+    expect(Object.keys(item.properties)).not.toContain('score');
   });
 });
 
@@ -61,7 +81,7 @@ const claimed = (over = {}) => ({
   ...over,
 });
 
-const okFetch = (result = { id: 7, feedback: '  Good work.  ', score: 92 }) =>
+const okFetch = (result = { id: 7, feedback: '  Good work.  ', result: 'completed' }) =>
   vi.fn(async () => ({ ok: true, status: 200, json: async () => completion({ results: [result] }) }));
 
 function fakeRepo(over = {}) {
@@ -125,7 +145,18 @@ describe('buildMessageParts', () => {
 
   test('the instructions contain no em dashes', () => {
     const parts = buildMessageParts({ id: 1, assignment: { title: 'Q', details: '' }, content: { kind: 'text', text: 'a' } });
-    expect(parts[0].text).not.toContain('\u2014');
+    expect(parts[0].text).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  test('the instructions ask for a result, not a score, and say what missing means', () => {
+    const [first] = buildMessageParts({ id: 1, assignment: { title: 'Q', details: '' }, content: { kind: 'text', text: 'a' } });
+    expect(first.text).toContain('There is no score.');
+    expect(first.text).toMatch(/"completed" when the student did the work/);
+    expect(first.text).toMatch(/"missing" when the work is blank, unreadable, unrelated to the assignment, or clearly not attempted/);
+    expect(first.text).toContain('result: "completed" | "missing"');
+    expect(first.text).not.toMatch(/0 to 100|score:/);
+    // the tutor sends the feedback as their own
+    expect(first.text).toContain('never mention AI, a grader or automatic grading');
   });
 });
 
@@ -135,7 +166,7 @@ describe('requestGrade', () => {
 
   test('asks for json_schema output with the configured model and key', async () => {
     const fetchImpl = okFetch();
-    expect(await requestGrade(parts, 7, opts(fetchImpl))).toEqual({ score: 92, feedback: '  Good work.  ' });
+    expect(await requestGrade(parts, 7, opts(fetchImpl))).toEqual({ result: 'completed', feedback: '  Good work.  ' });
     const [url, init] = fetchImpl.mock.calls[0];
     expect(url).toBe(ENV.LLM_ENDPOINT);
     expect(init.headers.Authorization).toBe('Bearer test-key');
@@ -154,7 +185,8 @@ describe('requestGrade', () => {
     for (const fetchImpl of [
       vi.fn(async () => ({ ok: false, status: 503, json: async () => ({}) })),
       vi.fn(async () => { throw new DOMException('timed out', 'TimeoutError'); }),
-      okFetch({ id: 99, feedback: 'wrong id', score: 1 }),
+      okFetch({ id: 99, feedback: 'wrong id', result: 'completed' }),
+      okFetch({ id: 7, feedback: 'a score, not a result', score: 90 }),
     ]) {
       const err = await requestGrade(parts, 7, opts(fetchImpl)).then(() => null, (e) => e);
       expect(err).toBeInstanceOf(Error);
@@ -164,13 +196,21 @@ describe('requestGrade', () => {
 });
 
 describe('gradeClaimed', () => {
-  test('saves the draft, clamped and trimmed, and marks the submission ai_graded', async () => {
+  test('saves the suggested result and trimmed feedback as a draft, and marks the submission ai_graded', async () => {
     const repo = fakeRepo();
-    const fetchImpl = okFetch({ id: 7, feedback: '  Good work.  ', score: 104.26 });
+    const fetchImpl = okFetch({ id: 7, feedback: '  Good work.  ', result: 'completed' });
     expect(await gradeClaimed(repo, claimed(), { env: ENV, fetchImpl, now })).toBe('ai_graded');
     expect(repo.download).toHaveBeenCalledWith('stu-1/abc.txt');
-    expect(repo.saveAiGrade).toHaveBeenCalledWith(7, { score: 100, feedback: 'Good work.' });
+    expect(repo.saveAiGrade).toHaveBeenCalledWith(7, { result: 'completed', feedback: 'Good work.' });
     expect(repo.setStatus).toHaveBeenCalledWith(7, { status: 'ai_graded', error: null, now: NOW });
+  });
+
+  test('a missing suggestion is saved the same way, never released', async () => {
+    const repo = fakeRepo();
+    const fetchImpl = okFetch({ id: 7, feedback: 'The page is blank.', result: 'missing' });
+    expect(await gradeClaimed(repo, claimed(), { env: ENV, fetchImpl, now })).toBe('ai_graded');
+    expect(repo.saveAiGrade).toHaveBeenCalledWith(7, { result: 'missing', feedback: 'The page is blank.' });
+    expect(JSON.stringify(repo.saveAiGrade.mock.calls)).not.toMatch(/released_at|score/);
   });
 
   test('a transient failure below the attempt cap goes back to pending', async () => {
@@ -213,7 +253,7 @@ describe('sweep', () => {
     const repo = fakeRepo({ listDue: vi.fn(async () => due) });
     const fetchImpl = vi.fn(async (url, init) => {
       const id = Number(JSON.parse(init.body).messages[0].content[2].text.match(/^ID: (\d+)/)[1]);
-      return { ok: true, status: 200, json: async () => completion({ results: [{ id, feedback: 'ok', score: 80 }] }) };
+      return { ok: true, status: 200, json: async () => completion({ results: [{ id, feedback: 'ok', result: 'completed' }] }) };
     });
     const summary = await sweep(repo, { env: ENV, fetchImpl, now, limit: 5 });
     expect(summary).toEqual({ reset: 0, ai_graded: 2, pending: 0, failed: 0, skipped: 0 });

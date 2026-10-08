@@ -148,22 +148,22 @@ describe.skipIf(!hasService)('portal row-level security', () => {
   });
 
   test('an unreleased grade is invisible to the student and parent, even through embeds', async () => {
-    await w.admin.from('grades').update({ score: 88, feedback: 'Draft' }).eq('submission_id', w.seed.SA1);
+    await w.admin.from('grades').update({ result: 'missing', feedback: 'Draft' }).eq('submission_id', w.seed.SA1);
     for (const who of ['studentA', 'parentA']) {
       const c = P[who].client;
       const { data: direct } = await c.from('grades').select('*').eq('submission_id', w.seed.SA1);
       expect(direct, who).toEqual([]);
-      const { data: sub } = await c.from('submissions').select('id, grade:grades(score, feedback)').eq('id', w.seed.SA1).single();
+      const { data: sub } = await c.from('submissions').select('id, grade:grades(result, feedback)').eq('id', w.seed.SA1).single();
       expect(rows(sub.grade), who).toEqual([]);
     }
-    const { data: draft } = await P.tutorA.client.from('grades').select('score').eq('submission_id', w.seed.SA1).single();
-    expect(Number(draft.score)).toBe(88);
+    const { data: draft } = await P.tutorA.client.from('grades').select('result').eq('submission_id', w.seed.SA1).single();
+    expect(draft.result).toBe('missing');
   });
 
   test('a tutor releases a grade; then the family sees it and the reviewer is stamped', async () => {
     const c = P.tutorA.client;
     const released = await c.from('grades')
-      .update({ score: 91, feedback: 'Nice work', released_at: new Date().toISOString() })
+      .update({ result: 'completed', feedback: 'Nice work', released_at: new Date().toISOString() })
       .eq('submission_id', w.seed.SA1).select('submission_id');
     expect(released.error).toBeNull();
     expect(released.data).toHaveLength(1);
@@ -171,11 +171,11 @@ describe.skipIf(!hasService)('portal row-level security', () => {
     expect(stamp.reviewed_by).toBe(P.tutorA.id);
     expect(stamp.reviewed_at).not.toBeNull();
     for (const who of ['studentA', 'parentA']) {
-      const { data } = await P[who].client.from('grades').select('score, feedback').eq('submission_id', w.seed.SA1).single();
-      expect(Number(data.score), who).toBe(91);
+      const { data } = await P[who].client.from('grades').select('result, feedback').eq('submission_id', w.seed.SA1).single();
+      expect(data.result, who).toBe('completed');
       expect(data.feedback, who).toBe('Nice work');
     }
-    expect((await c.from('grades').insert({ submission_id: w.seed.SA1, student_id: P.studentA.id, score: 1 })).error).not.toBeNull();
+    expect((await c.from('grades').insert({ submission_id: w.seed.SA1, student_id: P.studentA.id, result: 'completed' })).error).not.toBeNull();
     expect((await c.from('grades').update({ student_id: P.studentB.id }).eq('submission_id', w.seed.SA1)).error).not.toBeNull();
   });
 

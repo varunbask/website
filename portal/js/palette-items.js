@@ -18,6 +18,7 @@
 import { displayName, byDue, visibleEmail } from './format.js';
 import { navModel } from './nav-model.js';
 import { deriveItems } from './buckets.js';
+import { resultOf, resultLabel } from './results.js';
 import { upcomingSessions, sessionTitle, shortDayText } from './sessions-model.js';
 import { clockLabel } from './schedule-summary.js';
 import { dayKey, todayKey, longDate, shortDay, daysBetween } from './dates.js';
@@ -42,7 +43,7 @@ const PAGE_WORDS = {
   updates: 'messages news notes progress reports',
   todo: 'homework to do',
   'in-review': 'homework submitted waiting',
-  graded: 'homework grades scores',
+  graded: 'homework grades results completed missing',
   archived: 'homework old past',
   report: 'progress report print attendance',
   billing: 'bills statements invoices payments',
@@ -200,16 +201,18 @@ export function studentItems(students, { page = 'staff' } = {}) {
 
 const open = (item) => (item.task.kind === 'task' ? !item.task.completed_at : item.bucket === 'todo' || item.bucket === 'in-review');
 
-// "due Oct 9", "in review", "graded", "done"
+// "due Oct 9", "extended to Oct 12", "in review", "completed", "missing", "done"
 function statusText(item, now) {
   const { task } = item;
   const due = task.due_at ? `due ${shortDay(task.due_at, now)}` : null;
   if (task.kind === 'task') return task.completed_at ? 'done' : (due ?? 'no due date');
   switch (item.bucket) {
     case 'in-review': return 'in review';
-    case 'graded': return 'graded';
+    case 'graded': return resultLabel(resultOf(item.grade))?.toLowerCase() ?? 'graded';
     case 'archived': return 'archived';
-    default: return due ?? 'no due date';
+    default:
+      if (item.extended && task.due_at && item.dueState !== 'overdue') return `extended to ${shortDay(task.due_at, now)}`;
+      return due ?? 'no due date';
   }
 }
 
