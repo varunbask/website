@@ -46,9 +46,10 @@ import {
   inviteSummary, inviteEmptyText,
 } from '../invite-status-model.js';
 import {
-  avatar, button, iconButton, busy, pill, select, emptyState, errorCallout, skeletonRows,
+  button, iconButton, busy, pill, select, emptyState, errorCallout, skeletonRows,
   segmented, setSegmented, groupHeader, badgeText, visuallyHidden,
 } from '../ui.js';
+import { personAvatar, rememberPaths } from '../photos.js';
 import { displayName } from '../format.js';
 import { filterPeople, roleChangeBody, normalizeFullName, NAME_MAX } from '../app-model.js';
 import { relativeTime } from '../dates.js';
@@ -165,11 +166,17 @@ async function loadParentLinks() {
   return sb.from('parent_students').select('parent_id, student_id');
 }
 
-// profiles.no_login and portal_invites come with the invites migration, and
-// profiles.calendar_color with the tutor colors one; the page still loads
-// without them (no color pickers while the column is missing)
+// profiles.no_login and portal_invites come with the invites migration,
+// profiles.calendar_color with the tutor colors one, and avatar_path with the
+// profiles and photos one; the page still loads without them (no color pickers
+// while the column is missing, initials while the photos are)
 async function loadProfiles() {
   const fields = 'id, email, full_name, role, requested_role, signup_note, created_at';
+  const withPhoto = await sb.from('profiles').select(`${fields}, no_login, calendar_color, avatar_path`);
+  if (!withPhoto.error) {
+    rememberPaths(withPhoto.data);
+    return withPhoto;
+  }
   const withColor = await sb.from('profiles').select(`${fields}, no_login, calendar_color`);
   if (!withColor.error) return withColor;
   const withFlag = await sb.from('profiles').select(`${fields}, no_login`);
@@ -475,7 +482,7 @@ export function mount(ctx) {
 
     return h('li', { class: 'card ppl-card' },
       h('div', { class: 'ppl-card-head' },
-        avatar(name, { size: 40 }),
+        personAvatar(person.id, name, { size: 40 }),
         h('div', { class: 'ppl-id' },
           h('h2', { class: 'ppl-card-name', id: nameId }, name),
           person.email && person.email !== name ? h('span', { class: 'ppl-email' }, person.email) : null),
@@ -1270,7 +1277,7 @@ export function mount(ctx) {
             : h('button', { type: 'button', class: 'btn btn-ghost btn-sm ppl-pays', dataset: { focusKey: `pays-${student.id}-${p.id}` }, onClick: () => makePayer(p.id) }, h('span', { class: 'btn-label' }, 'Bill to')))
           : null;
         const chip = h(isTutor ? 'span' : 'li', { class: 'ppl-chip' },
-          avatar(pname, { size: 24 }),
+          personAvatar(p.id, pname, { size: 24 }),
           // The subject sits in the editable field beside a tutor's chip
           h('span', { class: 'ppl-chip-name' }, pname),
           pays,
@@ -1371,7 +1378,7 @@ export function mount(ctx) {
         const parentsOfChild = data.parentLinks.filter((l) => l.student_id === c.id).length;
         const pays = parentsOfChild > 1 && link && 'bills' in link && link.bills
           ? h('span', { class: 'pill tone-success ppl-pays' }, 'Pays') : null;
-        return h('li', { class: 'ppl-chip' }, avatar(cname, { size: 24 }), h('span', { class: 'ppl-chip-name' }, cname), pays, x);
+        return h('li', { class: 'ppl-chip' }, personAvatar(c.id, cname, { size: 24 }), h('span', { class: 'ppl-chip-name' }, cname), pays, x);
       }))
       : h('p', { class: 'ppl-none' }, 'None yet');
 
@@ -1569,7 +1576,7 @@ export function mount(ctx) {
 
     return h('li', { class: isStudent ? 'ppl-person is-student' : 'ppl-person' },
       h('div', { class: 'ppl-person-head' },
-        avatar(name, { size: 32 }),
+        personAvatar(person.id, name, { size: 32 }),
         h('div', { class: 'ppl-id' },
           nameField(person, name, self),
           person.email && person.email !== name && !person.no_login ? h('span', { class: 'ppl-email' }, person.email) : null,

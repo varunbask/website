@@ -13,7 +13,8 @@
 import { sb } from './supabase.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
-import { avatar, timeEl, pill, newPill } from './ui.js';
+import { timeEl, pill, newPill } from './ui.js';
+import { personAvatar } from './photos.js';
 import { menu } from './overlays.js';
 import { relativeTime } from './dates.js';
 
@@ -59,10 +60,10 @@ function audienceStatus(update, studentFirstName) {
   return { tone: 'neutral', icon: 'eye-slash', label: 'Family only' };
 }
 
-// A 32px avatar (28 when compact) in the staff tint; an unknown author gets a
-// chat glyph instead of made-up initials
-function authorAvatar(name, size) {
-  if (name) return avatar(name, { size, staff: true });
+// A 32px avatar (28 when compact) in the staff tint, with the author's photo
+// when they have one; an unknown author gets a chat glyph instead of made-up initials
+function authorAvatar(id, name, size) {
+  if (name) return personAvatar(id, name, { size, staff: true });
   return h('span', { class: `avatar avatar-${size} is-staff`, 'aria-hidden': 'true' }, icon('chat-circle-text'));
 }
 
@@ -110,7 +111,7 @@ export function updateItem(update, names, {
     class: compact ? 'upd-item is-compact' : 'upd-item',
     dataset: { updateId: String(update.id) },
   },
-  authorAvatar(author, size),
+  authorAvatar(update.author_id, author, size),
   h('div', { class: 'upd-main' },
     h('div', { class: 'upd-top' }, head, actions),
     h('p', { class: 'upd-body' }, update.body ?? '')));

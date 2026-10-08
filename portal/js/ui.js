@@ -5,6 +5,9 @@
 //
 // Pure pieces (badgeText, initials, avatarSize, rowAside, rowMeta, drawerHref,
 // buttonClass) are exported for tests; they never touch the DOM.
+//
+// avatar(name, { size, staff, src }) draws initials, with a photo over them when
+// src is given; photos.js (personAvatar) finds the src for a person.
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
@@ -231,8 +234,10 @@ export function draftChip(grade) {
 }
 
 // A count badge with hidden context ("4 to do, 1 overdue"); null at zero.
-// Also takes a nav-model badge ({ n, text, tone, context }).
-export function badge({ n, tone = 'neutral', context } = {}) {
+// Also takes a nav-model badge ({ n, text, tone, context }). A dot ({ dot:
+// true, context }) is a small mark with no number; only its context is read.
+export function badge({ n, tone = 'neutral', context, dot = false } = {}) {
+  if (dot) return h('span', { class: 'badge is-dot' }, visuallyHidden(context || 'Needs attention'));
   const text = badgeText(n);
   if (!text) return null;
   return h('span', { class: tone === 'danger' ? 'badge is-danger' : 'badge' },
@@ -244,13 +249,37 @@ export function newPill() {
   return h('span', { class: 'new-pill' }, 'New');
 }
 
-// Initials in a rounded square; decorative (the name is always shown beside it)
-export function avatar(name, { size = 32, staff = false } = {}) {
+// Initials in a rounded square; decorative (the name is always shown beside it).
+// With src, the photo is drawn over the initials in the same box, so nothing
+// moves while it loads, and the initials show again if it fails.
+export function avatar(name, { size = 32, staff = false, src = null } = {}) {
   const s = avatarSize(size);
-  return h('span', {
+  const el = h('span', {
     class: ['avatar', `avatar-${s}`, staff ? 'is-staff' : null].filter(Boolean).join(' '),
     'aria-hidden': 'true',
   }, initials(name));
+  if (src) setAvatarPhoto(el, src);
+  return el;
+}
+
+// Puts a photo into an avatar (or swaps it), or takes it out with no src
+export function setAvatarPhoto(el, src) {
+  const old = el.querySelector(':scope > img');
+  if (!src) {
+    old?.remove();
+    el.classList.remove('has-photo');
+    return el;
+  }
+  if (old?.getAttribute('src') === src) return el;
+  const img = h('img', { src, alt: '', loading: 'lazy', decoding: 'async', draggable: 'false' });
+  img.addEventListener('error', () => {
+    img.remove();
+    if (!el.querySelector(':scope > img')) el.classList.remove('has-photo');
+  }, { once: true });
+  if (old) old.replaceWith(img);
+  else el.append(img);
+  el.classList.add('has-photo');
+  return el;
 }
 
 // <time datetime title>5 minutes ago</time>

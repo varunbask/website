@@ -17,6 +17,8 @@ import { colorMap, setTutorColors, tutorColors } from './tutor-colors-model.js';
 import { zonedIso } from './dates.js';
 import { busyBlocks } from './sessions-model.js';
 import { STALE_MS, isStale, oldestStamp } from './freshness.js';
+import { rememberPaths, ensurePhotos, photoPath } from './photos.js';
+import { loadStudentFields, loadStaffFields, loadStaffCards, loadStudentSummaries } from './profile-data.js';
 
 const students = new Map();   // studentId -> Promise<StudentData>
 const updates = new Map();    // studentId -> Promise<Update[]>
@@ -25,6 +27,9 @@ const tutors = new Map();     // studentId -> Promise<{ tutor_id, full_name, sub
 const materials = new Map();  // studentId -> Promise<Material[]>
 const files = new Map();      // studentId -> Promise<Material[] with their task> (the Files page)
 const children = new Map();   // parentId -> Promise<Profile[]>
+const profileStatus = new Map();  // 'student:<id>' | 'staff:<id>' -> Promise<{ profile, avatarPath }>
+const staffCards = new Map();     // studentId -> Promise<Map<tutor id, staff_profiles row>>
+let studentSummaries = null;  // Promise<Map<student id, { grade_level, school, interests }>> | null (staff)
 let workspace = null;         // Promise<Workspace> | null
 let pending = null;           // Promise<number> | null
 let billing = null;           // Promise<Billing> | null (admin's Account page)
@@ -243,9 +248,21 @@ async function selectAll(makeQuery) {
   }
 }
 
+// Profile rows with their photo path. avatar_path comes with the profiles and
+// photos migration; without it the rows load as before and photos.js asks
+// person_cards() (which then fails quietly too: initials everywhere).
+async function selectPeople(makeQuery) {
+  const withPhoto = await makeQuery('id, full_name, email, avatar_path');
+  if (!withPhoto.error) {
+    rememberPaths(withPhoto.data);
+    return withPhoto;
+  }
+  return makeQuery('id, full_name, email');
+}
+
 async function loadWorkspace() {
   const [people, tasks, subs, sess, links] = await Promise.all([
-    selectAll(() => sb.from('profiles').select('id, full_name, email').eq('role', 'student').order('id')),
+    selectPeople((fields) => selectAll(() => sb.from('profiles').select(fields).eq('role', 'student').order('id'))),
     selectAll(() => sb.from('tasks').select('id, student_id, kind, title, due_at, extended_from, completed_at, created_at, session_id, series_id').order('id')),
     selectAll(() => sb.from('submissions')
       .select('id, task_id, student_id, file_type, status, error, attempts, status_changed_at, created_at, grade:grades(result, reviewed_at, released_at)')
@@ -289,7 +306,7 @@ async function loadChildren(parentId) {
   if (links.error) throw links.error;
   const ids = (links.data ?? []).map((l) => l.student_id);
   if (!ids.length) return [];
-  const kids = await sb.from('profiles').select('id, full_name, email').in('id', ids);
+  const kids = await selectPeople((fields) => sb.from('profiles').select(fields).in('id', ids));
   if (kids.error) throw kids.error;
   return [...(kids.data ?? [])].sort(byName);
 }
@@ -315,6 +332,51 @@ export function getPendingCount() {
     promise.catch(() => { if (pending === promise) pending = null; });
   }
   return pending;
+}
+
+// ---------------------------------------------------------------------------
+// Profiles (the Profile page, the "Finish your profile" cards and the nav dot)
+
+async function loadProfileStatus(kind, id) {
+  const [profile] = await Promise.all([
+    kind === 'staff' ? loadStaffFields(id) : loadStudentFields(id),
+    ensurePhotos([id]),
+  ]);
+  return { profile, avatarPath: photoPath(id) ?? null };
+}
+
+// { profile, avatarPath } for profileProgress(): kind 'student' (a student's
+// family fields, read through family_profile) or 'staff' (their staff_profiles row)
+export function getProfileStatus(kind, id) {
+  return remember(profileStatus, `${kind === 'staff' ? 'staff' : 'student'}:${id}`, () => loadProfileStatus(kind, id));
+}
+
+// Staff: the required fields of every student profile they may read (the
+// Students list marks the ones not filled in)
+export function getStudentSummaries() {
+  if (!studentSummaries) {
+    const promise = loadStudentSummaries();
+    studentSummaries = promise;
+    promise.catch(() => { if (studentSummaries === promise) studentSummaries = null; });
+  }
+  return studentSummaries;
+}
+
+// The staff profiles of a student's tutors ("Your tutors" on the family
+// Overview): Map of tutor id -> row, only the ones the viewer may read
+export function getStaffCards(studentId, tutorIds) {
+  return remember(staffCards, String(studentId), () => loadStaffCards(tutorIds));
+}
+
+// After someone saves a profile or a photo: every profile status loads again
+// and the page and its nav catch up. quiet: no change event (the Profile page
+// updates itself in place and asks for the nav with ctx.refreshNav(), so a
+// half-typed form is never redrawn)
+export function invalidateProfile({ quiet = false } = {}) {
+  profileStatus.clear();
+  staffCards.clear();
+  studentSummaries = null;
+  if (!quiet) emit(['profile']);
 }
 
 // ---------------------------------------------------------------------------
@@ -443,7 +505,8 @@ export function asLive(fn) {
 
 function dropStudent(studentId) {
   const id = String(studentId);
-  for (const map of [students, updates, sessions, tutors, materials, files]) map.delete(id);
+  for (const map of [students, updates, sessions, tutors, materials, files, staffCards]) map.delete(id);
+  profileStatus.delete(`student:${id}`);
 }
 
 // When the oldest piece of a student's cache (data, sessions, updates, tutors,
@@ -472,6 +535,7 @@ export function dropIfStale(studentId, { now = Date.now(), maxAge = STALE_MS } =
 export function invalidate(studentId) {
   if (studentId !== null && studentId !== undefined) dropStudent(studentId);
   workspace = null;
+  studentSummaries = null;
   // Sessions changed: their money did too
   billing = null;
   emit([studentId === null || studentId === undefined ? '*' : String(studentId)]);
@@ -483,6 +547,9 @@ export function invalidate(studentId) {
 export function invalidatePeople() {
   children.clear();
   tutors.clear();
+  staffCards.clear();
+  profileStatus.clear();
+  studentSummaries = null;
   workspace = null;
   pending = null;
   billing = null;
@@ -505,6 +572,9 @@ export function invalidateAll() {
   materials.clear();
   files.clear();
   children.clear();
+  profileStatus.clear();
+  staffCards.clear();
+  studentSummaries = null;
   workspace = null;
   pending = null;
   billing = null;

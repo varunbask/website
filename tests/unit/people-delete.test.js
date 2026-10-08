@@ -4,7 +4,7 @@ import {
 } from '../../api/_lib/people.js';
 import {
   nameMatches, confirmNameOf, firstNameOf, refusalMessage, payPeriodStart, laDay, paidSessionCount, blockerOf,
-  failureCode, createDeleteRepo, HOMEWORK_BUCKET, MATERIALS_BUCKET,
+  failureCode, createDeleteRepo, HOMEWORK_BUCKET, MATERIALS_BUCKET, AVATARS_BUCKET,
 } from '../../api/_lib/people-delete.js';
 
 const NOW = Date.parse('2026-10-14T19:00:00Z');
@@ -472,6 +472,21 @@ describe('deleting', () => {
     expect(res.status).toBe(200);
   });
 
+  test('their profile photos are removed too, and counted with the files', async () => {
+    const f = fakes({ files: { homework: [`${CONSTANCE}/a.pdf`], materials: [], avatars: [`${CONSTANCE}/aB3_x-9kLmNoPqRs.webp`] } });
+    const { res, json } = await remove(CONSTANCE, 'Constance Lin', f);
+    expect(res.status).toBe(200);
+    expect(json.removed.files).toBe(2);
+    expect(json.warnings).toEqual([]);
+    expect(f.repo.removeFiles).toHaveBeenCalledWith(AVATARS_BUCKET, [`${CONSTANCE}/aB3_x-9kLmNoPqRs.webp`]);
+  });
+
+  test('no photo, no call to the avatars bucket', async () => {
+    const f = fakes();
+    await remove(CONSTANCE, 'Constance Lin', f);
+    expect(f.repo.removeFiles.mock.calls.map(([bucket]) => bucket)).not.toContain(AVATARS_BUCKET);
+  });
+
   test('a failed file cleanup is reported as a warning; the delete stands and the rest still runs', async () => {
     const f = fakes();
     f.repo.removeFiles.mockRejectedValueOnce(new Error('storage down'));
@@ -720,6 +735,29 @@ describe('the repo', () => {
     // a tutor's lessons: the materials on them sit in their students' folders
     const tutor = await repo.filesOf(DANIEL, [1, 2]);
     expect(tutor.materials).toEqual([`${MAYA}/lesson.pptx`]);
+  });
+
+  test('files: the person\'s own photo folder, and nobody else\'s', async () => {
+    const db = fakeSupabase(world(), { [AVATARS_BUCKET]: [`${CONSTANCE}/aaaaaaaaaaaaaaaa.webp`, `${MAYA}/bbbbbbbbbbbbbbbb.webp`] });
+    expect((await createDeleteRepo(db).filesOf(CONSTANCE, [])).avatars).toEqual([`${CONSTANCE}/aaaaaaaaaaaaaaaa.webp`]);
+  });
+
+  test('files: no avatars bucket yet (the migration has not run) is no photos, not an error', async () => {
+    const db = fakeSupabase(world());
+    const real = db.storage.from;
+    db.storage.from = (bucket) => (bucket === AVATARS_BUCKET
+      ? { list: async () => ({ data: null, error: { message: 'Bucket not found' } }) }
+      : real(bucket));
+    expect((await createDeleteRepo(db).filesOf(CONSTANCE, [])).avatars).toEqual([]);
+  });
+
+  test('files: any other failure listing the photos stops the delete, so no photo is left behind', async () => {
+    const db = fakeSupabase(world());
+    const real = db.storage.from;
+    db.storage.from = (bucket) => (bucket === AVATARS_BUCKET
+      ? { list: async () => ({ data: null, error: { message: 'connection reset' } }) }
+      : real(bucket));
+    await expect(createDeleteRepo(db).filesOf(CONSTANCE, [])).rejects.toThrow('list avatars: connection reset');
   });
 
   test('files: a long folder is listed a page at a time', async () => {

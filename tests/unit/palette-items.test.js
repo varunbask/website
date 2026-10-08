@@ -35,8 +35,9 @@ const find = (items, key) => items.find((i) => i.key === key);
 describe('pageItems', () => {
   test('a student: the family pages, with Assignments sub-pages that only search finds', () => {
     const items = pageItems({ role: 'student', page: 'student', scope: { student: MAYA } });
-    expect(titles(items)).toEqual(['Overview', 'Assignments', 'To do', 'In review', 'Graded', 'Archived', 'Tasks', 'Files', 'Calendar', 'Updates', 'Report', 'Help']);
-    expect(items.filter((i) => i.browse).map((i) => i.title)).toEqual(['Overview', 'Assignments', 'Tasks', 'Files', 'Calendar', 'Updates', 'Report', 'Help']);
+    expect(titles(items)).toEqual(['Overview', 'Assignments', 'To do', 'In review', 'Graded', 'Archived', 'Tasks', 'Files', 'Calendar', 'Updates', 'Report', 'Profile', 'Help']);
+    expect(items.filter((i) => i.browse).map((i) => i.title)).toEqual(['Overview', 'Assignments', 'Tasks', 'Files', 'Calendar', 'Updates', 'Report', 'Profile', 'Help']);
+    expect(find(items, 'page:profile')).toMatchObject({ icon: 'user', target: { href: '#/profile' } });
     expect(find(items, 'page:overview:s1').target).toEqual({ href: '#/overview' });
     expect(find(items, 'page:graded:s1')).toMatchObject({ title: 'Graded', meta: 'Assignments', target: { href: '#/assignments/graded' }, browse: false });
     expect(items.every((i) => i.type === 'page' && i.icon && i.group === undefined)).toBe(true);
@@ -58,6 +59,8 @@ describe('pageItems', () => {
     const items = pageItems({ role: 'parent', page: 'parent', scope: { student: MAYA }, multiple: true });
     expect(items.filter((i) => i.key !== 'page:help').every((i) => i.group === 'student-page' && i.groupLabel === 'Maya Chen’s pages')).toBe(true);
     expect(keys(items)).toContain('page:overview:s1');
+    // the Profile page is the child's
+    expect(find(items, 'page:profile:s1')).toMatchObject({ group: 'student-page', target: { href: '#/profile' } });
   });
 
   test('a parent with no linked child only has Overview', () => {
@@ -68,7 +71,7 @@ describe('pageItems', () => {
 
   test('a tutor with no student: the workspace pages only', () => {
     const items = pageItems({ role: 'tutor', page: 'staff', scope: null });
-    expect(titles(items)).toEqual(['Today', 'Review queue', 'Students', 'Calendar', 'Help']);
+    expect(titles(items)).toEqual(['Today', 'Review queue', 'Students', 'Calendar', 'Profile', 'Help']);
     expect(find(items, 'page:today').target.href).toBe('#/today');
     expect(find(items, 'page:calendar-all')).toMatchObject({ meta: 'All students', target: { href: '#/calendar?scope=all' } });
     expect(items.every((i) => i.browse)).toBe(true);
@@ -79,7 +82,8 @@ describe('pageItems', () => {
     const own = items.filter((i) => i.group === 'student-page');
     expect(own.map((i) => i.title)).toEqual(['Overview', 'Assignments', 'To do', 'In review', 'Graded', 'Archived', 'Tasks', 'Files', 'Calendar', 'Updates', 'Report']);
     expect(own.every((i) => i.groupLabel === 'Leo Park’s pages' && i.key.endsWith(':s2'))).toBe(true);
-    expect(items.filter((i) => !i.group).map((i) => i.title)).toEqual(['Today', 'Review queue', 'Students', 'Calendar', 'Help']);
+    expect(items.filter((i) => !i.group).map((i) => i.title)).toEqual(['Today', 'Review queue', 'Students', 'Calendar', 'Profile', 'Help']);
+    expect(find(items, 'page:profile').target.href).toBe('#/profile');
   });
 
   test('a student without a full name is called by their email', () => {
@@ -93,7 +97,7 @@ describe('pageItems', () => {
     expect(find(items, 'page:account').target.href).toBe('/portal/account.html#/dashboard');
     expect(find(items, 'page:account-payroll')).toMatchObject({ title: 'Payroll', meta: 'Account', target: { href: '/portal/account.html#/payroll' }, browse: false });
     expect(find(items, 'page:people-everyone').target.href).toBe('/portal/people.html#/everyone');
-    expect(titles(items.filter((i) => i.browse))).toEqual(['Today', 'Review queue', 'Students', 'Calendar', 'People', 'Account', 'Help']);
+    expect(titles(items.filter((i) => i.browse))).toEqual(['Today', 'Review queue', 'Students', 'Calendar', 'People', 'Account', 'Profile', 'Help']);
   });
 
   test('a tutor never sees the admin pages', () => {
@@ -171,7 +175,7 @@ describe('staticItems', () => {
 
   test('staff get pages and actions, in that order, and no children', () => {
     const items = staticItems({ me: { id: 't1', role: 'tutor' }, page: 'staff', scope: { student: MAYA }, options: [MAYA, LEO] });
-    expect(items.map((i) => i.type)).toEqual([...Array(16).fill('page'), 'action', 'action', 'action']);
+    expect(items.map((i) => i.type)).toEqual([...Array(17).fill('page'), 'action', 'action', 'action']);
   });
 
   test('students get pages only', () => {
@@ -457,7 +461,7 @@ describe('the palette end to end', () => {
   test('an empty box shows pages and actions, in groups', () => {
     const { groups } = group(browse(items), { perGroup: 12, total: 30 });
     expect(groups.map((g) => g.label)).toEqual(['Pages', 'Maya Chen’s pages', 'Actions']);
-    expect(groups.map((g) => g.entries.length)).toEqual([5, 7, 3]);
+    expect(groups.map((g) => g.entries.length)).toEqual([6, 7, 3]);
   });
 
   test('recent picks lead and are not repeated below', () => {

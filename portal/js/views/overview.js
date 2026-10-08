@@ -1,7 +1,9 @@
 // Overview (#/overview), spec 5.2 to 5.4. Three variants, chosen by ctx.page:
-//   student  greeting, Due next, Latest grade, Upcoming sessions, Your tutors,
+//   student  "Finish your profile" (until it is), greeting, Due next, Latest
+//            grade, Upcoming sessions, Your tutors (photos and what each wrote),
 //            This week, Tasks, From your tutor, Recent sessions, Progress
-//   parent   "Maya’s week", Your children (two or more children only), Overdue,
+//   parent   "Help us get to know Maya" (until her profile is done), "Maya’s
+//            week", Your children (two or more children only), Overdue,
 //            Upcoming sessions, Maya’s tutors, updates, Recently graded,
 //            Recent sessions, Coming up, Progress; with no linked child, a
 //            single welcome empty state
@@ -14,7 +16,7 @@
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import {
-  button, pill, newPill, avatar, emptyState, errorCallout, itemRow, rowList, visuallyHidden, labelPart,
+  button, pill, newPill, emptyState, errorCallout, itemRow, rowList, visuallyHidden, labelPart,
 } from '../ui.js';
 import { itemStatus, resultStatus } from '../status.js';
 import { resultOf } from '../results.js';
@@ -34,6 +36,8 @@ import { progressPanel } from '../progress-panel.js';
 import { loadStaffProfile } from '../student-profile-data.js';
 import { staffProfileCards, familyAboutCard } from '../student-profile-card.js';
 import { headerEmail } from '../student-profile-model.js';
+import { personAvatar } from '../photos.js';
+import { loadNudge, profileNudge } from '../profile-nudge.js';
 import {
   recentRows, showChildrenRow, childHref, childSummary, childLines,
 } from '../family-model.js';
@@ -221,12 +225,17 @@ async function loadAll(ctx, studentId, { tutors: wantTutors = true } = {}) {
   const data = await ctx.store.getStudentData(studentId);
   await colors;
   const tutorRows = await tutors;
+  // What each tutor wrote about themselves (staff_profiles): a quiet extra, so
+  // a failure only leaves the card without bios
+  const cards = tutorRows?.length
+    ? await ctx.store.getStaffCards(studentId, tutorRows.map((t) => t.tutor_id)).catch(() => new Map())
+    : new Map();
   // staffNames may be empty (or not name this tutor): the tutor list has names too
   const known = new Map((await names) ?? []);
   for (const t of tutorRows ?? []) {
     if (t.full_name && !known.has(String(t.tutor_id))) known.set(String(t.tutor_id), t.full_name.trim());
   }
-  return { data, updates: await updates, sessions: await sessions, tutors: tutorRows, names: known };
+  return { data, updates: await updates, sessions: await sessions, tutors: tutorRows, names: known, cards };
 }
 
 // ---------------------------------------------------------------------------
@@ -353,9 +362,67 @@ function nextSessionCard(ctx, { sessions, names, studentId }) {
   return card;
 }
 
-// The student's tutors with their subjects, the subject in the tutor's colour
+// Each tutor once, with every subject they teach this student
+function tutorPeople(entries) {
+  const byId = new Map();
+  for (const t of entries) {
+    const id = String(t.id);
+    if (!byId.has(id)) byId.set(id, { id: t.id, name: t.name, subjects: [] });
+    if (t.subject) byId.get(id).subjects.push({ subject: t.subject, tone: t.tone });
+  }
+  return [...byId.values()];
+}
+
+const BIO_SHORT = 140;   // longer than this, the bio is clamped with a "More about" button
+
+// One tutor: photo, name, subjects in the tutor's colour, then what they wrote
+// about themselves (staff_profiles) when there is something
+function tutorItem(ctx, t, card) {
+  const clean = (v) => String(v ?? '').trim();
+  const bio = clean(card?.bio);
+  const teaches = clean(card?.subjects);
+  const education = clean(card?.education);
+  const interests = clean(card?.interests);
+  const first = firstName(t.name);
+  const extra = [
+    education ? h('div', { class: 'prf-tutor-fact' }, h('dt', {}, 'School or university'), h('dd', {}, education)) : null,
+    interests ? h('div', { class: 'prf-tutor-fact' }, h('dt', {}, 'Hobbies and interests'), h('dd', {}, interests)) : null,
+  ].filter(Boolean);
+  const more = extra.length ? h('dl', { class: 'prf-tutor-more', id: uid('prf-tutor-more') }, extra) : null;
+  const bioEl = bio ? h('p', { class: 'prf-tutor-bio is-clamped' }, bio) : null;
+  let toggle = null;
+  if (more || (bio && bio.length > BIO_SHORT)) {
+    if (more) more.hidden = true;
+    toggle = button({ label: `More about ${first}`, variant: 'ghost', size: 'sm', className: 'prf-tutor-toggle', iconEnd: 'caret-down' });
+    toggle.setAttribute('aria-expanded', 'false');
+    if (more) toggle.setAttribute('aria-controls', more.id);
+    toggle.addEventListener('click', () => {
+      const open = toggle.getAttribute('aria-expanded') !== 'true';
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      toggle.querySelector('.btn-label').textContent = open ? 'Show less' : `More about ${first}`;
+      bioEl?.classList.toggle('is-clamped', !open);
+      if (more) more.hidden = !open;
+    });
+  } else {
+    bioEl?.classList.remove('is-clamped');
+  }
+  return h('li', { class: card ? 'ovw-tutor prf-tutor has-card' : 'ovw-tutor prf-tutor' },
+    personAvatar(t.id, t.name, { size: 40, staff: true }),
+    h('span', { class: 'ovw-tutor-main' },
+      h('span', { class: 'ovw-tutor-name' }, t.name),
+      t.subjects.length
+        ? h('span', { class: 'prf-tutor-subjs' }, t.subjects.map((x) => h('span', { class: `ovw-subj ${x.tone}` }, x.subject)))
+        : null,
+      teaches ? h('span', { class: 'prf-tutor-teaches' }, `Teaches ${teaches}`) : null,
+      bioEl,
+      more,
+      toggle));
+}
+
+// The student's tutors: photo, name and subjects (in the tutor's colour), and
+// what each tutor wrote about themselves on their own Profile page
 // invite: a student's "Get Google Calendar invites" control in the card's footer
-function tutorsCard(ctx, { span, title, tutors, names, studentId, invite = false }) {
+function tutorsCard(ctx, { span, title, tutors, names, studentId, invite = false, cards = new Map() }) {
   const titleId = uid('ovw-tutors');
   const card = h('section', { class: `card is-list ${span} ovw-tutors`, 'aria-labelledby': titleId },
     cardHead(title, { id: titleId }));
@@ -363,13 +430,9 @@ function tutorsCard(ctx, { span, title, tutors, names, studentId, invite = false
     card.append(cardError('We couldn’t load tutors.', () => ctx.store.invalidate(studentId)));
     return card;
   }
-  const list = tutorEntries(tutors, names);
-  card.append(list.length
-    ? h('ul', { class: 'ovw-tutor-list', 'aria-label': title }, list.map((t) => h('li', { class: 'ovw-tutor' },
-      avatar(t.name, { size: 32, staff: true }),
-      h('span', { class: 'ovw-tutor-main' },
-        h('span', { class: 'ovw-tutor-name' }, t.name),
-        t.subject ? h('span', { class: `ovw-subj ${t.tone}` }, t.subject) : null))))
+  const people = tutorPeople(tutorEntries(tutors, names));
+  card.append(people.length
+    ? h('ul', { class: 'ovw-tutor-list', 'aria-label': title }, people.map((t) => tutorItem(ctx, t, cards?.get?.(String(t.id)))))
     : cardEmpty('No tutors linked yet.', 'users-three'));
   if (invite) card.append(h('div', { class: 'card-foot ovw-tutors-foot' }, studentInviteControl({ toast: ctx.toast })));
   return card;
@@ -594,6 +657,9 @@ async function mountStudent(ctx) {
   const body = loadingGrid(['span-8', 'span-4', 'span-8', 'span-4', 'span-12']);
   ctx.host.append(body);
 
+  // "Finish your profile" loads beside the page (never rejects), so the card is
+  // in place on the first render and nothing moves under the reader
+  const nudgeLoad = loadNudge(ctx, { kind: 'student', person: student });
   let loaded;
   try {
     loaded = await loadAll(ctx, student.id);
@@ -604,9 +670,10 @@ async function mountStudent(ctx) {
     body.replaceWith(loadError(ctx, student.id));
     return;
   }
+  const nudgeStatus = await nudgeLoad;
   if (!ctx.alive()) return;
 
-  const { data, updates, sessions, tutors, names } = loaded;
+  const { data, updates, sessions, tutors, names, cards } = loaded;
   const now = ctx.now;
   const items = ctx.store.itemsFor(data, { now, audience: ctx.audience, viewerId: ctx.me.id });
   const seen = getSeen('graded', ctx.me.id, student.id);
@@ -621,10 +688,11 @@ async function mountStudent(ctx) {
   const today = todayKey(now);
 
   const blocks = [
+    profileNudge(ctx, { kind: 'student', person: student, status: nudgeStatus }),
     dueNextSection(ctx, dueNext(items)),
     latestGradeCard(ctx, latest, latestNew),
     sessionsCard(ctx, { span: 'span-8', sessions, names, seen: getSeen('schedule', ctx.me.id, student.id), studentId: student.id }),
-    tutorsCard(ctx, { span: 'span-4', title: 'Your tutors', tutors, names, studentId: student.id, invite: ctx.me.role === 'student' }),
+    tutorsCard(ctx, { span: 'span-4', title: 'Your tutors', tutors, names, studentId: student.id, invite: ctx.me.role === 'student', cards }),
     weekCard(ctx, weekStrip(items, today), today),
     tasksCard(ctx, openTasks(items, 5)),
     updatesCard(ctx, {
@@ -642,7 +710,7 @@ async function mountStudent(ctx) {
     // grade for anything not released.
     h('div', { class: 'span-12' }, progressPanel({ items, tasks: data.tasks, submissions: data.submissions, now })),
     familyAboutCard(ctx, student),
-  ];
+  ].filter(Boolean);
   animate(ctx, blocks);
   body.replaceWith(h('div', { class: 'grid-12 ovw-grid' }, blocks));
   ctx.announce(`Overview. ${ledeText}`);
@@ -700,7 +768,7 @@ function kidItem(ctx, summary, currentId) {
     dataset: { focusKey: `child-${summary.id}` },
   },
   h('span', { class: 'ovw-kid-head' },
-    avatar(summary.name, { size: 32 }),
+    personAvatar(summary.id, summary.name, { size: 32 }),
     h('span', { class: 'ovw-kid-name' }, summary.name),
     current ? pill({ label: 'Viewing', tone: 'neutral' }) : null),
   lines.next ? kidLine('calendar-blank', lines.next) : kidLine('info', { text: 'Schedule unavailable', tone: 'quiet' }),
@@ -799,6 +867,7 @@ async function mountParent(ctx) {
   // store). Failing to list them just means no "Your children" row.
   const kidsLoad = ctx.store.getChildren(ctx.me.id).then((kids) => kids ?? [], () => []);
   const summariesLoad = kidsLoad.then((kids) => (showChildrenRow(kids) ? loadChildSummaries(ctx, kids, student.id) : null));
+  const nudgeLoad = loadNudge(ctx, { kind: 'student', person: student });
 
   let loaded;
   try {
@@ -811,9 +880,10 @@ async function mountParent(ctx) {
     return;
   }
   const kids = await kidsLoad;
+  const nudgeStatus = await nudgeLoad;
   if (!ctx.alive()) return;
 
-  const { data, updates, sessions, tutors, names } = loaded;
+  const { data, updates, sessions, tutors, names, cards } = loaded;
   const now = ctx.now;
   const items = ctx.store.itemsFor(data, { now, audience: ctx.audience, viewerId: ctx.me.id });
   const counts = weekCounts(items, now);
@@ -833,13 +903,14 @@ async function mountParent(ctx) {
 
   // Work and the tutor's notes first; Progress is a summary, so it comes last
   const blocks = [
+    profileNudge(ctx, { kind: 'student', person: student, status: nudgeStatus, parent: true }),
     family?.card,
     calm
       ? h('div', { class: 'span-12' }, emptyState({ icon: 'check-circle', text: `All caught up. ${first} has nothing due this week.` }))
       : null,
     !calm && overdue.length ? overdueCard(ctx, overdue) : null,
     sessionsCard(ctx, { span: 'span-8', sessions, names, seen: getSeen('schedule', ctx.me.id, student.id), studentId: student.id }),
-    tutorsCard(ctx, { span: 'span-4', title: tutorsTitle(first), tutors, names, studentId: student.id }),
+    tutorsCard(ctx, { span: 'span-4', title: tutorsTitle(first), tutors, names, studentId: student.id, cards }),
     updatesCard(ctx, {
       span: 'span-7',
       title: 'From your tutor',
@@ -907,7 +978,7 @@ async function mountStaff(ctx) {
   const email = headerEmail(student, name);   // never a placeholder address
   const header = ctx.setHeader({
     title: name,
-    lead: avatar(name, { size: 40 }),
+    lead: personAvatar(student.id, name, { size: 40 }),
     lede: email ? h('p', { class: 'view-lede ovw-email' }, email) : null,
     actions: [
       button({ label: 'New assignment', variant: 'primary', icon: 'plus', onClick: () => ctx.openNew({ kind: 'assignment' }) }),

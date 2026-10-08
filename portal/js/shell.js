@@ -1,6 +1,8 @@
 // App shell (spec 3.2 to 3.9): sidebar, rail with tooltips, the 768 to 1023
 // overlay sheet, phone top bar, tab bar and More sheet, scope switcher, theme
-// control, user row and sign out. Every navigation surface renders from one
+// control, user row and sign out. Avatars carry the person's photo when they
+// have one (photos.js): your own in the user row, the student or child on
+// screen, and each person in the switcher. Every navigation surface renders from one
 // nav model (nav-model.js), so they always show the same items and counts.
 //
 // mountShell({ me, page }) -> {
@@ -13,7 +15,8 @@
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
-import { avatar, badge as badgeEl, newPill, iconButton, button } from './ui.js';
+import { badge as badgeEl, newPill, iconButton, button } from './ui.js';
+import { personAvatar } from './photos.js';
 import { themeControl } from './theme.js';
 import { signOut } from './session.js';
 import { displayName, firstName } from './format.js';
@@ -210,7 +213,7 @@ export function mountShell({ me, page }) {
     // Above and right-aligned: centred, it would stick out past the sidebar edge
     out.querySelector('.tip')?.classList.add('tip-end');
     return h('div', { class: 'user-row', id: main ? 'portal-user' : undefined },
-      avatar(myName, { size: 32 }),
+      personAvatar(me.id, myName, { size: 32 }),
       h('span', { class: 'user-meta' },
         h('span', { class: 'user-name' }, myName),
         h('span', { class: 'user-role' }, ROLE_LABELS[me.role] ?? '')),
@@ -225,7 +228,7 @@ export function mountShell({ me, page }) {
     'aria-haspopup': 'dialog',
     'aria-expanded': 'false',
     onClick: () => openPopover(railUser),
-  }, avatar(myName, { size: 32 }), tip('Account and theme'));
+  }, personAvatar(me.id, myName, { size: 32 }), tip('Account and theme'));
   foot.replaceChildren(themeControl({ id: 'theme-control' }), userRow({ main: true }), railUser);
 
   // Rail footer popover: the theme control and Sign out
@@ -235,7 +238,7 @@ export function mountShell({ me, page }) {
   function openPopover(from) {
     popoverOpener = from;
     popover.replaceChildren(h('div', { class: 'popover-inner' },
-      h('div', { class: 'user-row' }, avatar(myName, { size: 32 }),
+      h('div', { class: 'user-row' }, personAvatar(me.id, myName, { size: 32 }),
         h('span', { class: 'user-meta' },
           h('span', { class: 'user-name' }, myName),
           h('span', { class: 'user-role' }, ROLE_LABELS[me.role] ?? ''))),
@@ -269,14 +272,14 @@ export function mountShell({ me, page }) {
       if (!current) return null;
       if ((options?.length ?? 0) < 2) {
         return h('div', { class: place === 'sidebar' ? 'scope-block has-tip' : 'scope-block' },
-          avatar(displayName(current), { size: 24 }),
+          personAvatar(current.id, displayName(current), { size: 24 }),
           h('span', { class: 'scope-name' }, displayName(current)),
           place === 'sidebar' ? tip(displayName(current)) : null);
       }
     }
     const name = current ? displayName(current) : 'Choose a student';
     const lead = current
-      ? avatar(name, { size: 24 })
+      ? personAvatar(current.id, name, { size: 24 })
       : h('span', { class: 'avatar avatar-24', 'aria-hidden': 'true' }, icon('users-three', { size: 14 }));
     const caret = icon('caret-up-down');
     caret.classList.add('scope-caret');
@@ -413,7 +416,7 @@ export function mountShell({ me, page }) {
         const name = displayName(scope.current);
         chip.setAttribute('aria-label', `${name}, change ${noun()}`);
         chip.setAttribute('aria-expanded', switcher.open && switcherAnchor === chip ? 'true' : 'false');
-        chip.replaceChildren(avatar(name, { size: 24 }), h('span', {}, firstName(scope.current.full_name || name)));
+        chip.replaceChildren(personAvatar(scope.current.id, name, { size: 24 }), h('span', {}, firstName(scope.current.full_name || name)));
       }
     }
   }
@@ -512,7 +515,7 @@ export function mountShell({ me, page }) {
         class: 'switcher-item',
         href: scope.hrefFor ? scope.hrefFor(person.id) : `?${isChild ? 'child' : 'student'}=${encodeURIComponent(person.id)}`,
         'aria-current': person.id === scope.current?.id ? 'true' : undefined,
-      }, avatar(name, { size: 24 }), h('span', { class: 'switcher-name' }, name),
+      }, personAvatar(person.id, name, { size: 24 }), h('span', { class: 'switcher-name' }, name),
       !isChild && n > 0 ? badgeEl({ n, context: plural(n, 'submission to review', 'submissions to review') }) : null);
       a.addEventListener('click', (e) => {
         if (modified(e)) return;

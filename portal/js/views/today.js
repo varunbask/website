@@ -1,4 +1,5 @@
-// Staff Today, #/today (spec 5.4). Today's tutoring sessions first, then what
+// Staff Today, #/today (spec 5.4). "Finish your tutor profile" while the
+// viewer's own profile is not finished, then today's tutoring sessions, then what
 // needs review, what is due this week across every student, and what was
 // released recently. Reads the workspace (getWorkspace), so its counts match
 // the Review queue badge. A tutor sees their own sessions; an admin chooses
@@ -16,7 +17,9 @@ import { displayName } from '../format.js';
 import { deriveItems } from '../buckets.js';
 import { itemStatus } from '../status.js';
 import { dayKey, dueLabel, todayKey } from '../dates.js';
-import { avatar, button, drawerHref, emptyState, errorCallout, pill, rowList, segmented } from '../ui.js';
+import { button, drawerHref, emptyState, errorCallout, pill, rowList, segmented } from '../ui.js';
+import { personAvatar } from '../photos.js';
+import { loadNudge, profileNudge } from '../profile-nudge.js';
 import { staffNames } from '../updates-feed.js';
 import { ATTENDANCE, canEditSession, shortDayText, sessionTitle, timeRange, tutorToneClass } from '../sessions-model.js';
 import {
@@ -113,7 +116,7 @@ function dueRow(item, { studentName, now }) {
     'aria-label': [title, kind, studentName, due.text, status.label].filter(Boolean).join(', '),
     dataset: { focusKey: `row-${item.task.id}`, taskId: String(item.task.id) },
   },
-  h('span', { class: 'row-lead' }, avatar(studentName, { size: 24 })),
+  h('span', { class: 'row-lead' }, personAvatar(item.task.student_id, studentName, { size: 24 })),
   h('span', { class: 'row-main' },
     h('span', { class: 'row-title' }, title),
     h('span', { class: 'row-meta rvw-row-meta' },
@@ -416,6 +419,8 @@ export async function mount(ctx) {
   let ws;
   let pending = 0;
   let staff = new Map();
+  // "Finish your tutor profile" until it is; never rejects, so it never holds the page up
+  const nudgeLoad = loadNudge(ctx, { kind: 'staff', person: ctx.me });
   try {
     // staffNames never rejects; it names each session's tutor for an admin. The
     // tutors' colors never reject either: each lesson row is in its tutor's color.
@@ -436,6 +441,7 @@ export async function mount(ctx) {
     ctx.announce('Today, could not load');
     return;
   }
+  const nudgeStatus = await nudgeLoad;
   if (!ctx.alive()) return;
 
   const now = ctx.now;
@@ -446,6 +452,10 @@ export async function mount(ctx) {
   const queueStudents = new Set(queue.map((s) => s.student_id)).size;
 
   const nodes = [];
+
+  // The viewer's own profile, while it is not finished
+  const nudge = profileNudge(ctx, { kind: 'staff', person: ctx.me, status: nudgeStatus, className: 'tdy-nudge' });
+  if (nudge) nodes.push(nudge);
 
   // Admin: people waiting for approval
   if (admin && pending > 0) {

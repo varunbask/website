@@ -10,7 +10,8 @@
 
 import { h } from './dom.js';
 import { icon } from './icons.js';
-import { avatar, pill, draftChip } from './ui.js';
+import { pill, draftChip } from './ui.js';
+import { personAvatar } from './photos.js';
 import { one } from './format.js';
 import { submissionStatus, resultStatus } from './status.js';
 import { resultOf } from './results.js';
@@ -53,7 +54,7 @@ export function queueRow(sub, {
     dataset: { focusKey: `sub-${sub.id}` },
   },
   showStudent
-    ? h('span', { class: 'row-lead' }, avatar(name, { size: 32 }))
+    ? h('span', { class: 'row-lead' }, personAvatar(sub.student_id, name, { size: 32 }))
     : h('span', { class: `row-lead tone-${status.glyph?.tone ?? status.tone}` }, icon(status.glyph?.icon ?? status.icon)),
   h('span', { class: 'row-main' },
     h('span', { class: 'row-title' }, showStudent ? name : title),
@@ -93,7 +94,7 @@ export function releasedRow(sub, { studentName = '', taskTitle = '', now = new D
     'aria-label': label,
     dataset: { focusKey: `sub-${sub.id}` },
   },
-  h('span', { class: 'row-lead' }, avatar(name, { size: 32 })),
+  h('span', { class: 'row-lead' }, personAvatar(sub.student_id, name, { size: 32 })),
   h('span', { class: 'row-main' },
     h('span', { class: 'row-title' }, name),
     h('span', { class: 'row-meta rvw-row-meta' }, h('span', { class: 'rvw-row-task' }, title))),

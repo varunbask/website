@@ -14,6 +14,8 @@ const SPEC_NAMES = [
   'presentation', 'paperclip', 'link-simple', 'book-open-text', 'corners-out', 'repeat',
   // Account view (billing spec)
   'currency-dollar', 'receipt', 'printer', 'copy', 'lock-simple',
+  // Profiles and photos
+  'user',
 ];
 
 test('ICON_NAMES lists exactly the icons in the spec', () => {
