@@ -141,9 +141,12 @@ export function sessionSummary(sessions, period, now = new Date()) {
 
 // When the work was finished (ms), or null. An assignment is finished by its
 // first submission (the database stamps tasks.completed_at with that time, but
-// the app never reads it for assignments); a task by its tick.
+// the app never reads it for assignments); a task by its tick. An assignment
+// whose latest attempt was released as Extended is back in To do: not finished.
 function finishedAt(task, subs) {
   if (task.kind === 'task') return validTime(task.completed_at) ? ms(task.completed_at) : null;
+  const latest = sortSubs(subs)[0];
+  if (latest && one(latest.grade)?.released_at && resultOf(latest.grade) === 'extended') return null;
   let first = null;
   for (const sub of subs ?? []) {
     if (!validTime(sub.created_at)) continue;

@@ -750,13 +750,14 @@ function extendSection(task, { now, onExtend }) {
     min: todayKey(now),
     dataset: { focusKey: 'asg-extend-date' },
   });
+  // The button sits beside the date; the hint and any error go under both
+  const submit = button({ label: 'Extend', type: 'submit', icon: 'clock', focusKey: 'asg-extend' });
   const dateField = field({
     label: 'New due date',
     hint: `Due at ${extensionTimeText(task.due_at)} Pacific time on this date. The student sees it as extended.`,
-    control: input,
+    control: h('div', { class: 'asg-extend-row' }, input, submit),
   });
-  const submit = button({ label: 'Extend', type: 'submit', size: 'sm', icon: 'clock', focusKey: 'asg-extend' });
-  const form = h('form', { class: 'asg-extend', novalidate: true }, dateField, h('div', { class: 'asg-extend-actions' }, submit));
+  const form = h('form', { class: 'asg-extend', novalidate: true }, dateField);
   let working = false;
   input.addEventListener('input', () => {
     if (input.getAttribute('aria-invalid') === 'true') setFieldError(dateField, '');

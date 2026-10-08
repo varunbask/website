@@ -14,7 +14,8 @@
      section.drawer-section > h3 + ...  Instructions, Grade, Submit, Submissions
      div.well.asg-grade > div.asg-grade-top (p.asg-result > span.pill, or the staff span.draft-chip)
        + p.asg-feedback + div.asg-grade-foot
-     section.drawer-section > h3 ("Extend", staff) + form.asg-extend > div.field + div.asg-extend-actions
+     section.drawer-section > h3 ("Extend", staff) + form.asg-extend > div.field >
+       label + div.asg-extend-row (input.asg-date + button) + p.field-hint (+ p.field-error)
      section.asg-submit (+ .is-busy) > div.asg-progress + h3 + form.asg-submit-form
        label.asg-dropzone (+ .is-over) > input.visually-hidden + span.asg-drop-icon +
          span.asg-drop-title + span.asg-drop-hint
@@ -135,15 +136,15 @@
   color: var(--text-3);
 }
 
-/* Drawer: Extend (staff). The date and its button sit side by side, wrapping on phones. */
-.asg-extend {
+/* Drawer: Extend (staff). The date and its button side by side; the hint under both */
+.asg-extend-row {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--s-3);
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
 }
-.asg-extend > .field { flex: 1 1 240px; }
-.asg-extend-actions { display: flex; align-items: center; min-height: 40px; margin-top: 24px; }
+.asg-extend-row > .asg-date { flex: 1 1 180px; }
+.asg-extend-row > .btn { flex: none; }
 
 
 /* Drawer: submit ------------------------------------------------------------ */

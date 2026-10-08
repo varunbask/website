@@ -119,7 +119,8 @@ let keptView = null;   // { userId, view }
 
 // "Up next", not "Next due": the column leads with overdue work (nextDue).
 // "Next session" is the tutoring schedule.
-const COLUMNS = ['Student', 'To review', 'Next session', 'Up next', 'Last submission', '30-day completion'];
+// "Completed" is the last 30 days' completion, "3 of 5" (the stacked rows say so)
+const COLUMNS = ['Student', 'To review', 'Next session', 'Up next', 'Last submission', 'Completed'];
 
 export function mount(ctx) {
   const title = 'Students';
@@ -421,7 +422,7 @@ export function mount(ctx) {
       said.push('no work yet');
     }
     const done = s.completion;
-    said.push(done?.total ? `30-day completion ${completionText(done)} completed` : '30-day completion none');
+    said.push(done?.total ? `completed ${completionText(done)} in the last 30 days` : 'no results in the last 30 days');
 
     const doneContent = done?.total
       ? h('span', { class: 'stu-done-value mono' }, completionText(done))
@@ -451,7 +452,7 @@ export function mount(ctx) {
     cell('session', 'Next session', sessionContent),
     cell('next', 'Up next', nextContent),
     cell('last', 'Last submission', lastContent),
-    cell('done', '30-day completion', doneContent),
+    cell('done', 'Completed, 30 days', doneContent),
     caret);
   }
 

@@ -298,6 +298,16 @@ describe('homeworkSummary', () => {
     expect(homeworkSummary(null, null, P30, NOW).assigned).toBe(0);
   });
 
+  test('an assignment back in To do on an extension is not finished', () => {
+    const t = task({ due_at: at('2026-10-09'), extended_from: at('2026-10-02') });
+    const extended = [sub(t.id, { created_at: at('2026-10-01'), grade: grade('extended', '2026-10-02') })];
+    expect(homeworkOutcome(t, extended, NOW)).toBe('open');
+    expect(homeworkOutcome({ ...t, due_at: at('2026-10-05') }, extended, NOW)).toBe('missing');
+    // handed in again: finished by its first attempt, as any resubmitted work
+    const again = [...extended, sub(t.id, { created_at: at('2026-10-04'), grade: null })];
+    expect(homeworkOutcome(t, again, NOW)).toBe('on-time');
+  });
+
   test('submissions of other tasks do not finish this one', () => {
     const a = task({ due_at: at('2026-09-20') });
     const b = task({ due_at: at('2026-09-21') });
