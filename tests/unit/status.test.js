@@ -85,7 +85,7 @@ describe('itemStatus, every row of the table', () => {
   test('in review: failed', () => {
     const couldNot = { key: 'failed', label: 'Could not grade', tone: 'danger', icon: 'x-circle', dashed: false };
     expect(both(task(), [sub('failed', null, { error: 'This PDF has no readable text.' })])).toEqual({
-      family: { key: 'needs-attention', label: 'Needs attention', tone: 'danger', icon: 'x-circle', dashed: false },
+      family: { key: 'submitted', label: 'Submitted', tone: 'info', icon: 'hourglass-medium', dashed: false },
       staff: couldNot,
     });
     expect(both(task(), [sub('failed')])).toEqual({
@@ -162,7 +162,7 @@ describe('submissionStatus', () => {
   });
 
   test('families never see a staff-only word', () => {
-    const forbidden = ['AI draft', 'Grading', 'Edited, not released', 'Could not grade', 'Released'];
+    const forbidden = ['AI draft', 'Grading', 'Edited, not released', 'Could not grade', 'Released', 'Needs attention'];
     const grades = [null, draft, edited, released(ago(DAY)), released(ago(DAY), 'missing'), released(ago(DAY), 'extended')];
     for (const st of ['pending', 'grading', 'ai_graded', 'failed']) {
       for (const error of [null, 'Bad file']) {

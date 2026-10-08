@@ -19,7 +19,9 @@ describe('familyStatus', () => {
   test('never hints at a draft', () => {
     expect(familyStatus({ status: 'ai_graded' }, null)).toEqual({ text: 'Submitted, waiting for review', tone: 'wait' });
     expect(familyStatus({ status: 'pending' }, null)).toEqual({ text: 'Submitted, waiting for review', tone: 'wait' });
-    expect(familyStatus({ status: 'failed', error: 'This PDF has no readable text.' }, null)).toEqual({ text: 'Needs attention', tone: 'alert' });
+    // nor at grading: work the grader could not read waits for review like the rest
+    expect(familyStatus({ status: 'failed', error: 'This PDF has no readable text.' }, null)).toEqual({ text: 'Submitted, waiting for review', tone: 'wait' });
+    expect(familyStatus({ status: 'grading' }, null)).toEqual({ text: 'Submitted, waiting for review', tone: 'wait' });
     expect(familyStatus({ status: 'ai_graded' }, { released_at: ago(1) })).toEqual({ text: 'Graded', tone: 'done' });
   });
 });

@@ -326,7 +326,8 @@ describe('chipKind and dotsFor', () => {
     const editedSub = sub(9, 1, { status: 'ai_graded', grade: { result: 'missing', feedback: 'x', reviewed_at: ago(HOUR), released_at: null } });
     expect(chipKind(item(t, [editedSub], 'staff'), 'staff')).toEqual({ kind: 'draft', icon: 'pencil-simple-line' });
     expect(chipKind(item(t, [failed], 'staff'), 'staff')).toEqual({ kind: 'failed', icon: 'x-circle' });
-    expect(chipKind(item(t, [failed]), 'family')).toEqual({ kind: 'failed', icon: 'x-circle' });
+    // families never hear that grading failed: it is submitted work, waiting
+    expect(chipKind(item(t, [failed]), 'family')).toEqual({ kind: 'submitted', icon: 'hourglass-medium' });
     expect(chipKind(item(t, [pending], 'staff'), 'staff')).toEqual({ kind: 'submitted', icon: 'hourglass-medium' });
   });
 

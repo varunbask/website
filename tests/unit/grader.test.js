@@ -155,6 +155,8 @@ describe('buildMessageParts', () => {
     expect(first.text).toMatch(/"missing" when the work is blank, unreadable, unrelated to the assignment, or clearly not attempted/);
     expect(first.text).toContain('result: "completed" | "missing"');
     expect(first.text).not.toMatch(/0 to 100|score:/);
+    // the tutor sends the feedback as their own
+    expect(first.text).toContain('never mention AI, a grader or automatic grading');
   });
 });
 

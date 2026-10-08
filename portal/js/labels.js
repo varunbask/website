@@ -29,10 +29,10 @@ export function staffStatus(sub, grade) {
   return { text: 'AI draft', tone: 'draft' };
 }
 
-// Anything unreleased is simply waiting on the tutor
+// Anything unreleased is simply waiting on the tutor. Families never hear how
+// grading works: work the grader could not read waits for review like the rest.
 export function familyStatus(sub, grade) {
   if (grade?.released_at) return { text: 'Graded', tone: 'done' };
-  if (sub.status === 'failed' && sub.error) return { text: 'Needs attention', tone: 'alert' };
   return { text: 'Submitted, waiting for review', tone: 'wait' };
 }
 

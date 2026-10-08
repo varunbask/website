@@ -117,8 +117,7 @@ export function chipKind(item, audience = 'family') {
     case 'missing': return { kind: 'missed', icon: 'minus-circle' };
     case 'draft':
     case 'edited': return { kind: 'draft', icon: 'pencil-simple-line' };
-    case 'failed':
-    case 'needs-attention': return { kind: 'failed', icon: 'x-circle' };
+    case 'failed': return { kind: 'failed', icon: 'x-circle' };
     default: return { kind: 'submitted', icon: 'hourglass-medium' };
   }
 }

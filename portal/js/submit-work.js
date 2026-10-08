@@ -3,9 +3,13 @@
 // submitWorkSection(dctx, item, { onSubmitted }) -> section.drawer-section
 //   dctx         the drawer context (me, store, signal, alive)
 //   item         a derived Item the student may still submit to (item.canSubmit)
-//   onSubmitted  called after the submission row exists and grading was started;
-//                it redraws (invalidate) and shows the success message. Without
-//                it, the store is invalidated and a toast says the work is in.
+//   onSubmitted  called after the submission row exists; it redraws
+//                (invalidate) and shows the success message. Without it, the
+//                store is invalidated and a toast says the work is in.
+//
+// Students never hear how their work is graded: the background /api/grade
+// call is silent whatever it answers (the daily sweep picks up anything that
+// did not start), and the only message is SUCCESS.
 //
 // The answer is written first, in the document editor (answer-editor.js),
 // with formatting; a file (PDF, photo or text file) is optional, and either
@@ -25,7 +29,7 @@
 //
 // Order: validate, then (only with a file) prepareUpload (or preparePagesPdf
 // for two or more photos), storagePath and the storage upload (upsert false),
-// then the submissions insert, startGrading (not awaited), then the redraw.
+// then the submissions insert, startGrading (not awaited, silent), then the redraw.
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
@@ -43,10 +47,7 @@ import { docNodes } from './rich-doc-dom.js';
 
 export { MAX_ANSWER_CHARS };
 
-const SUCCESS = 'Work submitted. Your tutor will review it soon.';
-// The work is saved even when grading could not start (rate limit, network);
-// the daily sweep grades it, so the student must not spend another attempt.
-const GRADING_LATER = 'Your work is saved, but grading could not start yet. It will be graded within a day, so you don’t need to submit again.';
+export const SUCCESS = 'Work submitted. Your tutor will review it soon.';
 // The portal has no messaging: these lines point to the support address (also
 // on the Help page). Each is a sentence with a mail link, built where it is shown.
 const mailLink = (subject) => h('a', { class: 'link', href: supportMailto(subject) }, SUPPORT_EMAIL);
@@ -595,10 +596,9 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
           if (inserted.error) throw inserted.error;
           files = [];
           releaseAll();
-          // Not awaited: the work is in. If grading could not start, say so once it answers.
-          startGrading(inserted.data.id, { keepalive: true })
-            .then((problem) => { if (problem) toast({ text: GRADING_LATER }); })
-            .catch(() => toast({ text: GRADING_LATER }));
+          // Not awaited, and silent: the work is in either way, and the daily
+          // sweep grades anything whose grading did not start
+          startGrading(inserted.data.id, { keepalive: true }).catch(() => null);
           if (onSubmitted) onSubmitted({ submissionId: inserted.data.id });
           else {
             dctx.store?.invalidate(studentId);

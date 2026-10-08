@@ -64,7 +64,7 @@ function homework(role) {
       'Your child opens an assignment under Assignments and submits their own answer. You can see everything here, but only they can submit.',
       `They can write the answer in the portal or attach a file (PDF, JPG or PNG photo, or text file, up to ${uploadMb} MB). A photo of handwritten work is fine.`,
       `Each assignment can be submitted up to ${MAX_SUBMISSIONS} times, so a better answer can be sent again.`,
-      'An AI assistant drafts a result and feedback. Their tutor checks every grade before anyone sees it, and may change it.',
+      'Their tutor reviews the work and marks it Completed, Missing or Extended, with feedback.',
       ['Once the tutor releases it, the result and any feedback appear under ', link('Graded', '#/assignments/graded'), '. Until then the assignment shows as In review.'],
       RESULTS_TEXT,
     ]
@@ -72,7 +72,7 @@ function homework(role) {
       ['Open an assignment from ', link('Assignments', '#/assignments/todo'), '.'],
       `Choose Write your answer to type it in the portal, or attach a file (PDF, JPG or PNG photo, or text file, up to ${uploadMb} MB). A photo of handwritten work is fine.`,
       `Choose Submit work. You can submit up to ${MAX_SUBMISSIONS} times for each assignment, so you can improve your answer and send it again.`,
-      'An AI assistant drafts a result and feedback. Your tutor checks every grade before you see it, and may change it.',
+      'Your tutor reviews your work and marks it Completed, Missing or Extended, with feedback.',
       ['Once your tutor releases it, the result and any feedback appear under ', link('Graded', '#/assignments/graded'), '. Until then the assignment shows as In review.'],
       RESULTS_TEXT,
     ];
@@ -82,8 +82,8 @@ function homework(role) {
 function schedule(role) {
   const parent = role === PARENT;
   const notice = parent
-    ? 'Need to reschedule or cancel a lesson? Tell your child’s tutor or email us. There is no charge for cancelling.'
-    : 'Need to reschedule or cancel a lesson? Tell your tutor or email us. There is no charge for cancelling.';
+    ? 'Need to reschedule or cancel a lesson? Tell your child’s tutor or email us.'
+    : 'Need to reschedule or cancel a lesson? Tell your tutor or email us.';
   const items = [
     [parent ? 'Your child’s lessons are on the ' : 'Your lessons are on the ', link('Calendar', '#/calendar'), '. Open one for the time, the place or meeting link, and the tutor’s notes once the lesson has happened.'],
     'When a lesson moves or is cancelled, Calendar shows a New marker until you have looked.',

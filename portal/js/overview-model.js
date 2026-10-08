@@ -247,7 +247,6 @@ const CHIP = {
   missing: ['attention', 'minus-circle'],
   submitted: ['submitted', 'hourglass-medium'],
   grading: ['submitted', 'hourglass-medium'],
-  'needs-attention': ['attention', 'x-circle'],
   failed: ['attention', 'x-circle'],
   draft: ['draft', 'pencil-simple-line'],
   edited: ['draft', 'pencil-simple-line'],

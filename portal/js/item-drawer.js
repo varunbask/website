@@ -573,7 +573,7 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
     }));
   }
 
-  const nodes = [headBlock(dctx, found, status, { now, showStudent: staff && crossScope, student })];
+  const nodes = [headBlock(dctx, found, { now, showStudent: staff && crossScope, student })];
   nodes.push(h('div', { class: 'asg-action-error' }));
 
   // Homework from a lesson: a link back to it
@@ -659,20 +659,15 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
 }
 
 // Kind, title, waiting line and the facts list (due, student, assigned)
-function headBlock(dctx, found, status, { now, showStudent, student }) {
+function headBlock(dctx, found, { now, showStudent, student }) {
   const { task, item } = found;
   const family = dctx.audience !== 'staff';
   const parent = dctx.role === 'parent';
 
   let waiting = null;
   if (family && task.kind !== 'task' && item.bucket === 'in-review') {
-    if (status.key === 'needs-attention') {
-      waiting = h('p', { class: 'note asg-waiting is-danger' }, icon('warning-circle'),
-        h('span', {}, 'Needs attention. Your tutor will take a look.'));
-    } else {
-      waiting = h('p', { class: 'note asg-waiting' }, icon('hourglass-medium'),
-        h('span', {}, parent ? 'Waiting for the tutor to review it.' : 'Waiting for your tutor to review it.'));
-    }
+    waiting = h('p', { class: 'note asg-waiting' }, icon('hourglass-medium'),
+      h('span', {}, parent ? 'Waiting for the tutor to review it.' : 'Waiting for your tutor to review it.'));
   }
 
   const facts = h('dl', { class: 'asg-facts' });
@@ -814,7 +809,8 @@ function historySection(item, { staff, isStudent, now, live }) {
     const extra = [
       typed,
       sub.note ? h('blockquote', { class: 'quote asg-sub-note' }, sub.note) : null,
-      sub.error && (staff ? sub.status === 'failed' : status.key === 'needs-attention')
+      // Why grading failed is for staff only: families never hear about grading
+      staff && sub.error && sub.status === 'failed'
         ? h('p', { class: 'asg-sub-error' }, icon('warning-circle'), h('span', {}, sub.error))
         : null,
     ].filter(Boolean);

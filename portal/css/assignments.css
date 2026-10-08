@@ -59,8 +59,6 @@
 }
 .asg-head > .drawer-title { margin-top: var(--s-1); }
 .asg-waiting { margin-top: var(--s-3); }
-.asg-waiting.is-danger,
-.asg-waiting.is-danger > .icon { color: var(--danger-text); }
 
 .asg-facts {
   display: grid;

@@ -1,6 +1,7 @@
 // Pure status decisions: one place picks the pill label, tone, icon and row glyph
 // for every item and submission, for families (students, parents) and staff.
-// Families never see "AI draft", "Grading", "Edited" or any draft state.
+// Families never see "AI draft", "Grading", "Could not grade", "Edited" or any
+// draft state: unreleased work is Submitted, whatever happened to it.
 //
 // A released grade shows its result: Completed (success), Missing (danger) or
 // Extended (warning). An assignment past due with nothing handed in is Missing
@@ -54,7 +55,6 @@ export function submissionStatus(sub, grade, { audience = 'family' } = {}) {
   }
   const { tone } = familyStatus(sub, grade);
   if (tone === 'done') return resultStatus(resultOf(grade));
-  if (tone === 'alert') return make('needs-attention', 'Needs attention', 'danger', 'x-circle');
   return make('submitted', 'Submitted', 'info', 'hourglass-medium');
 }
 
