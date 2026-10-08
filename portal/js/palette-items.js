@@ -48,6 +48,7 @@ const PAGE_WORDS = {
   report: 'progress report print attendance',
   billing: 'bills statements invoices payments',
   help: 'support questions contact faq',
+  profile: 'me photo picture avatar about grade school hobbies interests bio subjects',
   files: 'materials pdf documents links attachments handouts',
 };
 
@@ -79,7 +80,8 @@ export function pageItems({ role, page, scope = null, route = null, multiple = f
   const who = student && (staff || multiple) ? displayName(student) : null;
   const out = [];
   for (const g of model.groups) {
-    const ownPages = (g.key === 'student' || g.key === 'main') && student;
+    // A parent's Profile page is the child's too; staff's is their own
+    const ownPages = (g.key === 'student' || g.key === 'main' || (g.key === 'you' && role === 'parent')) && student;
     const own = ownPages && who ? { group: 'student-page', groupLabel: `${who}\u2019s pages` } : {};
     for (const it of g.items) {
       out.push({

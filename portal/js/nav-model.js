@@ -1,16 +1,21 @@
 // Pure navigation model. The sidebar, rail, overlay, phone tab bar and More sheet
 // all render from this one model, so they always show the same items and counts.
 //
-// navModel({ role, page, scope, route, counts, fresh }) returns
+// navModel({ role, page, scope, route, counts, fresh, profileDue }) returns
 //   { mode, groups: [{ key, label, switcher, items }], tabbar: [...], more: [...] }
 // Every role ends with a Help item (#/help) in its own last group and in `more`.
+// Just before it, in a group of its own, is Profile (#/profile): the student's
+// own, a parent's child's (so not for a parent with no child linked), or a
+// tutor's or the admin's own on the staff page.
 // Item: { key, label, icon, href, current, ancestor, badge, railBadge, isNew, children }
 //   current   this exact item is the page (aria-current="page")
 //   ancestor  a child is current (parent label turns strong, no pill)
-//   badge     { n, text, tone, context } or null; never shown with isNew
+//   badge     { n, text, tone, context } or null; never shown with isNew. A
+//             dot ({ dot: true, context }) is the Profile item's "not finished"
 //   railBadge the count bubble for the rail and tab bar when children carry the counts
 // counts: { todo, todoOverdue, inReview, tasksOpen, reviewQueue, pending }
 // fresh:  { graded, updates, schedule } booleans for "New" (students and parents only)
+// profileDue: true while the profile is not finished (profile-model.js)
 
 const STAFF_ROLES = new Set(['tutor', 'admin']);
 const STUDENT_VIEWS = new Set(['overview', 'assignments', 'tasks', 'files', 'calendar', 'updates', 'report']);
@@ -23,6 +28,13 @@ export function badge(n, context, tone = 'neutral') {
   if (!n || n <= 0) return null;
   return { n, text: n > 99 ? '99+' : String(n), tone, context };
 }
+
+// An attention dot with no number: the context is read out instead
+export function dot(context) {
+  return { n: 1, text: '', tone: 'accent', context, dot: true };
+}
+
+const PROFILE_DOT = 'Profile not finished';
 
 // Staff are in Student mode on a student-scoped route with a student chosen
 export function isStudentMode(route, scope) {
@@ -115,6 +127,16 @@ function helpItem({ route, page }) {
   return item('help', 'Help', 'question', `${onPage ? '' : '/portal/staff.html'}#/help`, { current: onPage && route?.view === 'help' });
 }
 
+// Profile, for every role that has one. The admin's own pages (People,
+// Account) link back to the staff page, which owns #/profile.
+function profileItem({ route, page, profileDue }) {
+  const onPage = !ADMIN_PAGES.has(page);
+  return item('profile', 'Profile', 'user', `${onPage ? '' : '/portal/staff.html'}#/profile`, {
+    current: onPage && route?.view === 'profile',
+    badge: profileDue ? dot(PROFILE_DOT) : null,
+  });
+}
+
 // A tab bar slot: same item without children or "New", with the rail count
 function slot(it, label = it.label) {
   return {
@@ -123,11 +145,14 @@ function slot(it, label = it.label) {
   };
 }
 
+// More carries no counts, but it does carry the Profile dot, or a phone would
+// never see it
 function moreSlot(more) {
-  return { key: 'more', label: 'More', icon: 'list', href: null, current: more.some((i) => i.current || i.ancestor), badge: null, isNew: false };
+  const attention = more.find((i) => i?.badge?.dot)?.badge ?? null;
+  return { key: 'more', label: 'More', icon: 'list', href: null, current: more.some((i) => i.current || i.ancestor), badge: attention, isNew: false };
 }
 
-export function navModel({ role, page, scope = null, route = null, counts = {}, fresh = {} }) {
+export function navModel({ role, page, scope = null, route = null, counts = {}, fresh = {}, profileDue = false }) {
   const c = {
     todo: 0, todoOverdue: 0, inReview: 0, tasksOpen: 0, reviewQueue: 0, pending: 0, ...counts,
   };
@@ -143,14 +168,19 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
     const items = [...(noChild ? all.slice(0, 1) : all), ...(bills ? [bills] : [])];
     const k = byKey(items);
     const help = helpItem({ route, page });
+    // The parent's Profile page is their child's, so it needs a child
+    const profile = noChild || !family ? null : profileItem({ route, page, profileDue });
     let tabs = [k.overview];
     let more = bills ? [bills] : [];
     if (!noChild && role === 'parent') { tabs = [k.overview, k.assignments, k.calendar, k.updates]; more = [k.tasks, k.files, k.report, bills]; }
     else if (!noChild) { tabs = [k.overview, k.assignments, k.tasks, k.calendar]; more = [k.files, k.updates, k.report]; }
-    more = [...more, help];
+    more = [...more, ...(profile ? [profile] : []), help];
+    const groups = [{ key: 'main', label: null, switcher: false, items }];
+    if (profile) groups.push({ key: 'you', label: null, switcher: false, items: [profile] });
+    groups.push({ key: 'help', label: null, switcher: false, items: [help] });
     return {
       mode: null,
-      groups: [{ key: 'main', label: null, switcher: false, items }, { key: 'help', label: null, switcher: false, items: [help] }],
+      groups,
       tabbar: [...tabs.map((i) => slot(i)), moreSlot(more)],
       more,
     };
@@ -166,6 +196,8 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
   const groups = [{ key: 'workspace', label: 'Workspace', switcher: false, items: work }];
   if (!onAdminPage) groups.push({ key: 'student', label: 'Student', switcher: true, items: student });
   if (people) groups.push({ key: 'admin', label: 'Admin', switcher: false, items: [people, account] });
+  const profile = profileItem({ route, page, profileDue });
+  groups.push({ key: 'you', label: null, switcher: false, items: [profile] });
   const help = helpItem({ route, page });
   groups.push({ key: 'help', label: null, switcher: false, items: [help] });
 
@@ -184,7 +216,7 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
     tabs = [w.today, w.review, w.students, w['calendar-all']];
     more = [];
   }
-  more = [...more, help];
+  more = [...more, profile, help];
   return {
     mode,
     groups,

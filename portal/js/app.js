@@ -59,6 +59,7 @@ import { dragInProgress, whenDragEnds } from './calendar-drag.js';
 import { errorCallout, skeletonRows, linkTabs } from './ui.js';
 import { displayName } from './format.js';
 import { isStale } from './freshness.js';
+import { profileProgress, profileKind } from './profile-model.js';
 import {
   normalizeRoute, isNamed, viewTitle, viewLabel, documentTitle, defaultCrumbs,
   reviewCounts, switcherHref, isScoped, clockCrossed,
@@ -97,6 +98,7 @@ export function startApp(config) {
   let navSeq = 0;
   let counts = {};
   let fresh = {};
+  let profileDue = false;
   let perStudent = new Map();
   let lastRenderAt = Date.now();
 
@@ -186,6 +188,8 @@ export function startApp(config) {
       // reads the count loaded with the scope)
       counts = { reviewQueue: counts.reviewQueue ?? 0, ...(counts.pending === undefined ? {} : { pending: counts.pending }) };
       fresh = {};
+      // A parent's Profile dot is about the child on screen
+      if (me.role === 'parent') profileDue = false;
     }
     publishScope();
     return true;
@@ -715,16 +719,30 @@ export function startApp(config) {
   // Navigation model and counts
 
   function renderNav() {
-    const model = navModel({ role: me.role, page, scope: scopeCtx(), route: route ?? {}, counts, fresh });
+    const model = navModel({ role: me.role, page, scope: scopeCtx(), route: route ?? {}, counts, fresh, profileDue });
     shell.setNav(model);
     shell.setMode(model.mode ?? 'workspace');
   }
 
+  // Whose profile the Profile item is about: your own, or a parent's child on screen
+  function profileTarget() {
+    const kind = profileKind(me.role);
+    if (kind === 'staff' || me.role === 'student') return { kind, id: me.id };
+    if (me.role === 'parent' && scope?.student) return { kind, id: scope.student.id };
+    return null;
+  }
+
   async function computeCounts() {
-    const out = { counts: {}, fresh: {}, perStudent: new Map() };
+    const out = { counts: {}, fresh: {}, perStudent: new Map(), profileDue: false };
     const now = new Date();
     const student = scope?.student;
     const jobs = [];
+    const target = profileTarget();
+    if (target) {
+      jobs.push(store.getProfileStatus(target.kind, target.id)
+        .then((status) => { out.profileDue = !profileProgress(target.kind, status).complete; })
+        .catch(() => {}));
+    }
     if (student && !ADMIN_PAGES.has(page)) {
       jobs.push((async () => {
         const data = await store.getStudentData(student.id);
@@ -764,6 +782,7 @@ export function startApp(config) {
     if (my !== navSeq || forStudent !== scope?.student?.id) return;
     counts = next.counts;
     fresh = next.fresh;
+    profileDue = next.profileDue;
     if (staff) {
       perStudent = next.perStudent;
       // The switcher lists every student the workspace sees, kept in step

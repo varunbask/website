@@ -1,26 +1,47 @@
 // Pure logic behind the student profile, the staff notes and the parent contacts
 // (student-profile-card.js, student-profile-drawer.js). No DOM, no network.
 //
-// The limits mirror supabase/migrations/20261017120000_student_profiles.sql; a
-// unit test reads that file and fails if the two drift apart.
+// The limits mirror supabase/migrations/20261017120000_student_profiles.sql
+// (grade, school, goals, learning notes, a note) and
+// 20261025120000_profiles_and_photos.sql (pronouns, interests, favorite
+// subjects, how they learn best); a unit test reads both files and fails if
+// they drift apart.
 
 import { relativeTime } from './dates.js';
 import { tutorEntries } from './schedule-summary.js';
 
-export const LIMITS = Object.freeze({ grade_level: 40, school: 120, goals: 1000, learning_notes: 1000, note: 2000 });
+export const LIMITS = Object.freeze({
+  grade_level: 40,
+  school: 120,
+  pronouns: 40,
+  interests: 500,
+  favorite_subjects: 200,
+  goals: 1000,
+  learning_style: 500,
+  learning_notes: 1000,
+  note: 2000,
+});
 
-// The fields staff edit, in the order they appear
-export const PROFILE_FIELDS = Object.freeze(['grade_level', 'school', 'goals', 'learning_notes']);
+// The fields staff edit, in the order they appear. The family fills in every
+// one but learning_notes on their own Profile page (profile-model.js).
+export const PROFILE_FIELDS = Object.freeze([
+  'grade_level', 'school', 'pronouns', 'interests', 'favorite_subjects', 'goals', 'learning_style', 'learning_notes',
+]);
 
 export const FIELD_LABELS = Object.freeze({
   grade_level: 'Grade',
   school: 'School',
+  pronouns: 'Pronouns',
+  interests: 'Hobbies and interests',
+  favorite_subjects: 'Favorite subjects',
   goals: 'Goals',
+  learning_style: 'How they learn best',
   learning_notes: 'Learning notes',
 });
 
-// One line (grade, school) or free text with line breaks (goals, learning notes, a note)
-const MULTILINE = new Set(['goals', 'learning_notes', 'note']);
+// One line (grade, school, pronouns, favorite subjects) or free text with line
+// breaks (interests, goals, how they learn best, learning notes, a note)
+const MULTILINE = new Set(['interests', 'goals', 'learning_style', 'learning_notes', 'note', 'bio']);
 
 export const PLACEHOLDER_DOMAIN = 'people.varunbaskaran.com';
 
@@ -149,16 +170,21 @@ function ordinalSuffix(n) {
 // The rows of the staff card: every field, with null for what is not filled in
 // yet. [{ key, label, value, long }]; long fields (text) take the full width.
 export function profileFacts(profile) {
+  const text = (key) => normalizeField(key, profile?.[key]);
   return [
     { key: 'grade_level', label: 'Grade', value: gradeText(profile?.grade_level), long: false },
-    { key: 'school', label: 'School', value: normalizeField('school', profile?.school), long: false },
-    { key: 'goals', label: 'Goals', value: normalizeField('goals', profile?.goals), long: true },
-    { key: 'learning_notes', label: 'Learning notes', value: normalizeField('learning_notes', profile?.learning_notes), long: true },
+    { key: 'school', label: 'School', value: text('school'), long: false },
+    { key: 'pronouns', label: 'Pronouns', value: text('pronouns'), long: false },
+    { key: 'favorite_subjects', label: 'Favorite subjects', value: text('favorite_subjects'), long: false },
+    { key: 'interests', label: 'Hobbies and interests', value: text('interests'), long: true },
+    { key: 'goals', label: 'Goals', value: text('goals'), long: true },
+    { key: 'learning_style', label: 'How they learn best', value: text('learning_style'), long: true },
+    { key: 'learning_notes', label: 'Learning notes', value: text('learning_notes'), long: true },
   ];
 }
 
-// What students and parents see: grade, school and goals, filled in only
-// (learning notes are for staff). Empty list when there is nothing to show.
+// What students and parents see: everything but the learning notes (those are
+// for staff), filled in only. Empty list when there is nothing to show.
 export function aboutFacts(profile) {
   return profileFacts(profile).filter((f) => f.key !== 'learning_notes' && f.value !== null);
 }
