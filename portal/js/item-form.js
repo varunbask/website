@@ -50,10 +50,9 @@ import {
   REPEATS, MIN_REPEAT_COUNT, checkRepeat, repeatSummary, repeatRows, followingText, seriesUpdates, groupUpdates, itemNoun,
 } from './task-repeat-model.js';
 import { draftPanel } from './homework-draft.js';
-import { openWorksheet } from './worksheet-ui.js';
-import { homeworkView } from './homework-view.js';
+import { documentPreview, openDocViewer } from './doc-viewer.js';
 import { draftContext, attachmentsProblem, MAX_ATTACHMENTS } from './homework-draft-model.js';
-import { addAnswerKeys, MAX_ANSWER_KEY, ANSWER_KEY_HINT } from './answer-key.js';
+import { addAnswerKeys, loadAnswerKey, MAX_ANSWER_KEY, ANSWER_KEY_HINT } from './answer-key.js';
 import { loadProfile } from './student-profile-data.js';
 import { gradeText } from './student-profile-model.js';
 
@@ -168,14 +167,27 @@ export function itemForm(dctx, {
 
   const details = h('textarea', { class: 'input textarea', name: 'details', rows: '6', maxlength: '12000' }, task?.details ?? '');
   const detailsField = field({ label: 'Instructions', optional: true, hint: instructionsHint(currentKind), control: details });
-  // Write or Preview: the preview is what the student sees (homework-view.js), math typeset
+  // Write or Preview: the preview is the document itself, the worksheet pages
+  // the PDF and Mark up use (doc-viewer.js), with the answer key copy for staff
+  // and a link to the portal's card view. It is drawn again after edits.
   const detailsPreview = h('div', { class: 'asg-preview', hidden: true });
   let previewing = false;
+  let docPreview = null;
+  let savedKey;   // an existing assignment's answer key, read once
+  const previewSource = () => ({ title: titleInput.value.trim() || 'Untitled', details: details.value, dueAt: dueDateToIso(dueInput.value) });
+  const previewKeyText = async () => {
+    if (!editing) return answerKeyInput?.value ?? '';
+    savedKey ??= loadAnswerKey(task.id).catch(() => null);
+    return savedKey;
+  };
   const paintPreview = () => {
     if (!previewing) return;
-    detailsPreview.replaceChildren(details.value.trim()
-      ? homeworkView(details.value)
-      : h('p', { class: 'asg-muted' }, 'Nothing to preview yet. Write the instructions first.'));
+    if (!docPreview) {
+      docPreview = documentPreview({ getSource: previewSource, getKeyText: previewKeyText, toast: dctx.toast });
+      detailsPreview.replaceChildren(docPreview.root);
+      dctx.signal?.addEventListener('abort', () => docPreview.destroy(), { once: true });
+    }
+    docPreview.refresh();
   };
   const viewToggle = segmented({
     label: 'Instructions: write or preview',
@@ -402,11 +414,10 @@ export function itemForm(dctx, {
       },
       // How many lesson photos may still be attached next to the files chosen
       attachRoom: () => MAX_ATTACHMENTS - pendingFiles.length,
-      // Preview worksheet: what the student will get from the form as it is now
-      onPreview: () => openWorksheet(
-        { title: titleInput.value.trim(), details: details.value, due_at: dueDateToIso(dueInput.value) },
-        { host: dctx.body ?? document.body },
-      ),
+      // Preview worksheet: the document the form makes now, in the full-screen viewer
+      onPreview: () => openDocViewer({
+        source: previewSource(), keyText: answerKeyInput.value, returnFocus: dctx.body?.querySelector('[data-focus-key="hwd-preview"]'), toast: dctx.toast,
+      }),
     });
     studentSelect?.addEventListener('change', () => drafted.studentChanged());
     if (draft) drafted.open();

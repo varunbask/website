@@ -1180,3 +1180,93 @@ textarea.input[hidden] { display: none; }
   .hw-problem { grid-template-columns: 22px minmax(0, 1fr); padding: var(--s-2) var(--s-3); gap: var(--s-2); }
   .hw-num { width: 22px; height: 22px; }
 }
+
+
+/* The document, for staff (doc-viewer.js): the worksheet pages themselves
+   div.dv-preview (the form's Preview) > div.dv-toolbar + div.dv-paper > div.dv-pages
+     > figure.dv-page > canvas.dv-canvas + figcaption.dv-caption ; div.dv-portal (card view) ; p.dv-view-row
+   dialog.dv-viewer > div.dv-inner > div.dv-bar + div.dv-controls + div.dv-scroll > div.dv-pages
+   div.dv-skeleton: a page-shaped placeholder while pages are drawn */
+
+.dv-preview { display: flex; flex-direction: column; gap: var(--s-3); }
+.dv-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.dv-toolbar .dv-mode { margin-right: auto; }
+.dv-paper {
+  display: flex;
+  justify-content: center;
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background-color: #E4E7EB;
+}
+.dv-paper[hidden], .dv-portal[hidden], .dv-mode[hidden] { display: none; }
+.dv-preview .dv-pages { width: 100%; }
+.dv-pages { display: flex; flex-direction: column; align-items: center; gap: var(--s-4); margin: 0 auto; }
+.dv-page { width: 100%; margin: 0; }
+.dv-viewer .dv-page { width: var(--dv-page-w, 816px); flex: none; }
+.dv-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 2px;
+  background-color: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .16), 0 6px 18px rgba(15, 23, 42, .12);
+}
+.dv-caption { margin-top: var(--s-2); text-align: center; font: 400 12px/16px var(--font-ui); color: #4b5563; }
+.dv-skeleton { aspect-ratio: 612 / 792; border-radius: 2px; }
+.dv-viewer .dv-skeleton { width: var(--dv-page-w, 816px); }
+.dv-empty { padding: var(--s-6) var(--s-4); text-align: center; font: 400 13px/20px var(--font-ui); color: #4b5563; }
+.dv-portal { padding: var(--s-1) 0; }
+.dv-view-row { text-align: right; }
+.dv-view-link { font: 400 12px/18px var(--font-ui); }
+
+.dv-viewer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  background-color: #D9DDE2;
+}
+.dv-viewer::backdrop { background-color: var(--scrim); }
+.dv-inner { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.dv-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  min-height: 52px;
+  padding: var(--s-2) var(--s-3) var(--s-2) var(--s-4);
+  padding-top: max(var(--s-2), env(safe-area-inset-top));
+  background-color: var(--raised);
+}
+.dv-title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font: var(--t-h3); }
+.dv-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2) var(--s-4);
+  padding: var(--s-2) var(--s-4);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background-color: var(--raised);
+}
+.dv-group { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1); }
+.dv-group-end { margin-left: auto; }
+.dv-page-count, .dv-zoom { min-width: 72px; text-align: center; font: 500 12px/16px var(--font-ui); color: var(--text-2); }
+.dv-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-x pan-y pinch-zoom;
+  padding: var(--s-4) var(--s-3) var(--s-8);
+}
+.dv-scroll .dv-pages { width: max-content; min-width: 100%; }
+
+@media (max-width: 767.98px) {
+  /* One row that scrolls sideways, so the page keeps the screen */
+  .dv-controls { flex-wrap: nowrap; gap: var(--s-3); padding: var(--s-2) var(--s-3); overflow-x: auto; overscroll-behavior-x: contain; }
+  .dv-group { flex-wrap: nowrap; flex: none; }
+  .dv-group-end { margin-left: 0; }
+  .dv-scroll { padding: var(--s-3) var(--s-2) var(--s-6); }
+}

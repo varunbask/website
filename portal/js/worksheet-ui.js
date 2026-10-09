@@ -18,6 +18,8 @@ import { validateUpload } from './upload.js';
 
 const loadWorksheet = () => import('./worksheet.js');
 const loadMarkup = () => import('./markup.js');
+// Staff only: the document viewer (families keep Open, which opens a tab)
+const loadViewer = () => import('./doc-viewer.js');
 const FAILED = 'We couldn’t make the worksheet. Try again.';
 
 // The PDF bytes for a task (and an appendix, for staff), built in the browser
@@ -58,7 +60,7 @@ function lineFor(role, canHandIn) {
 }
 
 export function worksheetSection(dctx, {
-  task, studentId, role = 'student', canMarkUp = false, canHandIn = false, attemptText = '', onHandedIn = null, extra = [],
+  task, studentId, role = 'student', canMarkUp = false, canHandIn = false, attemptText = '', onHandedIn = null, extra = [], keyText = null,
 } = {}) {
   const problem = h('div', { class: 'ws-problem' });
   const host = dctx.body ?? document.body;
@@ -77,8 +79,19 @@ export function worksheetSection(dctx, {
     }
   };
 
-  const openBtn = button({ label: 'Open', icon: 'arrow-square-out', size: 'sm', focusKey: 'ws-open', ariaLabel: 'Open the worksheet, opens in a new tab' });
+  // Staff: Preview shows the document in the portal's own viewer; families: Open, in a new tab
+  const staff = role === 'staff';
+  const openBtn = staff
+    ? button({ label: 'Preview', icon: 'corners-out', size: 'sm', focusKey: 'ws-open' })
+    : button({ label: 'Open', icon: 'arrow-square-out', size: 'sm', focusKey: 'ws-open', ariaLabel: 'Open the worksheet, opens in a new tab' });
   openBtn.addEventListener('click', run(openBtn, 'Preparing…', async () => {
+    if (staff) {
+      const { openDocViewer } = await loadViewer();
+      openDocViewer({
+        source: { title: task.title, details: task.details, dueAt: task.due_at }, keyText, returnFocus: openBtn, toast: dctx.toast,
+      });
+      return;
+    }
     const how = await openWorksheet(task, { host });
     if (how === 'downloaded') dctx.toast?.({ text: 'The worksheet downloaded, because a new tab could not open.' });
   }));

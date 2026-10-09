@@ -659,6 +659,7 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, keepAn
       onHandedIn: () => actions.submitted(found.studentId),
       extra: staff && found.answerKey?.body && found.answerKey.worksheetButton
         ? [found.answerKey.worksheetButton(dctx, { task })] : [],
+      keyText: staff ? found.answerKey?.body ?? null : null,
     }));
   }
 

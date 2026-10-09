@@ -1,9 +1,11 @@
 import { describe, test, expect } from 'vitest';
 import {
-  parseHomework, serializeHomework, parseKey, serializeKey, problemRefs, splitMath, hasMath, mathIn, detailsSummary, plainMath,
+  parseHomework, serializeHomework, parseKey, serializeKey, problemRefs, splitMath, hasMath, mathIn, detailsSummary, plainMath, inlineTex,
 } from '../../portal/js/homework-doc.js';
 import { normalizeDraft } from '../../api/_lib/homework-draft.js';
-import { draftV2 } from './draft-fixtures.js';
+import { draftV2, opusEquationsDraft } from './draft-fixtures.js';
+
+const OPUS = normalizeDraft(opusEquationsDraft(), { count: 6 });
 
 const SAMPLE = [
   'Objective: Factor trinomials of the form $x^2 + bx + c$.',
@@ -168,5 +170,24 @@ describe('one-line previews', () => {
     expect(detailsSummary('## Part A: Warm-up\nDirections: Multiply $(x+1)(x+2)$.\n1. One')).toBe('Multiply (x+1)(x+2).');
     expect(plainMath('Lunch costs $5 and \\$3; $x$ wins')).toBe('Lunch costs $5 and $3; x wins');
     expect(detailsSummary('')).toBe('');
+  });
+});
+
+describe('inline fractions are full size', () => {
+  test('inline math with a fraction is set in display style; other math is left alone', () => {
+    expect(inlineTex('\\frac{x}{5} = 3')).toBe('\\displaystyle \\frac{x}{5} = 3');
+    expect(inlineTex('\\frac{4x}{4} = \\frac{28}{4}')).toBe('\\displaystyle \\frac{4x}{4} = \\frac{28}{4}');
+    expect(inlineTex('\\tfrac{1}{2}x')).toBe('\\displaystyle \\dfrac{1}{2}x');
+    expect(inlineTex('\\sqrt{\\frac{a}{b}}')).toBe('\\displaystyle \\sqrt{\\frac{a}{b}}');
+    expect(inlineTex('\\binom{n}{k}')).toBe('\\displaystyle \\binom{n}{k}');
+    expect(inlineTex('x = 7')).toBe('x = 7');
+    expect(inlineTex('\\sqrt{49}')).toBe('\\sqrt{49}');
+    expect(inlineTex('\\displaystyle \\frac{a}{b}')).toBe('\\displaystyle \\frac{a}{b}');
+    expect(inlineTex('\\fraction')).toBe('\\fraction');
+  });
+
+  test('the real draft that printed fractions too small has them in its problems and steps', () => {
+    const fractions = mathIn(OPUS.details).map((m) => m.tex).filter((tex) => inlineTex(tex) !== tex);
+    expect(fractions).toEqual(expect.arrayContaining(['\\frac{x}{5} = 3', '\\frac{4x}{4} = \\frac{28}{4}']));
   });
 });

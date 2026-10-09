@@ -156,6 +156,17 @@ export function detailsSummary(details) {
   return plainMath(line).trim();
 }
 
+// Inline math with a fraction (\\frac, \\tfrac, \\dfrac, \\cfrac, \\binom, so a
+// \\sqrt of a fraction too) is typeset in display style, so the fraction is
+// as big as the text around it instead of shrunk to fit the line. Display
+// math ($$...$$) already is. The TeX shown to screen readers stays as written.
+const FRACTION = /\\(?:[dtc]?frac|binom|[dt]binom)\b/;
+export function inlineTex(tex) {
+  const t = String(tex ?? '');
+  if (!FRACTION.test(t) || /^\s*\\displaystyle\b/.test(t)) return t;
+  return `\\displaystyle ${t.replace(/\\tfrac\b/g, '\\dfrac').replace(/\\tbinom\b/g, '\\dbinom')}`;
+}
+
 export function hasMath(text) {
   return splitMath(text).some((part) => part.type === 'math');
 }

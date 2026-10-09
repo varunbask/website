@@ -60,3 +60,69 @@ export function draftV2({ practice = 5, challenge = true, hint = null, warmup = 
     answer_key,
   };
 }
+
+// A real draft from Opus (schema v2), lightly trimmed: one-step and two-step
+// equations with fractions. Its inline fractions ($\frac{x}{5}$, the
+// $\frac{4x}{4} = \frac{28}{4}$ step) are what printed too small before.
+export function opusEquationsDraft() {
+  const P = (prompt, space = 'medium', extra = {}) => ({ prompt, choices: null, hint: null, space, ...extra });
+  return {
+    title: 'Solving equations with fractions',
+    objective: 'You will be able to solve one-step and two-step equations that have fractions.',
+    minutes: 30,
+    materials: 'Pencil. No calculator.',
+    sections: [
+      {
+        kind: 'warmup', heading: 'Warm-up', directions: 'Find each value.', example: null,
+        problems: [P('What is $\\frac{1}{2}$ of $18$?', 'short'), P('Simplify $\\frac{28}{4}$.', 'short'), P('Solve $x + 9 = 15$.', 'short')],
+      },
+      {
+        kind: 'example', heading: 'Worked example', directions: 'Read each step before you start Part B.',
+        example: {
+          problem: 'Solve $4x - 5 = 23$.',
+          steps: ['Add $5$ to both sides: $4x = 28$.', '$\\frac{4x}{4} = \\frac{28}{4}$, which gives $x = 7$.', 'Check: $4(7) - 5 = 23$.'],
+          answer: '$x = 7$',
+        },
+        problems: [],
+      },
+      {
+        kind: 'practice', heading: 'Practice', directions: 'Solve each equation. Show your steps.', example: null,
+        problems: [
+          P('Solve $\\frac{x}{5} = 3$.'),
+          P('Solve $3x + 4 = 19$.'),
+          P('Which value of $x$ makes $\\frac{x}{3} - 2 = 4$ true?', 'none', { choices: ['$6$', '$12$', '$18$', '$2$'] }),
+          P('Solve $\\frac{2x}{3} = 10$.'),
+          P('Review: simplify $\\frac{3}{4} + \\frac{1}{8}$.', 'short'),
+          P('Solve $\\frac{x - 4}{2} = 9$.', 'long'),
+        ],
+      },
+      {
+        kind: 'apply', heading: 'Apply', directions: 'Write an equation, then solve it.', example: null,
+        problems: [P('A pizza is cut into equal slices. Maya eats $\\frac{1}{4}$ of it, which is $3$ slices. How many slices were there?', 'long')],
+      },
+      {
+        kind: 'challenge', heading: 'Challenge', directions: 'A stretch problem.', example: null,
+        problems: [P('Solve $\\frac{x}{2} + \\frac{x}{3} = 10$.', 'grid')],
+      },
+      {
+        kind: 'reflect', heading: 'Check and reflect', directions: 'Answer in a sentence or two.', example: null,
+        problems: [P('Why do you multiply both sides by $5$ to solve $\\frac{x}{5} = 3$?'), P('Which problem was hardest for you, and why?', 'short')],
+      },
+    ],
+    answer_key: [
+      { ref: 'A1', answer: '$9$', steps: ['$\\frac{1}{2} \\cdot 18 = 9$'] },
+      { ref: 'A2', answer: '$7$', steps: ['$28 \\div 4 = 7$'] },
+      { ref: 'A3', answer: '$x = 6$', steps: ['Subtract $9$ from both sides.'] },
+      { ref: 'B1', answer: '$x = 15$', steps: ['Multiply both sides by $5$.'] },
+      { ref: 'B2', answer: '$x = 5$', steps: ['$3x = 15$', '$x = 5$'] },
+      { ref: 'B3', answer: '(C) $18$', steps: ['$\\frac{x}{3} = 6$, so $x = 18$.'] },
+      { ref: 'B4', answer: '$x = 15$', steps: ['$2x = 30$', '$x = 15$'] },
+      { ref: 'B5', answer: '$\\frac{7}{8}$', steps: ['$\\frac{6}{8} + \\frac{1}{8} = \\frac{7}{8}$'] },
+      { ref: 'B6', answer: '$x = 22$', steps: ['$x - 4 = 18$', '$x = 22$'] },
+      { ref: 'C1', answer: '$12$ slices', steps: ['$\\frac{1}{4}s = 3$', '$s = 12$'] },
+      { ref: 'D1', answer: '$x = 12$', steps: ['$\\frac{5x}{6} = 10$', '$x = 12$'] },
+      { ref: 'E1', answer: 'Multiplying by $5$ undoes dividing by $5$, so $x$ is left alone.', steps: [] },
+      { ref: 'E2', answer: 'Answers vary.', steps: [] },
+    ],
+  };
+}

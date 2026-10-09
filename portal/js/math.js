@@ -17,6 +17,8 @@
 // svgImage(svg, { color }) -> Promise<HTMLImageElement> (for drawing on a canvas)
 // typesetIn(root) -> replaces every span.hw-math[data-tex] under root
 
+import { inlineTex } from './homework-doc.js';
+
 export const MATHJAX_SRC = '/portal/vendor/mathjax/tex-svg-full.js';
 
 let loading = null;
@@ -63,11 +65,13 @@ export function loadMathJax() {
   return loading;
 }
 
-// The svg of one formula, labelled with its TeX for screen readers
+// The svg of one formula, labelled with its TeX (as written) for screen
+// readers. Inline math with a fraction is set in display style (inlineTex),
+// so the fraction is full size; the line around it grows to fit.
 export function texToSvg(MathJax, tex, { display = false } = {}) {
   let node;
   try {
-    node = MathJax.tex2svg(tex, { display });
+    node = MathJax.tex2svg(display ? tex : inlineTex(tex), { display });
   } catch {
     return null;
   }

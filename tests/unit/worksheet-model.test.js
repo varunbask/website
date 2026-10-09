@@ -4,7 +4,8 @@ import {
   isAppleTouch, lineHeight,
 } from '../../portal/js/worksheet-model.js';
 import { normalizeDraft } from '../../api/_lib/homework-draft.js';
-import { draftV2 } from './draft-fixtures.js';
+import { draftV2, opusEquationsDraft } from './draft-fixtures.js';
+import { inlineTex } from '../../portal/js/homework-doc.js';
 
 // Stand-ins for canvas measureText and MathJax: every character half its font
 // size wide; a formula 0.45 em a character, 0.9 em up and 0.3 em down
@@ -209,5 +210,57 @@ describe('around the worksheet', () => {
 
   test('line heights follow the font sizes', () => {
     expect(lineHeight('problem')).toBeCloseTo(11.5 * 1.38);
+  });
+});
+
+describe('inline fractions (the real draft)', () => {
+  // Like MathJax: a fraction in display style stands about 1.6 em tall; other inline math about 1 em
+  const mathJaxLike = (tex, display, key) => {
+    const em = FONTS[key].size;
+    const tall = !display && inlineTex(tex) !== tex;
+    return { width: tex.length * em * 0.4, ascent: (tall ? 0.95 : 0.75) * em, descent: (tall ? 0.7 : 0.25) * em };
+  };
+  const opus = normalizeDraft(opusEquationsDraft(), { count: 6 });
+  const sheet = layoutWorksheet({ title: opus.title, details: opus.details }, measure, mathJaxLike);
+  const maths = sheet.pages.flatMap((p) => p.items).filter((i) => i.type === 'math');
+
+  test('a line with a fraction grows to fit it; others keep their height', () => {
+    const plain = layoutRich('Solve $x + 9 = 15$.', 400, measure, mathJaxLike, 'problem');
+    const frac = layoutRich('Solve $\\frac{x}{5} = 3$.', 400, measure, mathJaxLike, 'problem');
+    expect(plain.lines[0].height).toBeCloseTo(11.5 * 1.38);
+    expect(frac.lines[0].height).toBeGreaterThan(plain.lines[0].height);
+    expect(frac.lines[0].height).toBeGreaterThanOrEqual((0.95 + 0.7) * 11.5);
+  });
+
+  test('the step with two fractions keeps its baseline with the text, and its lines do not overlap', () => {
+    const step = layoutRich('$\\frac{4x}{4} = \\frac{28}{4}$, which gives $x = 7$.', 300, measure, mathJaxLike, 'body');
+    const items = [];
+    // place it and check every formula sits inside its own line box
+    let top = 0;
+    for (const line of step.lines) {
+      const baseline = top + (line.height - (line.ascent + line.descent)) / 2 + line.ascent;
+      for (const it of line.items) {
+        if (it.type !== 'math') continue;
+        expect(baseline - it.ascent).toBeGreaterThanOrEqual(top - 0.001);
+        expect(baseline + it.descent).toBeLessThanOrEqual(top + line.height + 0.001);
+        items.push(it);
+      }
+      top += line.height;
+    }
+    expect(items.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('on the worksheet, the fraction formulas are placed tall and on the text baseline', () => {
+    const solve = maths.find((m) => m.tex === '\\frac{x}{5} = 3');
+    expect(solve.ascent + solve.descent).toBeCloseTo(1.65 * FONTS.problem.size);
+    const page = sheet.pages.find((p) => p.items.includes(solve));
+    const words = page.items.filter((i) => i.type === 'text' && i.text === 'Solve' && Math.abs(i.y - solve.y) < 0.01);
+    expect(words).toHaveLength(1);
+    const step = maths.find((m) => m.tex === '\\frac{4x}{4} = \\frac{28}{4}');
+    expect(step.font).toBe('body');
+    // the line before the step and the one after do not run into it
+    const pageItems = sheet.pages.find((p) => p.items.includes(step)).items.filter((i) => i.type === 'text' && i.font === 'body');
+    const above = pageItems.filter((i) => i.y < step.y - 1).map((i) => i.y);
+    if (above.length) expect(step.y - step.ascent).toBeGreaterThan(Math.max(...above));
   });
 });

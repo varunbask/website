@@ -39,7 +39,7 @@ describe('MathJax loads only when there is math', () => {
 
   test('formulas: one same-origin script, configured not to typeset the page or add a font cache', async () => {
     const { typesetIn, MATHJAX_SRC } = await import('../../portal/js/math.js?some');
-    const spots = [fakeSpot('x^2 + 1'), fakeSpot('\\frac{a}{b}', true)];
+    const spots = [fakeSpot('x^2 + 1'), fakeSpot('\\frac{a}{b}', true), fakeSpot('\\frac{x}{5} = 3')];
     const done = typesetIn(fakeRoot(spots));
     await Promise.resolve();
     expect(appended).toHaveLength(1);
@@ -65,8 +65,11 @@ describe('MathJax loads only when there is math', () => {
     config.startup.defaultReady = () => {};
     config.startup.promise = Promise.resolve();
     config.startup.ready();
-    expect(await done).toBe(2);
-    expect(made).toEqual([['x^2 + 1', false], ['\\frac{a}{b}', true]]);
+    expect(await done).toBe(3);
+    // an inline fraction is set in display style; display math as it is
+    expect(made).toEqual([['x^2 + 1', false], ['\\frac{a}{b}', true], ['\\displaystyle \\frac{x}{5} = 3', false]]);
+    // the label keeps the TeX as written
+    expect(spots[2].children[0].attrs['aria-label']).toBe('\\frac{x}{5} = 3');
     // each formula is an image labelled with its TeX
     expect(spots[0].children[0].attrs).toMatchObject({ role: 'img', 'aria-label': 'x^2 + 1', focusable: 'false', width: '2.000em', height: '1.000em' });
     expect(spots[1].classList.added).toContain('is-typeset');

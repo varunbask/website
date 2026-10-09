@@ -57,7 +57,7 @@ describe('families never download answer-key code', () => {
 
   test('what the worksheet loads later never reaches answer-key.js either', () => {
     const lazy = dynamicSpecs('portal/js/worksheet-ui.js');
-    expect(lazy.sort()).toEqual(['portal/js/markup.js', 'portal/js/worksheet.js']);
+    expect(lazy.sort()).toEqual(['portal/js/doc-viewer.js', 'portal/js/markup.js', 'portal/js/worksheet.js']);
     for (const file of lazy) {
       const graph = staticGraph(file);
       expect(graph.has('portal/js/answer-key.js'), file).toBe(false);
@@ -110,7 +110,7 @@ describe('the drawer section', () => {
     expect(drawer).toMatch(/extra: staff && found\.answerKey\?\.body && found\.answerKey\.worksheetButton/);
     const key = read('portal/js/answer-key.js');
     expect(key).toContain("label: 'With answer key'");
-    expect(key).toContain('appendix: body ? { heading: KEY_WORKSHEET_HEADING, text: body } : null');
+    expect(key).toMatch(/openDocViewer\(\{\n\s*source: \{ title: task\.title, details: task\.details, dueAt: task\.due_at \}, keyText: body, withKey: true,/);
   });
 
   test('Open, Print, Download and Mark up; the PDF is made in the browser', () => {
@@ -123,7 +123,7 @@ describe('the drawer section', () => {
 
   test('Preview worksheet in the create form, after a draft fills it', () => {
     expect(read('portal/js/homework-draft.js')).toContain("label: 'Preview worksheet'");
-    expect(read('portal/js/item-form.js')).toMatch(/onPreview: \(\) => openWorksheet\(/);
+    expect(read('portal/js/item-form.js')).toMatch(/onPreview: \(\) => openDocViewer\(\{/);
   });
 });
 
@@ -186,7 +186,7 @@ describe('the structured homework in the portal', () => {
     expect(read('portal/js/answer-key.js')).toMatch(/body\n\s*\? keyView\(body\)/);
     const form = read('portal/js/item-form.js');
     expect(form).toContain("options: [{ value: 'write', label: 'Write' }, { value: 'preview', label: 'Preview' }],");
-    expect(form).toContain('? homeworkView(details.value)');
+    expect(form).toContain('docPreview = documentPreview({ getSource: previewSource, getKeyText: previewKeyText, toast: dctx.toast });');
     expect(form).toContain("maxlength: '12000'");
   });
 

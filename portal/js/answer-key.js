@@ -10,7 +10,7 @@ import { h, uid } from './dom.js';
 import { icon } from './icons.js';
 import { sb } from './supabase.js';
 import { button, busy } from './ui.js';
-import { openWorksheet } from './worksheet-ui.js';
+import { openDocViewer } from './doc-viewer.js';
 import { parseKey, hasMath } from './homework-doc.js';
 import { richText } from './homework-view.js';
 import { typesetIn } from './math.js';
@@ -18,7 +18,6 @@ import { typesetIn } from './math.js';
 export const MAX_ANSWER_KEY = 20000;
 export const ANSWER_KEY_HEADING = 'Answer key (only staff see this)';
 export const ANSWER_KEY_HINT = 'Only staff see this. The AI grader uses it to check the work and never shows it to the student.';
-export const KEY_WORKSHEET_HEADING = 'Answer key (staff only)';
 
 // The key as the portal shows it: grouped by part, each answer by its ref
 // (A1, B3...) with its steps, math typeset. A key a tutor typed shows as typed.
@@ -133,19 +132,19 @@ export function answerKeySection(dctx, { taskId, body = null, onSaved } = {}) {
   return section;
 }
 
-// "With answer key" in the worksheet section: the student's worksheet with the
-// key on its own pages at the end. Staff only, like everything in this module;
-// the key is read again on each click, so an edit shows at once.
+// "With answer key" in the worksheet section: the document viewer showing the
+// student's worksheet with the key on its own pages at the end. Staff only,
+// like everything in this module; the key is read again on each click, so an
+// edit shows at once.
 export function keyWorksheetButton(dctx, { task }) {
-  const btn = button({
-    label: 'With answer key', icon: 'eye', size: 'sm', focusKey: 'ws-key',
-    ariaLabel: 'Open the worksheet with the answer key, opens in a new tab',
-  });
+  const btn = button({ label: 'With answer key', icon: 'eye', size: 'sm', focusKey: 'ws-key' });
   btn.addEventListener('click', async () => {
     try {
       await busy(btn, 'Preparing…', async () => {
         const body = await loadAnswerKey(task.id);
-        await openWorksheet(task, { appendix: body ? { heading: KEY_WORKSHEET_HEADING, text: body } : null, host: dctx.body ?? document.body });
+        openDocViewer({
+          source: { title: task.title, details: task.details, dueAt: task.due_at }, keyText: body, withKey: true, returnFocus: btn, toast: dctx.toast,
+        });
       });
     } catch (error) {
       console.error(error);
