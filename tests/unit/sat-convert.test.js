@@ -321,6 +321,7 @@ describe('buildBundle on a made-up tree', () => {
   let root;
   let first;
   let second;
+  let planned;
   beforeAll(async () => {
     root = mkdtempSync(join(tmpdir(), 'sat-convert-'));
     const sat = join(root, 'SAT');
@@ -371,6 +372,12 @@ describe('buildBundle on a made-up tree', () => {
     const opts = { sat, qb, extra, out: join(root, 'out'), figures: false, lessons: false };
     first = await buildBundle(opts);
     second = await buildBundle(opts);
+    // the research plan's taxonomy: official skills, each with the chapters it covers
+    writeFileSync(join(root, 'plan.json'), JSON.stringify({ taxonomy: [
+      { cb_skill: 'Words in Context', slug: 'words-in-context', domain: 'craft-and-structure', matthew_chapter_dirs: ['02-craft-and-structure/01-words-in-context'] },
+      { cb_skill: 'Linear functions', slug: 'linear-functions', domain: 'algebra', matthew_chapter_dirs: ['05-algebra/01-lines'] },
+    ] }));
+    planned = await buildBundle({ ...opts, out: join(root, 'out-plan'), plan: join(root, 'plan.json') });
   }, 60_000);
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
@@ -422,6 +429,19 @@ describe('buildBundle on a made-up tree', () => {
     expect(skills.find((s) => s.slug === 'cs-words-in-context')).toMatchObject({ domain: 'craft-and-structure', name: 'Words in Context' });
     expect(files).toEqual([expect.objectContaining({ collection: 'question_bank', skill: 'cs-words-in-context', difficulty: 'easy', path: 'question-bank/craft-and-structure/words-in-context-easy.pdf', staff_only: false })]);
     expect(guides).toEqual([{ skill: 'cs-words-in-context', domain: 'craft-and-structure', title: 'Words in Context', position: 1, body: { v: 1, blocks: [{ t: 'h3', c: [{ x: 'Read around the blank' }] }, { t: 'p', c: [{ x: 'Predict a ' }, { x: 'word', m: ['b'] }, { x: ' first.' }] }] } }]);
+  });
+
+  test('with a taxonomy: official skills, chapters and Question Bank files mapped to them', () => {
+    expect(planned.content.skills).toEqual([
+      { slug: 'words-in-context', domain: 'craft-and-structure', name: 'Words in Context', position: 1 },
+      { slug: 'linear-functions', domain: 'algebra', name: 'Linear Functions', position: 1 },
+    ]);
+    const sets = new Map(planned.content.sets.map((s) => [s.id, s]));
+    expect(sets.get('cs-ch1').skill).toBe('words-in-context');
+    expect(sets.get('alg-ch1').skill).toBe('linear-functions');
+    expect(planned.content.items.find((i) => i.id === 'cs-ch1-01').skill).toBe('words-in-context');
+    expect(planned.content.files[0].skill).toBe('words-in-context');
+    expect(planned.report.taxonomy.source).toBe('plan');
   });
 
   test('the report: no failures, and a rebuild gives the same ids', () => {

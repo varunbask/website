@@ -111,8 +111,8 @@ export function classifyRw({ stem, passage = '', choices = [] }) {
   if (/text 1/i.test(all) && /text 2/i.test(all)) return { domain: 'craft-and-structure', skillName: 'Cross-Text Connections' };
   if (/main purpose|overall structure|function of the|best describes the function/i.test(s)) return { domain: 'craft-and-structure', skillName: 'Text Structure and Purpose' };
   if (/logically completes the text/i.test(s)) return { domain: 'information-and-ideas', skillName: 'Inferences' };
-  if (/data from the|uses data|from the (table|graph|chart)/i.test(s)) return { domain: 'information-and-ideas', skillName: 'Command of Evidence' };
-  if (/support|weaken|quotation|illustrate|would most directly|finding/i.test(s)) return { domain: 'information-and-ideas', skillName: 'Command of Evidence' };
+  if (/data from the|uses data|from the (table|graph|chart)/i.test(s)) return { domain: 'information-and-ideas', skillName: 'Command of Evidence: Quantitative' };
+  if (/support|weaken|quotation|illustrate|would most directly|finding/i.test(s)) return { domain: 'information-and-ideas', skillName: 'Command of Evidence: Textual' };
   if (/main idea|according to the text|based on the text|best states|best describes|central/i.test(s)) return { domain: 'information-and-ideas', skillName: 'Central Ideas and Details' };
   return null;
 }

@@ -89,15 +89,18 @@ export async function buildBundle(opts) {
   const taxonomy = Array.isArray(plan?.taxonomy) ? plan.taxonomy : null;
   if (taxonomy) {
     report.taxonomy.source = 'plan';
+    const perDomain = new Map();
     taxonomy.forEach((t, k) => {
       const domain = domainBySlug(t.domain) ?? DOMAINS.find((d) => nameKey(d.name) === nameKey(t.domain ?? ''));
-      const name = t.name ?? t.title ?? t.skill ?? t.slug;
+      const name = t.cb_skill ?? t.name ?? t.title ?? t.skill ?? t.slug;
       if (!domain || !name) {
         report.taxonomy.notes.push(`taxonomy entry ${k} has no usable domain or name`);
         return;
       }
       const slug = t.slug ? trimSlug(slugify(t.slug)) : ids.skill(domain.abbr, name);
-      skills.push({ slug, domain: domain.slug, name: titleCase(cleanName(name)), position: Number(t.position) || k + 1, raw: t });
+      // position within the domain, in the taxonomy's order unless it gives one
+      perDomain.set(domain.slug, (perDomain.get(domain.slug) ?? 0) + 1);
+      skills.push({ slug, domain: domain.slug, name: titleCase(cleanName(name)), position: Number(t.position) || perDomain.get(domain.slug), raw: t });
       for (const dir of t.matthew_chapter_dirs ?? []) {
         const key = String(dir).replace(/^\.?\/*/, '').replace(/\/chapter\.tex$/, '').replace(/\/+$/, '');
         if (!chapterSkill.has(key)) chapterSkill.set(key, slug);
@@ -265,7 +268,8 @@ export async function buildBundle(opts) {
         }
       }
     }
-    const explanation = doc(conv.blocks(keyBody.replace(/^\s*Student-produced response\.\s*/, '')));
+    // the bare "Student-produced response." label says nothing the item does not
+    const explanation = doc(conv.blocks(keyBody.replace(/^\s*(?:\\(?:textbf|emph|textit)\s*\{\s*Student-produced response\.?\s*\}|Student-produced response\.)\s*/, '')));
     noteUnknown(unknown, id);
     allFigureImgs.push(...imgs.map((img) => ({ img, item: id })));
 
@@ -555,7 +559,8 @@ export async function buildBundle(opts) {
     const dn = /^\s*(\d+)/.exec(e.domainFolder);
     const domain = dn ? domainByN(dn[1]) : null;
     if (!domain) return null;
-    const tax = taxonomy?.find((t) => t.qb_folder && cleanName(t.qb_folder) === cleanName(e.skillFolder));
+    const folderOf = (t) => t.qb_folder ?? t.qb_dir ?? null;
+    const tax = taxonomy?.find((t) => folderOf(t) && cleanName(String(folderOf(t)).split('/').pop()) === cleanName(e.skillFolder));
     if (tax) return skills.find((s) => s.raw === tax) ?? null;
     return findSkill(domain.slug, cleanName(e.skillFolder));
   };

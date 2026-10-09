@@ -24,8 +24,8 @@ export function sourceIndex(items) {
 export function matchFinding(finding, index) {
   const list = index.get(normFile(finding.file));
   if (!list) return { why: 'no converted item comes from this file' };
-  const q = Number(finding.q);
-  if (!Number.isInteger(q)) return { why: 'the question number is missing' };
+  const q = finding.q === null || finding.q === undefined || finding.q === '' ? NaN : Number(finding.q);
+  if (!Number.isInteger(q)) return { why: 'the finding has no question number (a lesson example, not a practice question)' };
   let hits = list.filter((c) => c.q === q);
   if (!hits.length) return { why: `the file has no question ${q}` };
   if (hits.length > 1) {

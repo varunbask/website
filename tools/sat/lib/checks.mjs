@@ -20,8 +20,9 @@ function blankParagraph(doc) {
   return found;
 }
 
-// "Repeated word around the blank": a word next to the blank that every
-// choice also starts or ends with (so the completed sentence says it twice).
+// "Repeated word around the blank": the word just before the blank that every
+// choice also starts with, or the word just after it that every choice ends
+// with (so the completed sentence says it twice).
 // -> { word, side, choices: 'start' | 'end' } or null
 export function repeatedWordSuspect(item) {
   if (!item.choices || item.choices.length !== 4) return null;
@@ -34,10 +35,8 @@ export function repeatedWordSuspect(item) {
   if (choices.length < 3) return null;
   const firsts = choices.map((t) => word(t.split(/\s+/)[0]));
   const lasts = choices.map((t) => word(t.split(/\s+/).pop()));
-  for (const [w, side] of [[before, 'before'], [after, 'after']]) {
-    if (!w || w.length < 2) continue;
-    if (firsts.every((f) => f === w)) return { word: w, side, choices: 'start' };
-    if (lasts.every((l) => l === w)) return { word: w, side, choices: 'end' };
-  }
+  // the word before the blank opening every choice, or the word after it closing every choice
+  if (before.length >= 2 && firsts.every((f) => f === before)) return { word: before, side: 'before', choices: 'start' };
+  if (after.length >= 2 && lasts.every((l) => l === after)) return { word: after, side: 'after', choices: 'end' };
   return null;
 }
