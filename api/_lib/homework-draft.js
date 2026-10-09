@@ -570,19 +570,45 @@ export function answerForms(answer, { choice = false } = {}) {
   return [...forms].filter((f) => f.length >= 2 || (/\d/.test(f) && /[-+*/^=<>]/.test(f)));
 }
 
-// Whether a text holds this form of an answer as a whole: "18" is not in "180",
-// "x=6" is not in "2x=6"
-export function containsAnswer(text, form) {
-  if (!form) return false;
+// Where a text holds this form of an answer as a whole (in the compared
+// form): "18" is not in "180", "x=6" is not in "2x=6"
+function answerAt(text, form) {
+  if (!form) return { out: '', at: [] };
   const { out, gap } = compareForm(text);
   const word = (ch) => /[a-z0-9]/.test(ch ?? '');
-  for (let at = out.indexOf(form); at >= 0; at = out.indexOf(form, at + 1)) {
-    const end = at + form.length;
-    const before = at === 0 || gap[at] || !word(form[0]) || !word(out[at - 1]);
+  const at = [];
+  for (let i = out.indexOf(form); i >= 0; i = out.indexOf(form, i + 1)) {
+    const end = i + form.length;
+    const before = i === 0 || gap[i] || !word(form[0]) || !word(out[i - 1]);
     const after = end === out.length || gap[end] || !word(form[form.length - 1]) || !word(out[end]);
-    if (before && after) return true;
+    if (before && after) at.push(i);
   }
-  return false;
+  return { out, at };
+}
+
+export function containsAnswer(text, form) {
+  return answerAt(text, form).at.length > 0;
+}
+
+// A bare value: a number, maybe with a short unit ("9", "60cm^2", "5bags", "12.5%")
+const BARE_VALUE = /^-?\d[\d.,/]*(?:[a-z%]{1,8}(?:\^?\d)?)?$/;
+// What, just before a value, shows it is being given as the answer
+const REVEAL_CUE = /(?:answers?|solutions?|results?|shouldbe|shouldget|youget|equals|=|->|→|\\to|\\rightarrow)(?:is|are|of)?:?$/;
+
+/**
+ * Whether a line of the student part gives this answer away. An answer with
+ * an operator or a variable ("x=7", "(x+3)(x+4)") gives itself away wherever
+ * it appears. A bare value ("9 cm") is often one of the problem's own givens
+ * ("a base of 9 cm" when the answer is also 9 cm), so it counts only right
+ * after words that present it as the answer ("Answer: 9 cm", "should be 9 cm",
+ * "= 9 cm").
+ */
+export function givesAway(text, form) {
+  // "42\text{ft}^2" is a bare value too: units are often set as \text{...}
+  const bare = form.replace(/\\(?:text|mathrm|mbox)\{([^{}]*)\}/g, '$1');
+  if (!BARE_VALUE.test(bare)) return containsAnswer(text, form);
+  const { out, at } = answerAt(text, form);
+  return at.some((i) => REVEAL_CUE.test(out.slice(Math.max(0, i - 24), i)));
 }
 
 // A plain word ("true", "no", "commutative") is often one of the options a
@@ -611,7 +637,7 @@ export function guardAnswers(draft) {
   const removed = [];
   for (const it of items) {
     const strong = it.forms.filter((f) => !PLAIN_WORD.test(f));
-    const has = (text) => strong.some((f) => containsAnswer(text, f));
+    const has = (text) => strong.some((f) => givesAway(text, f));
     if (has(it.p.prompt)) refuse('leak_prompt');
     if (has(it.sec.heading) || has(it.sec.directions)) refuse('leak_section');
     for (const sec of reflect) {

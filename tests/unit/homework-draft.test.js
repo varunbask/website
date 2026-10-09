@@ -6,6 +6,7 @@ import {
   requestDraft, draftHomework, runDraft, draftOptions, stripNumber, PROMPT_LIMITS, MAX_DETAILS, SETUP_PROBLEM, FILES_UNREADABLE,
   REFUSAL, OUT_OF_ROOM, SECTION_KINDS, MIN_MINUTES, MAX_MINUTES, nativeEndpoint, ANTHROPIC_VERSION, MAX_OUTPUT_TOKENS,
   sweepDraftSources, SOURCE_SWEEP_MS, LEAK_REFUSED, answerForms, containsAnswer, hintsRemovedText,
+  givesAway,
 } from '../../api/_lib/homework-draft.js';
 import { parseHomework, parseKey, problemRefs } from '../../portal/js/homework-doc.js';
 import { draftV2, opusEquationsDraft } from './draft-fixtures.js';
@@ -1006,5 +1007,31 @@ describe('POST /api/grade draft_status', () => {
     calls.length = 0;
     await repo.setDraftStage(12, 'drafting');
     expect(calls).toEqual([['from', 'homework_drafts'], ['update', { stage: 'drafting' }], ['eq', 'id', 12], ['eq', 'status', 'drafting']]);
+  });
+});
+
+// A real Opus draft (2026-10-08) was refused because the challenge's answer,
+// 9 cm, was also one of its givens ("a base of 9 cm"). A bare value counts as
+// a giveaway only when it is presented as the answer.
+describe('bare values are giveaways only when presented as the answer', () => {
+  const forms = (a) => answerForms(a);
+  const gives = (text, answer) => forms(answer).some((f) => givesAway(text, f));
+
+  test('a given that equals the answer is fine', () => {
+    expect(gives('A parallelogram has a base of $9$ cm and a height of $6$ cm. A triangle has the same area and a base of $12$ cm. What is its height?', '$9$ cm')).toBe(false);
+    expect(gives('A rectangle has area $42 \\text{ ft}^2$ and width $6$ ft. What is half of it?', '$42 \\text{ ft}^2$')).toBe(false);
+    expect(gives('The rectangle is $11$ m by $6$ m. Find the perimeter.', '$34$ m')).toBe(false);
+  });
+
+  test('a value presented as the answer is a giveaway', () => {
+    expect(gives('Find the height. (Answer: $9$ cm)', '$9$ cm')).toBe(true);
+    expect(gives('Check: your answer should be $42 \\text{ ft}^2$.', '$42 \\text{ ft}^2$')).toBe(true);
+    expect(gives('Solve $x + 9 = 23$. You should get $x = 14$.', '$x = 14$')).toBe(true);
+    expect(gives('Area $= 60$ cm squared', '$60$')).toBe(true);
+  });
+
+  test('an answer with a variable or operator gives itself away anywhere', () => {
+    expect(gives('Factor $x^2+7x+12$, which is $(x+3)(x+4)$.', '$(x+3)(x+4)$')).toBe(true);
+    expect(gives('Solve $x + 9 = 23$.', '$x = 14$')).toBe(false);
   });
 });
