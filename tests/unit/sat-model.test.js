@@ -5,6 +5,7 @@ import {
   formatClock, clockWords, remainingMs, timerTone, timerAnnouncement, minutesText, timeUsed,
   satPage, satTitle, satCrumbs, practiceHref, testHref, reviewHref, learnHref,
   setCounts, countsText, practiceSetsFor, skillsByDomain, testGroups, modulesOf, nextModule, libraryGroups, skillFiles, fileSkillMatches,
+  bankSkill, SHARED_BANK,
   pct, progressFrom, attemptCounts, practiceLine, scoreText, bestAndLast, continueList, sittings, sittingNext, fullScore,
   domainBreakdown, filterReview, unansweredCount, submitConfirmText, attemptLabel, attemptResult, lastText,
 } from '../../portal/js/sat-model.js';
@@ -312,6 +313,35 @@ describe('the catalog', () => {
     expect(Object.keys(bank[0].levels)).toEqual(['easy', 'hard']);
     expect(g.official.map((f) => f.id)).toEqual(['o1']);
     expect(g.staff.map((f) => f.id)).toEqual(['t1', 'k1']);
+  });
+
+  test('Command of Evidence: one set of Question Bank PDFs for both skills, listed once in the library', () => {
+    const skills = [
+      { slug: 'evidence-textual', domain: 'information-and-ideas', name: 'Command of Evidence: Textual', position: 2 },
+      { slug: 'evidence-quantitative', domain: 'information-and-ideas', name: 'Command of Evidence: Quantitative', position: 3 },
+      { slug: 'inferences', domain: 'information-and-ideas', name: 'Inferences', position: 4 },
+    ];
+    const files = ['easy', 'medium', 'hard'].map((d, i) => ({
+      id: `qb-coe-${d}`, collection: 'question_bank', domain: 'information-and-ideas', skill: 'evidence-textual', difficulty: d,
+      title: `Command of Evidence, ${d}`, storage_path: `qb/coe-${d}.pdf`, position: i,
+    }));
+    files.push({ id: 'qb-inf', collection: 'question_bank', domain: 'information-and-ideas', skill: 'inferences', difficulty: 'easy', title: 'Inferences, Easy', storage_path: 'qb/inf.pdf', position: 9 });
+    expect(SHARED_BANK).toEqual({ 'evidence-quantitative': 'evidence-textual' });
+    expect(bankSkill(skills[1])).toEqual({ slug: 'evidence-textual', shared: true, label: 'Command of Evidence (textual and quantitative)' });
+    expect(bankSkill(skills[2])).toEqual({ slug: 'inferences', shared: false, label: null });
+    const quant = skillFiles(files, skills[1], []);
+    expect(Object.keys(quant.bank)).toEqual(['easy', 'medium', 'hard']);
+    expect(quant.bankLabel).toBe('Command of Evidence (textual and quantitative)');
+    const textual = skillFiles(files, skills[0], []);
+    expect(Object.keys(textual.bank)).toEqual(['easy', 'medium', 'hard']);
+    expect(textual.bankLabel).toBe('Command of Evidence (textual and quantitative)');
+    const inf = skillFiles(files, skills[2], []);
+    expect(Object.keys(inf.bank)).toEqual(['easy']);
+    expect(inf.bankLabel).toBeNull();
+    expect(skillFiles([], skills[1], []).bankLabel).toBeNull();
+    const rows = libraryGroups(files, skills, []).bank[0].skills;
+    expect(rows.map((r) => r.label)).toEqual(['Command of Evidence (textual and quantitative)', 'Inferences']);
+    expect(Object.keys(rows[0].levels)).toEqual(['easy', 'medium', 'hard']);
   });
 
   test('a skill page’s files', () => {

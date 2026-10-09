@@ -337,9 +337,13 @@
 }
 .sat-guide-doc { max-width: 68ch; }
 .sat-accuracy-figure { font: var(--t-figure); margin-bottom: var(--s-2); }
+/* "Not started" in place of a percent: words, not a figure */
+.sat-accuracy-figure.is-text,
+.sat-progress-figure.is-text { font: var(--t-h3); color: var(--text-3); }
 .sat-accuracy .sat-meter { margin-bottom: var(--s-2); }
 .sat-bank-levels { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .sat-aside-card .sat-bank-levels { margin-bottom: var(--s-3); }
+.sat-bank-label { margin-bottom: var(--s-2); font: var(--t-meta); color: var(--text-2); }
 .sat-level-btn.is-easy { border-color: var(--success-solid); }
 .sat-level-btn.is-medium { border-color: var(--warning-solid); }
 .sat-level-btn.is-hard { border-color: var(--danger-solid); }

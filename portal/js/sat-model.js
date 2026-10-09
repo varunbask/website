@@ -350,6 +350,21 @@ export function fileSkillMatches(file, skill) {
   return f === squash(skill.slug) || f === squash(skill.name);
 }
 
+// The official Question Bank keeps some skills in one folder: Command of
+// Evidence (textual and quantitative) has one set of PDFs, filed under
+// evidence-textual. A skill listed here also shows the files of the skill it
+// names, and those files carry a label that says they cover both.
+export const SHARED_BANK = Object.freeze({ 'evidence-quantitative': 'evidence-textual' });
+export const SHARED_BANK_LABELS = Object.freeze({ 'evidence-textual': 'Command of Evidence (textual and quantitative)' });
+
+// The skill whose Question Bank files a skill shows, and their label (null
+// when the files are the skill's own)
+export function bankSkill(skill) {
+  const shared = SHARED_BANK[skill?.slug] ?? null;
+  const slug = shared ?? skill?.slug ?? null;
+  return { slug, shared: Boolean(shared), label: SHARED_BANK_LABELS[slug] ?? null };
+}
+
 // The library tabs. Lessons and the Question Bank are grouped by domain, then
 // skill; the Question Bank gives each skill its Easy, Medium and Hard files.
 //   lessons  [{ domain, skills: [{ skill, files }] , other: [file] }]
@@ -378,7 +393,7 @@ export function libraryGroups(files, skills, sets = []) {
     for (const f of mine) {
       const skill = domainSkills.find((s) => fileSkillMatches(f, s)) ?? null;
       const key = skill ? skill.slug : squash(f.skill || f.title);
-      if (!groups.has(key)) groups.set(key, { skill, label: skill?.name ?? f.skill ?? f.title, levels: {}, position: skill ? skill.position : 1e6 });
+      if (!groups.has(key)) groups.set(key, { skill, label: SHARED_BANK_LABELS[skill?.slug] ?? skill?.name ?? f.skill ?? f.title, levels: {}, position: skill ? skill.position : 1e6 });
       const g = groups.get(key);
       const level = DIFFICULTIES.includes(f.difficulty) ? f.difficulty : 'other';
       if (!g.levels[level]) g.levels[level] = f;
@@ -395,18 +410,21 @@ export function libraryGroups(files, skills, sets = []) {
 }
 
 // The files of one skill page: its lesson PDFs and Question Bank levels
+// (shared with another skill when SHARED_BANK says so, then with bankLabel)
 export function skillFiles(files, skill, sets = []) {
   const setIds = new Set((sets ?? []).filter((s) => s.skill === skill?.slug).map((s) => s.id));
   const list = [...(files ?? [])].sort(byPosition);
   const lessons = list.filter((f) => f.collection === 'lesson'
     && (fileSkillMatches(f, skill) || [...setIds].some((id) => f.storage_path === `lessons/${id}.pdf`)));
+  const from = bankSkill(skill);
+  const owner = from.shared ? { slug: from.slug, name: '' } : skill;
   const bank = {};
   for (const f of list) {
-    if (f.collection !== 'question_bank' || !fileSkillMatches(f, skill)) continue;
+    if (f.collection !== 'question_bank' || !(fileSkillMatches(f, owner) || fileSkillMatches(f, skill))) continue;
     const level = DIFFICULTIES.includes(f.difficulty) ? f.difficulty : 'other';
     bank[level] ??= f;
   }
-  return { lessons, bank };
+  return { lessons, bank, bankLabel: Object.keys(bank).length ? from.label : null };
 }
 
 // ---------------------------------------------------------------------------

@@ -103,7 +103,7 @@ function sectionBlock(section, progress, now) {
   return h('div', { class: 'sat-progress-section' },
     h('div', { class: 'sat-progress-head' },
       h('h3', { class: 'sat-progress-name' }, section.name),
-      h('p', { class: 'sat-progress-figure num' }, p === null ? 'Not started' : `${p}%`),
+      h('p', { class: p === null ? 'sat-progress-figure is-text' : 'sat-progress-figure num' }, p === null ? 'Not started' : `${p}%`),
       h('p', { class: 'sat-progress-meta' }, stat.answered
         ? `${stat.answered} answered, last ${lastText(stat.last, now)}`
         : 'No questions answered yet')),

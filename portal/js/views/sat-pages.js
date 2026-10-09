@@ -170,18 +170,20 @@ export async function skillPage(ctx, slug) {
       : h('p', { class: 'sat-muted' }, 'No lesson PDF for this skill yet.'));
 
   const levels = DIFFICULTIES.filter((d) => files.bank[d]);
+  const bankFor = files.bankLabel ?? skill.name;
   const bankCard = h('section', { class: 'card sat-aside-card', 'aria-labelledby': 'sat-skill-bank' },
     h('div', { class: 'card-head' }, h('h2', { class: 'card-title', id: 'sat-skill-bank' }, 'Question Bank')),
     levels.length
-      ? [h('div', { class: 'sat-bank-levels' }, levels.map((d) => pdfButton(ctx, files.bank[d], {
-        label: DIFFICULTY_LABELS[d], ariaLabel: `Open the ${DIFFICULTY_LABELS[d]} Question Bank PDF for ${skill.name}`, className: `sat-level-btn is-${d}`,
-      }))),
+      ? [files.bankLabel ? h('p', { class: 'sat-bank-label' }, files.bankLabel) : null,
+        h('div', { class: 'sat-bank-levels' }, levels.map((d) => pdfButton(ctx, files.bank[d], {
+          label: DIFFICULTY_LABELS[d], ariaLabel: `Open the ${DIFFICULTY_LABELS[d]} Question Bank PDF for ${bankFor}`, className: `sat-level-btn is-${d}`,
+        }))),
       h('p', { class: 'sat-note' }, 'Official College Board questions. Answers are not included; check them with your tutor.')]
       : h('p', { class: 'sat-muted' }, 'No Question Bank PDFs for this skill yet.'));
 
   const accuracyCard = h('section', { class: 'card sat-aside-card sat-accuracy', 'aria-labelledby': 'sat-skill-accuracy' },
     h('div', { class: 'card-head' }, h('h2', { class: 'card-title', id: 'sat-skill-accuracy' }, `${whose(ctx)} accuracy`)),
-    h('p', { class: 'sat-accuracy-figure num' }, p === null ? 'Not started' : `${p}%`),
+    h('p', { class: p === null ? 'sat-accuracy-figure is-text' : 'sat-accuracy-figure num' }, p === null ? 'Not started' : `${p}%`),
     meter(p, `${skill.name}: ${accuracyText(st)}`),
     h('p', { class: 'sat-muted' }, st?.answered
       ? `${st.correct} of ${st.answered} ${st.answered === 1 ? 'question' : 'questions'} in this skill answered correctly, across practice and tests.`
