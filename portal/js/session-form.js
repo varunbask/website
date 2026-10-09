@@ -41,7 +41,9 @@ import {
   createDefaults, editDefaults, minutesBetween, tutorChoices, subjectChoices, subjectRateHint, defaultSubject,
   checkSessionForm, plannedTimes, buildInsertRow, buildSeriesRow, buildUpdates, changedUpdates, followingChange,
   mergeSessions, scheduleLabel, repeatChoices, repeatSummary, clashReport, clashCheckIsPartial, saveErrorText, whenText,
+  TRIAL_LABEL, TRIAL_HINT, trialChange,
 } from './session-form-model.js';
+import { readSessionBilling, writeSessionBilling } from './session-billing.js';
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const sameId = (a, b) => String(a) === String(b);
@@ -293,6 +295,37 @@ export function sessionForm(dctx, {
   }
   showEnds();
 
+  // Free trial (the admin only; row security refuses anyone else): the family
+  // pays nothing for this one lesson, the tutor is still paid. Not for a weekly
+  // series. Editing, the box shows the lesson's billing as it is now and stays
+  // off until that is read.
+  let trialBox = null;
+  let trialField = null;
+  let trialNow = null;          // the lesson's session_billing row when editing
+  let trialRead = !editing;
+  if (isAdmin) {
+    trialBox = h('input', { type: 'checkbox', class: 'checkbox', name: 'trial', disabled: editing });
+    const trialHint = h('p', { class: 'field-hint', id: `${formId}-trial-hint` }, TRIAL_HINT);
+    trialBox.setAttribute('aria-describedby', trialHint.id);
+    trialField = h('div', { class: 'ses-trial' }, h('label', { class: 'check' }, trialBox, h('span', {}, TRIAL_LABEL)), trialHint);
+    if (editing) {
+      readSessionBilling(session.id).then((row) => {
+        if (!dctx.alive()) return;
+        trialNow = row;
+        trialRead = true;
+        trialBox.checked = row?.reason === 'trial';
+        trialBox.disabled = false;
+      }, (error) => {
+        console.error(error);
+        if (dctx.alive()) trialHint.textContent = 'We couldn’t read this lesson’s billing. Set a free trial in Account, Families.';
+      });
+    }
+  }
+  const showTrial = () => { if (trialField) trialField.hidden = repeatSelect?.value === 'weekly'; };
+  repeatSelect?.addEventListener('change', showTrial);
+  showTrial();
+  const wantsTrial = () => Boolean(trialBox && !trialField.hidden && trialBox.checked);
+
   // Editing a session of a series asks, on save, whether the change is for
   // this session or this and following (Google Calendar asks the same)
   const rows = editing ? followingInSeries(siblings, session, { now }) : null;
@@ -322,6 +355,7 @@ export function sessionForm(dctx, {
     repeatGroup,
     // Next to the times it is about, so it shows while the tutor picks them
     clashSlot,
+    trialField,
     whereField, locationField, urlField,
     notesField,
     errorSlot);
@@ -616,10 +650,11 @@ export function sessionForm(dctx, {
         if (!apply || !dctx.alive()) return;
       }
       await busy(submit, editing ? 'Saving…' : 'Scheduling…', async () => {
+        if (editing && !(await saveTrial())) return;
         if (editing && apply === 'following') await saveFollowing(check.values);
         else if (editing) await saveEdit(check.values);
         else if (check.values.repeat) await saveSeries(check.values, sid, tid);
-        else await saveNew(check.values, sid, tid);
+        else await saveNew(check.values, sid, tid, wantsTrial());
       });
     } finally {
       saving = false;
@@ -632,14 +667,40 @@ export function sessionForm(dctx, {
     errorSlot.scrollIntoView?.({ block: 'nearest' });
   }
 
-  async function saveNew(values, sid, tid) {
+  async function saveNew(values, sid, tid, trial = false) {
     const result = await sb.from('sessions').insert([buildInsertRow({ studentId: sid, tutorId: tid, values })]).select('id');
     if (result.error || !result.data?.length) {
       if (result.error) console.error(result.error);
       showError('We couldn’t schedule this.', saveErrorText(result.error));
       return;
     }
-    scheduled(sid, tid, 'Session scheduled', result.data[0].id);
+    const id = result.data[0].id;
+    let text = 'Session scheduled';
+    if (trial) {
+      // The lesson is saved either way; if the mark fails, Edit can set it again
+      const marked = await writeSessionBilling(id, trialChange(null, true));
+      if (marked.error) console.error(marked.error);
+      text = marked.error ? 'Session scheduled, but not marked as a free trial. Open Edit to try again.' : 'Free trial scheduled';
+      dctx.store.invalidateBilling?.();
+    }
+    scheduled(sid, tid, text, id);
+  }
+
+  // Editing: the box's change, first, so a failure saves nothing. -> false on a failure
+  async function saveTrial() {
+    if (!trialBox || !trialRead) return true;
+    const change = trialChange(trialNow, trialBox.checked);
+    if (!change) return true;
+    const result = await writeSessionBilling(session.id, change);
+    if (result.error || !result.data?.length) {
+      if (result.error) console.error(result.error);
+      showError('We couldn’t save your changes.', saveErrorText(result.error));
+      return false;
+    }
+    trialNow = { ...(trialNow ?? {}), ...change };
+    dctx.store.invalidateBilling?.();
+    dctx.toast({ text: change.reason === 'trial' ? 'Marked as a free trial' : 'No longer a free trial' });
+    return true;
   }
 
   // A weekly series: the database makes its sessions (a year ahead, topped up daily)

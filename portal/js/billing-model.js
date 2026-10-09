@@ -529,9 +529,15 @@ export function allOutstanding(ctx) {
 }
 
 // Students whose sessions have no paying parent
+// A free lesson (a trial, or any 0% exception) bills nobody, so a student
+// whose only lessons are free (a trial before the parent joins) is not listed
 export function studentsWithoutPayer(ctx, from, to) {
   const ids = new Set();
-  for (const r of ctx.rows) if (inRange(r, from, to) && !payerFor(ctx, r) && r.state !== 'cancelled') ids.add(String(r.session.student_id));
+  for (const r of ctx.rows) {
+    if (inRange(r, from, to) && !payerFor(ctx, r) && r.state !== 'cancelled' && r.exception?.charge_pct !== 0) {
+      ids.add(String(r.session.student_id));
+    }
+  }
   return [...ids];
 }
 
@@ -831,7 +837,8 @@ export function billingFact(ctx, session, role) {
   const familyPaid = payer && ctx.payments.find((p) => same(p.parent_id, payer) && p.period === row.month);
   if (familyPaid) parts.push(`family paid ${money(familyPaid.amount_cents)} on ${shortDate(familyPaid.received_on)}`);
   if (row.groupKey) parts.push(`group: ${row.groupKey}`);
-  if (row.unpriced) parts.push('no family rate yet');
+  if (row.exception?.reason === 'trial') parts.push('free trial');
+  else if (row.unpriced && row.exception?.charge_pct !== 0) parts.push('no family rate yet');
   return parts.join('; ');
 }
 

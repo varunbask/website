@@ -385,7 +385,9 @@ describe('nothing leaks before release', () => {
 
   test('only the Account pages and the store read the billing tables; the parent Billing page reads my_statements() and nothing else', () => {
     const MONEY = /\.from\(\s*['"](payments|payouts|statements|family_rates|tutor_rates|billing_\w+|session_billing)['"]/;
-    const ALLOWED = new Set(['store.js', 'views/account-families.js', 'views/account-release.js', 'views/account-payroll.js', 'views/account-rates.js', 'views/account-shared.js']);
+    // session-billing.js: a lesson's exception (the admin's Free trial box in the
+    // session form calls it only for the admin; row security refuses anyone else)
+    const ALLOWED = new Set(['store.js', 'views/account-families.js', 'views/account-release.js', 'views/account-payroll.js', 'views/account-rates.js', 'views/account-shared.js', 'session-billing.js']);
     const files = readdirSync(join(ROOT, 'portal/js'), { recursive: true }).map(String).filter((f) => f.endsWith('.js'));
     const readers = files.filter((f) => MONEY.test(read(`portal/js/${f}`)));
     expect(readers.filter((f) => !ALLOWED.has(f))).toEqual([]);

@@ -618,6 +618,16 @@ describe('needs attention and the gates: only what cannot be priced', () => {
     expect(needsAttention(ctx, '2026-11-01', '2026-11-30').byKind.get('no_payer')?.[0].studentId).toBe('amy');
     expect(familyBlockers(ctx, 'ryan', '2026-11-01').ok).toBe(true);
   });
+
+  test('a student whose only lesson is a free trial needs no paying parent yet', () => {
+    const trial = session('2026-11-10', '16:00', '17:00', { student_id: 'amy', attendance: 'present' });
+    const free = ctxOf([trial], { parentLinks: [], sessionBilling: [{ session_id: trial.id, charge_pct: 0, reason: 'trial' }] });
+    expect(needsAttention(free, '2026-11-01', '2026-11-30').byKind.get('no_payer')).toBeUndefined();
+    // a second, billed lesson brings the flag back
+    const billed = session('2026-11-17', '16:00', '17:00', { student_id: 'amy', attendance: 'present' });
+    const both = ctxOf([trial, billed], { parentLinks: [], sessionBilling: [{ session_id: trial.id, charge_pct: 0, reason: 'trial' }] });
+    expect(needsAttention(both, '2026-11-01', '2026-11-30').byKind.get('no_payer')?.[0].studentId).toBe('amy');
+  });
 });
 
 describe('snapshots and the drawer line', () => {
@@ -635,6 +645,13 @@ describe('snapshots and the drawer line', () => {
     expect(billingFact(ctx, s, 'parent')).toBeNull();
     expect(billingFact(ctx, s, 'admin')).toBe('Counted in November 2026: $45.00 family, $30.00 tutor; family paid $45.00 on Nov 5');
     expect(inPaidPeriod(ctx, s)).toBe(true);
+  });
+
+  test('the drawer line says free trial, and no rate is asked of a trial', () => {
+    const s = session('2026-11-03', '16:00', '17:00', { attendance: 'present' });
+    const ctx = ctxOf([s], { sessionBilling: [{ session_id: s.id, charge_pct: 0, reason: 'trial' }] });
+    expect(billingFact(ctx, s, 'admin')).toBe('Counted in November 2026: $0.00 family, $30.00 tutor; free trial');
+    expect(billingFact(ctx, s, 'tutor')).toBeNull();
   });
 
   test('statement number', () => {
