@@ -721,22 +721,26 @@
 }
 
 
-/* Draft homework from lesson photos (staff, the create form) ----------------
+/* Draft homework from lesson materials (staff, the create form) -------------
    div.hwd-slot > button.hwd-opener + section.hwd-panel[hidden]
      div.hwd-head > h3.hwd-title + button.icon-btn (close)
      p.hwd-lede
-     div.field.hwd-photos > ul.hwd-thumbs > li.hwd-thumb > img + button.hwd-thumb-remove
-                          + div.hwd-photo-actions (Add photos, Take a photo on touch screens)
+     div.field.hwd-photos > ul.hwd-chips > li.hwd-chip(.is-error)
+                              > img.hwd-chip-thumb | span.hwd-chip-icon
+                              + span.hwd-chip-main (name, meta, progress bar, note, error)
+                              + button.hwd-chip-remove
+                          + div.hwd-photo-actions (Add files, Take a photo on touch screens)
+     div.field (Or paste lesson notes)
      div.hwd-options > div.hwd-option-row (count, difficulty) + label.check + div.field (notes)
      p.note.hwd-context, label.check.hwd-attach, div.hwd-actions
-     div.hwd-status-box (spinner, text, timer), div.hwd-error, div.hwd-result
+     div.hwd-status-box (spinner, words, timer), div.hwd-error, div.hwd-result
      div.hwd-recent > h4.hwd-recent-title + ul.hwd-recent-list > li.hwd-recent-item */
 
 .hwd-slot { display: flex; flex-direction: column; gap: var(--s-3); }
 .hwd-opener { align-self: flex-start; }
 .hwd-opener[hidden],
 .hwd-panel[hidden],
-.hwd-thumbs[hidden],
+.hwd-chips[hidden],
 .hwd-context[hidden],
 .hwd-status-box[hidden],
 .hwd-result[hidden],
@@ -760,24 +764,68 @@
 .hwd-title { font: var(--t-h3); letter-spacing: -0.005em; color: var(--text); }
 .hwd-lede { max-width: 65ch; font: 400 13px/20px var(--font-ui); color: var(--text-2); }
 
-.hwd-thumbs { display: flex; flex-wrap: wrap; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
-.hwd-thumb {
-  position: relative;
-  width: 88px;
-  height: 88px;
-  overflow: hidden;
+.hwd-chips { display: flex; flex-direction: column; gap: var(--s-2); margin: 0; padding: 0; list-style: none; }
+.hwd-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  min-width: 0;
+  padding: 6px 6px 6px var(--s-2);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
   background-color: var(--surface);
 }
-.hwd-thumb > img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.hwd-thumb-remove.icon-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  border: 1px solid var(--line-strong);
-  background-color: var(--surface);
+.hwd-chip.is-error { border-color: var(--danger-solid); background-color: var(--danger-bg); }
+.hwd-chip-thumb {
+  flex: none;
+  display: block;
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
 }
+.hwd-chip-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  background-color: var(--surface-2);
+  color: var(--text-2);
+}
+.hwd-chip.is-error .hwd-chip-icon { color: var(--danger-text); }
+.hwd-chip-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hwd-chip-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: 500 14px/20px var(--font-ui);
+  color: var(--text);
+}
+.hwd-chip-meta { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
+.hwd-chip-meta:empty { display: none; }
+.hwd-chip-note { font: 500 12px/16px var(--font-ui); color: var(--text-2); }
+.hwd-chip-error { font: 400 12px/16px var(--font-ui); color: var(--danger-text); overflow-wrap: anywhere; }
+.hwd-chip-bar {
+  display: block;
+  height: 4px;
+  margin-top: 2px;
+  overflow: hidden;
+  border-radius: 2px;
+  background-color: var(--line);
+}
+.hwd-chip-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background-color: var(--accent);
+  transform: scaleX(var(--hwd-progress, 0));
+  transform-origin: left center;
+  transition: transform 150ms linear;
+}
+.hwd-chip-remove.icon-btn { flex: none; }
 .hwd-photo-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 .hwd-photo-problem:empty { display: none; }
 @media (pointer: fine) {
@@ -803,8 +851,11 @@
   font: 400 13px/20px var(--font-ui);
   color: var(--text-2);
 }
-.hwd-status-text { flex: 1 1 auto; min-width: 0; }
+.hwd-status-words { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+.hwd-status-text { font: 500 13px/20px var(--font-ui); color: var(--text); }
+.hwd-status-sub { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
 .hwd-timer { flex: none; font: 500 13px/20px var(--font-mono); color: var(--text); }
+.hwd-timer:empty { display: none; }
 .hwd-spinner {
   flex: none;
   width: 16px;
@@ -877,12 +928,14 @@
 
 @media (prefers-reduced-motion: reduce) {
   .hwd-spinner { animation: none; border-top-color: var(--line-strong); }
+  .hwd-chip-fill { transition: none; }
   .asg-key-caret { transition: none; }
 }
 
 @media (forced-colors: active) {
-  .hwd-panel, .hwd-thumb, .hwd-recent-item { border-color: CanvasText; }
+  .hwd-panel, .hwd-chip, .hwd-recent-item { border-color: CanvasText; }
   .hwd-spinner { border-top-color: Highlight; }
+  .hwd-chip-fill { background-color: Highlight; }
 }
 
 

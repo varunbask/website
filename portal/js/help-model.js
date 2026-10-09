@@ -131,12 +131,13 @@ const grading = {
 // Staff only: families never read anything about AI
 const drafts = {
   id: 'drafts',
-  title: 'Draft homework from lesson photos',
+  title: 'Draft homework from lesson materials',
   blocks: [{
     type: 'list',
     items: [
-      'Open a lesson that has happened and choose Make homework from this lesson, or choose Draft with AI from lesson photos on a new assignment.',
-      'Add 1 to 6 photos of the whiteboard, worksheet or notes, pick how many problems and how hard, then choose Draft homework. It can take a few minutes; you can keep working and open it later from Recent drafts.',
+      'Open a lesson that has happened and choose Make homework from this lesson, or choose Draft with AI from lesson materials on a new assignment.',
+      'Add what you used in the lesson: photos of the whiteboard or worksheet, PDFs, Word, PowerPoint or Excel files, or paste your lesson notes (text copied from a Google Doc works too). Up to 10 files, 25 MB in all.',
+      'Pick how many problems and how hard, then choose Draft homework. It can take a few minutes; you can keep working and open it later from Recent drafts. The files are read for that draft and deleted right after.',
       'The draft fills the form with new problems on the same skills and an answer key. Check every problem, then create the assignment. Nothing is saved until you do.',
       'Only staff see the answer key. The AI grader uses it to check the work; students and parents never see it.',
       'After a draft fills the form, Preview worksheet shows the page the student will print or mark up. On a saved assignment, Worksheet in its drawer also has With answer key.',

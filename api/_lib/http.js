@@ -1,7 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { gradeClaimed, sweep, removeOrphanFiles, STALE_GRADING_MS } from './grader.js';
 import { googleConfig } from './google/config.js';
-import { handleDraftStart, handleDraftStatus } from './homework-draft.js';
+import { handleDraftStart, handleDraftStatus, sweepDraftSources } from './homework-draft.js';
 import { maintainAll } from './google/handlers.js';
 
 const json = (status, body) => Response.json(body, { status });
@@ -81,10 +81,12 @@ export async function handleSweep(request, {
   // Weekly series that repeat until ended are kept a year ahead; this tops them up by a day.
   // It runs before everything else so the Google upkeep below sends the new sessions too.
   const series = await extendSeries(repo);
+  // Lesson files of homework drafts are deleted when each draft is done; any left after a day go now
+  const sources = await sweepSources(repo, now);
   // Grading needs the model variables; the Google upkeep below does not, so without them only grading is skipped
   const grading = Boolean(env.LLM_ENDPOINT && env.LLM_KEY);
   const config = googleRepo ? googleConfig(env) : null;
-  if (!grading && !config) return json(500, { error: 'Grading is not configured.', ...(series ? { series } : {}) });
+  if (!grading && !config) return json(500, { error: 'Grading is not configured.', ...(series ? { series } : {}), ...(sources ? { draft_sources: sources } : {}) });
   let summary = { grading: 'not configured' };
   if (grading) {
     summary = await sweep(repo, { env, now, fetchImpl });
@@ -101,7 +103,19 @@ export async function handleSweep(request, {
     }
   }
   if (series) summary.series = series;
+  if (sources) summary.draft_sources = sources;
   return json(200, summary);
+}
+
+// { removed } or an error note; never throws, so it cannot cost the rest of the sweep
+async function sweepSources(repo, now) {
+  if (!repo?.listOldDraftSources) return null;
+  try {
+    return { removed: await sweepDraftSources(repo, { now }) };
+  } catch (error) {
+    console.error('[sweep] draft sources:', error?.name ?? 'Error');
+    return { error: 'Old draft files could not be removed.' };
+  }
 }
 
 // The number of sessions made, or an error note; never throws, so it cannot cost the rest of the sweep

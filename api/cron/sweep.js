@@ -4,7 +4,8 @@ import { createGoogleRepo } from '../_lib/google/repo.js';
 import { handleSweep } from '../_lib/http.js';
 
 // Vercel Cron calls this once a day with Authorization: Bearer $CRON_SECRET.
-// It grades what is waiting, then (when Google is set up) tends each tutor's Google Calendar sync.
+// It deletes homework-draft lesson files left over a day (draft-sources), grades
+// what is waiting, then (when Google is set up) tends each tutor's Google Calendar sync.
 export async function GET(request) {
   let db;
   try {

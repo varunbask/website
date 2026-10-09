@@ -1,47 +1,68 @@
 import { describe, test, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  MAX_PHOTOS, MAX_PHOTO_CHARS, SHRINK_TRIES, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES,
-  POLL_MS, RECENT_DAYS, DRAFTING_TEXT, READY_TEXT, MAX_ATTACHMENTS, GONE_ERROR, MAX_DETAILS,
-  pollOutcome, tokenNeedsRefresh, attachmentsProblem, elsewhereText,
-  fitSize, base64Length, isImageFile, sizeText, fitsBudget, overBudgetText, photoProblems, checkOptions, draftRequest,
+  SHRINK, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES,
+  POLL_MS, RECENT_DAYS, DRAFTING_TEXT, READING_TEXT, UPLOADING_TEXT, SLOW_TEXT, READY_TEXT, MAX_ATTACHMENTS, GONE_ERROR, MAX_DETAILS,
+  pollOutcome, tokenNeedsRefresh, attachmentsProblem, elsewhereText, photoFileName, stageText,
+  fitSize, checkOptions, draftRequest,
   draftContext, contextText, formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft, shouldReopen,
 } from '../../portal/js/homework-draft-model.js';
+import * as sources from '../../portal/js/draft-sources-model.js';
 import * as server from '../../api/_lib/homework-draft.js';
 
 const NOW = new Date('2026-10-08T18:00:00Z');
 const ago = (ms) => new Date(NOW.getTime() - ms).toISOString();
 
 describe('the browser and the server agree', () => {
-  test('photos, problems, notes, difficulties and the stale time', () => {
-    expect(MAX_PHOTOS).toBe(server.MAX_DRAFT_IMAGES);
-    expect(MAX_PHOTO_CHARS).toBe(server.MAX_DRAFT_IMAGE_CHARS);
+  test('problems, notes, difficulties, and the files\' limits (shared with the server)', () => {
     expect([MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS]).toEqual([server.MIN_PROBLEMS, server.MAX_PROBLEMS, server.DEFAULT_PROBLEMS]);
     expect(MAX_NOTES).toBe(server.MAX_NOTES);
     expect(DIFFICULTIES.map((d) => d.value)).toEqual(Object.keys(server.DIFFICULTIES));
+    const serverSource = readFileSync(new URL('../../api/_lib/homework-draft.js', import.meta.url), 'utf8');
+    expect(serverSource).toContain("from '../../portal/js/draft-sources-model.js';");
   });
 
   test('the request body the panel builds passes the server check', () => {
-    const photos = [{ dataUrl: `data:image/jpeg;base64,${'A'.repeat(800)}`, chars: 800 }];
+    const me = '11111111-2222-4333-8444-555555555555';
+    const uploaded = [
+      { path: `${me}/k3yAbc12/1-Worksheet.pdf`, name: 'Worksheet.pdf', kind: 'pdf' },
+      { path: `${me}/k3yAbc12/2-Whiteboard.jpg`, name: 'Whiteboard.HEIC', kind: 'image' },
+    ];
     const body = draftRequest({
-      photos, options: checkOptions({ count: '7', difficulty: 'harder', hints: true, notes: ' negatives ' }).values,
+      sources: uploaded, notesText: '  We did factoring.  ', options: checkOptions({ count: '7', difficulty: 'harder', hints: true, notes: ' negatives ' }).values,
       context: { subject: 'Algebra', grade: '9th grade' }, studentId: 'u-maya',
     });
     expect(body).toEqual({
-      action: 'draft_homework', images: [photos[0].dataUrl], count: 7, difficulty: 'harder', hints: true, challenge: true, notes: 'negatives',
+      action: 'draft_homework',
+      sources: [
+        { path: uploaded[0].path, name: 'Worksheet.pdf', type: 'pdf' },
+        { path: uploaded[1].path, name: 'Whiteboard.HEIC', type: 'image' },
+      ],
+      notes_text: 'We did factoring.',
+      count: 7, difficulty: 'harder', hints: true, challenge: true, notes: 'negatives',
       subject: 'Algebra', grade: '9th grade', student_id: 'u-maya',
     });
+    expect(body).not.toHaveProperty('images');
     const checked = server.checkDraftRequest(body);
     expect(checked.error).toBeUndefined();
-    expect(checked.values).toMatchObject({ count: 7, difficulty: 'harder', hints: true, notes: 'negatives', subject: 'Algebra', studentId: 'u-maya' });
+    expect(checked.values).toMatchObject({ count: 7, difficulty: 'harder', hints: true, notes: 'negatives', notesText: 'We did factoring.', subject: 'Algebra', studentId: 'u-maya' });
+    expect(checked.values.sources.map((s) => s.path)).toEqual(uploaded.map((s) => s.path));
+    expect(draftRequest({ sources: uploaded, notesText: '   ', options: checkOptions({}).values })).not.toHaveProperty('notes_text');
+  });
+
+  test('a path the panel makes is one the server takes', () => {
+    const me = '11111111-2222-4333-8444-555555555555';
+    const key = sources.draftKey();
+    for (const name of ['Lesson 4 – slides (final).pptx', 'Ünïcødé nötes.docx', '???.pdf', `${'x'.repeat(300)}.txt`, 'no extension', '.hidden']) {
+      const path = sources.sourcePath(me, key, 10, name);
+      expect(server.checkDraftRequest({ sources: [{ path, name }] }).error, name).toBeUndefined();
+    }
   });
 });
 
-describe('downscale math', () => {
-  test('the long edge goes to 1600 px at JPEG quality 0.85 first, then a smaller try', () => {
-    expect(SHRINK_TRIES[0]).toEqual({ maxEdge: 1600, quality: 0.85 });
-    expect(SHRINK_TRIES[1].maxEdge).toBeLessThan(1600);
-    expect(SHRINK_TRIES[1].quality).toBeLessThan(0.85);
+describe('photos', () => {
+  test('the long edge goes to 1600 px at JPEG quality 0.85', () => {
+    expect(SHRINK).toEqual({ maxEdge: 1600, quality: 0.85 });
   });
 
   test('fitSize keeps the shape and never enlarges', () => {
@@ -54,46 +75,10 @@ describe('downscale math', () => {
     expect(fitSize(0, 0)).toMatchObject({ width: 1, height: 1 });
   });
 
-  test('base64 is four characters for every three bytes, rounded up', () => {
-    expect(base64Length(0)).toBe(0);
-    expect(base64Length(1)).toBe(4);
-    expect(base64Length(3)).toBe(4);
-    expect(base64Length(4)).toBe(8);
-    expect(base64Length(300_000)).toBe(400_000);
-    expect(base64Length(Buffer.alloc(1234).length)).toBe(Buffer.alloc(1234).toString('base64').length);
-  });
-});
-
-describe('the photo budget', () => {
-  test('3.5 MB of base64 in all, checked before a photo is added', () => {
-    expect(MAX_PHOTO_CHARS).toBe(3.5 * 1024 * 1024);
-    const six = Array.from({ length: 5 }, () => ({ chars: 700_000 }));
-    expect(fitsBudget(six, MAX_PHOTO_CHARS - 3_500_000)).toBe(true);
-    expect(fitsBudget(six, MAX_PHOTO_CHARS - 3_500_000 + 1)).toBe(false);
-    expect(fitsBudget([], MAX_PHOTO_CHARS)).toBe(true);
-    expect(fitsBudget([], MAX_PHOTO_CHARS + 1)).toBe(false);
-  });
-
-  test('says clearly when photos are over', () => {
-    expect(overBudgetText([{ chars: 3_000_000 }], 900_000)).toBe('These photos are too large together (3.7 MB of 3.5 MB). Remove a photo, or use fewer or smaller ones.');
-    expect(sizeText(850 * 1024)).toBe('850 KB');
-    expect(sizeText(1.2 * 1024 * 1024)).toBe('1.2 MB');
-  });
-
-  test('only images are photos (a blank type falls back to the name)', () => {
-    expect(isImageFile({ type: 'image/jpeg', name: 'a.jpg' })).toBe(true);
-    expect(isImageFile({ type: 'image/heic', name: 'a.heic' })).toBe(true);
-    expect(isImageFile({ type: 'application/pdf', name: 'a.pdf' })).toBe(false);
-    expect(isImageFile({ type: 'text/plain', name: 'a.jpg' })).toBe(false);
-    expect(isImageFile({ type: '', name: 'IMG_1.HEIC' })).toBe(true);
-    expect(isImageFile({ type: '', name: 'notes.docx' })).toBe(false);
-    expect(isImageFile(null)).toBe(false);
-  });
-
-  test('what was not added, in one sentence each', () => {
-    expect(photoProblems({})).toBe('');
-    expect(photoProblems({ notImages: ['a.pdf'], tooMany: 2 })).toBe('a.pdf: not an image. Add photos (JPG, PNG or WebP). Add at most 6 photos.');
-    expect(photoProblems({ unreadable: ['b.heic'] })).toMatch(/could not be opened/);
+  test('a photo is attached as the JPEG it became', () => {
+    expect(photoFileName('IMG_2041.HEIC')).toBe('IMG_2041.jpg');
+    expect(photoFileName('Whiteboard.png')).toBe('Whiteboard.jpg');
+    expect(photoFileName('', 3)).toBe('Lesson photo 3.jpg');
   });
 });
 
@@ -186,9 +171,13 @@ describe('job status', () => {
     expect(elapsedText(-5)).toBe('0:00');
   });
 
-  test('the slow-draft wording', () => {
-    expect(DRAFTING_TEXT).toBe('Drafting your homework. This can take a few minutes; you can keep working and come back.');
-    expect(`${DRAFTING_TEXT}${READY_TEXT}`).not.toMatch(/[–—]/);
+  test('the status while a draft runs: uploading, reading the files, then drafting', () => {
+    expect(UPLOADING_TEXT).toBe('Uploading your files…');
+    expect(READING_TEXT).toBe('Reading your files…');
+    expect(DRAFTING_TEXT).toBe('Drafting…');
+    expect(SLOW_TEXT).toBe('This can take a few minutes. You can keep working and come back.');
+    expect([stageText('uploading'), stageText('reading'), stageText('drafting'), stageText(undefined)]).toEqual([UPLOADING_TEXT, READING_TEXT, DRAFTING_TEXT, DRAFTING_TEXT]);
+    expect(`${UPLOADING_TEXT}${READING_TEXT}${DRAFTING_TEXT}${SLOW_TEXT}${READY_TEXT}`).not.toMatch(/[–—]/);
   });
 
   test('recent drafts: the last 7 days, this student first, newest first', () => {
@@ -242,13 +231,13 @@ describe('reopening the panel by itself', () => {
 });
 
 describe('attachments', () => {
-  test('files and ticked lesson photos together stay within the 10 an assignment allows', () => {
+  test('files and ticked lesson files together stay within the 10 an assignment allows', () => {
     expect(MAX_ATTACHMENTS).toBe(10);
     expect(attachmentsProblem(4, 6)).toBe('');
     expect(attachmentsProblem(10, 0)).toBe('');
-    expect(attachmentsProblem(5, 6)).toBe('An assignment can have at most 10 attachments. This one has 5 files and 6 lesson photos. Remove some files, or untick Attach these photos.');
-    expect(attachmentsProblem(1, 10)).toMatch(/1 file and 10 lesson photos/);
-    expect(attachmentsProblem(10, 1)).toMatch(/10 files and 1 lesson photo\./);
+    expect(attachmentsProblem(5, 6)).toBe('An assignment can have at most 10 attachments. This one has 5 files and 6 lesson files. Remove some files, or untick Attach these to the assignment.');
+    expect(attachmentsProblem(1, 10)).toMatch(/1 file and 10 lesson files/);
+    expect(attachmentsProblem(10, 1)).toMatch(/10 files and 1 lesson file\./);
   });
 
   test('the form uses the same limit', () => {

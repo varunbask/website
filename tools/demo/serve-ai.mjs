@@ -1,25 +1,29 @@
 // Local use only: serves a demo build (like serve.py, nothing cached) and
-// answers homework drafts with the real model, so the owner can try drafting
-// in a browser before anything ships.
+// answers homework drafts with the model, so the owner can try drafting in a
+// browser before anything ships.
 //
-//   node tools/demo/serve-ai.mjs <port> <demo dir> [--env-file <path>]
+//   node tools/demo/serve-ai.mjs <port> <demo dir> [--env-file <path>] [--csp-from <vercel.json>]
 //
 // Open the demo with ?ai=live (for example
 // http://127.0.0.1:4265/portal/staff.html?as=tutor&ai=live#/today): the demo
 // client then sends POST /api/grade { action: 'draft_homework' | 'draft_status' }
 // here, and this server calls draftHomework() from api/_lib/homework-draft.js
-// directly. Jobs live in this process's memory: 202 with an id at once, then
-// the status is asked for until the draft is ready or failed.
+// directly, the same native Messages API call production makes. The demo
+// keeps uploaded files in its own memory, so it sends them here inline
+// (inline_sources, base64); only this server takes them, the production
+// handler refuses them. Jobs live in this process's memory: 202 with an id at
+// once, then the status is asked for until the draft is ready or failed.
 //
 // There is no database and no sign-in check here, because this is the local
 // demo: it listens on 127.0.0.1 only and must never be deployed (tools/ is in
-// .vercelignore). Photos stay in memory for the one call and are never written
+// .vercelignore). Files stay in memory for the one call and are never written
 // to disk.
 //
 // The model settings come from --env-file, which is read for LLM_ENDPOINT,
 // LLM_KEY, LLM_MODEL and HOMEWORK_MODEL only (nothing else in the file is
 // read into this process), and otherwise from the environment. They are never
-// printed or logged.
+// printed or logged. LLM_ENDPOINT must be on api.anthropic.com, as in
+// production, or on 127.0.0.1 for a local mock of the API.
 import http from 'node:http';
 import { readFileSync, statSync, createReadStream } from 'node:fs';
 import { resolve, join, extname, sep } from 'node:path';
@@ -27,7 +31,7 @@ import { pathToFileURL } from 'node:url';
 import { checkDraftRequest, draftHomework, draftOptions, DraftError, DRAFT_STALE_MS } from '../../api/_lib/homework-draft.js';
 
 export const MODEL_KEYS = Object.freeze(['LLM_ENDPOINT', 'LLM_KEY', 'LLM_MODEL', 'HOMEWORK_MODEL']);
-const MAX_BODY_BYTES = 4.5 * 1024 * 1024;
+const MAX_BODY_BYTES = 40 * 1024 * 1024;     // files sent inline: 25 MB as base64, and the options
 const KEEP_JOBS_MS = 24 * 3_600_000;
 
 // The model settings in an env file's text: only MODEL_KEYS, KEY=value lines
@@ -76,6 +80,7 @@ export function createJobs({ env, fetchImpl = fetch, now = () => new Date(), log
     }
     return {
       id: job.id, status: job.status, student_id: job.student_id, options: job.options, created_at: job.created_at, finished_at: job.finished_at,
+      ...(job.status === 'drafting' ? { stage: job.stage ?? 'drafting' } : {}),
       ...(job.status === 'ready' ? { result: job.result } : {}),
       ...(job.status === 'failed' ? { error: job.error } : {}),
     };
@@ -86,25 +91,30 @@ export function createJobs({ env, fetchImpl = fetch, now = () => new Date(), log
     // { action: 'draft_homework', ... } -> { status, body, done } (done: the background promise)
     start(body) {
       if (!env.LLM_ENDPOINT || !env.LLM_KEY) return { status: 500, body: { error: 'Homework drafts are not set up. Pass --env-file with LLM_ENDPOINT and LLM_KEY.' } };
-      const checked = checkDraftRequest(body);
+      const checked = checkDraftRequest(body, { allowInline: true });
       if (checked.error) return { status: 400, body: { error: checked.error } };
+      if (checked.values.sources.length) return { status: 400, body: { error: 'This local server has no storage: send the files as inline_sources.' } };
       tidy();
+      const values = checked.values;
       const job = {
-        id: nextId++, status: 'drafting', student_id: checked.values.studentId, options: draftOptions(checked.values),
+        id: nextId++, status: 'drafting', stage: values.inline.length || values.notesText ? 'reading' : 'drafting',
+        student_id: values.studentId, options: draftOptions(values),
         result: null, error: null, created_at: now().toISOString(), finished_at: null,
       };
       jobs.set(job.id, job);
-      const done = draftHomework(checked.values, { env, fetchImpl }).then((result) => {
+      const done = draftHomework(values, {
+        env, fetchImpl, files: values.inline, allowLoopback: true, onStage: (stage) => { if (job.status === 'drafting') job.stage = stage; },
+      }).then((result) => {
         if (job.status !== 'drafting') return;
-        Object.assign(job, { status: 'ready', result, finished_at: now().toISOString() });
+        Object.assign(job, { status: 'ready', stage: null, result, finished_at: now().toISOString() });
         log(`[draft] ${job.id}: ready`);
       }, (err) => {
         if (job.status !== 'drafting') return;
         const message = err instanceof DraftError ? err.message : 'The draft did not finish. Try again.';
-        Object.assign(job, { status: 'failed', error: message, finished_at: now().toISOString() });
+        Object.assign(job, { status: 'failed', stage: null, error: message, finished_at: now().toISOString() });
         log(`[draft] ${job.id}: failed ${err instanceof DraftError ? err.code : err?.name ?? 'Error'}`);
-      });
-      return { status: 202, body: { id: job.id, status: 'drafting', created_at: job.created_at }, done };
+      }).finally(() => { values.inline.length = 0; });
+      return { status: 202, body: { id: job.id, status: 'drafting', stage: job.stage, created_at: job.created_at }, done };
     },
     // { action: 'draft_status', id } -> { status, body }
     status(body) {

@@ -258,8 +258,8 @@ async function endSeries(session) {
 }
 
 // '#/calendar?...&open=new&kind=assignment&due=...&session=12': the create
-// form for homework set in this lesson; with draft, its "Draft from lesson
-// photos" panel opens at once
+// form for homework set in this lesson; with draft, its "Draft homework from
+// lesson materials" panel opens at once
 function newHomeworkHref(hash, { due, sessionId, draft = false }) {
   const base = drawerHref(hash, 'new');
   return `${base}&kind=assignment&due=${encodeURIComponent(due)}&session=${encodeURIComponent(sessionId)}${draft ? '&draft=1' : ''}`;
@@ -710,7 +710,7 @@ function buildDetail(dctx, found, { now, names, actions }) {
           focusKey: 'ses-homework',
           onClick: () => dctx.go(newHomeworkHref(hash, { due, sessionId: session.id })),
         }),
-        // Once the lesson has happened: draft the homework from photos of it
+        // Once the lesson has happened: draft the homework from the lesson's materials
         started ? button({
           label: 'Make homework from this lesson',
           icon: 'note-pencil',

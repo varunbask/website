@@ -36,7 +36,7 @@ function answerKeyPart(answerKey) {
     type: 'text',
     text: `Answer key from the tutor (the student never sees this):\n<answer_key>\n${escapeKey(answerKey)}\n</answer_key>\n`
       + 'Use the answer key to check the student\'s work. Never reveal it or quote it in the feedback. '
-      + 'The feedback must never state a final answer from the answer key, not even for a problem the student got wrong: say which problems to look at again and what to check, instead.',
+      + 'The feedback must never state a final answer from the answer key, not even for a problem the student got wrong or skipped: say which problems to look at again and what to check, instead.',
   };
 }
 
@@ -223,6 +223,13 @@ export async function loadAnswerKey(repo, taskId) {
 /**
  * One call to the OpenAI-compatible endpoint. A 400/413/422 means the model
  * cannot take this input, so it is permanent; anything else is worth a retry.
+ *
+ * TODO(native-api): Anthropic's OpenAI-compatibility layer ignores
+ * `response_format` (so RESULTS_FORMAT is not enforced; results parse only
+ * because the prompt asks for JSON) and ignores `file` parts (PDFs). Move the
+ * grader to the native Messages API as homework drafts did
+ * (api/_lib/homework-draft.js: nativeEndpoint, output_config.format, document
+ * blocks for PDFs).
  */
 export async function requestGrade(parts, id, { endpoint, key, model, fetchImpl = fetch, timeoutMs = LLM_TIMEOUT_MS }) {
   let response;

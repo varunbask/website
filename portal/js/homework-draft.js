@@ -1,10 +1,10 @@
-// "Draft from lesson photos": the panel inside the staff create form
-// (item-form.js). Staff only: item-form.js is imported with import() on staff
-// paths (item-drawer.js), so student.html and parent.html never fetch this
-// module; a test walks their static imports to keep it that way.
+// "Draft homework from lesson materials": the panel inside the staff create
+// form (item-form.js). Staff only: item-form.js is imported with import() on
+// staff paths (item-drawer.js), so student.html and parent.html never fetch
+// this module; a test walks their static imports to keep it that way.
 //
 // draftPanel(dctx, { getStudentId, getContext, onFill, onDiscard, onBusy, attachRoom }) ->
-//   { opener, root, open(), peek(), attachFiles(), attachCount(), photoCount(), studentChanged() }
+//   { opener, root, open(), peek(), attachFiles(), attachCount(), sourceCount(), studentChanged() }
 //   opener        the button that opens the panel (the form places it)
 //   root          the panel (hidden until opened)
 //   getStudentId  () -> the form's student id now, or null
@@ -12,36 +12,50 @@
 //   onFill        ({ title, details, answerKey }) when a draft is ready or opened
 //   onDiscard     () -> whether the form still holds an earlier draft
 //   onBusy        (on) while a draft for this form runs (the form locks its student)
-//   attachRoom    () -> how many photos may still be attached (MAX_ATTACHMENTS less the files)
+//   attachRoom    () -> how many lesson files may still be attached (MAX_ATTACHMENTS less the files)
 //   onPreview     async () opens the worksheet the form would make (Preview worksheet)
-//   attachFiles   the photos as JPEG files when "Attach these photos" is ticked
+//   attachFiles   the files to attach when "Attach these to the assignment" is
+//                 ticked: photos (as the JPEGs they became), PDFs, Word and
+//                 PowerPoint files; the other kinds can't be attachments
 //
-// Photos are shrunk here (homework-draft-model.js has the numbers), kept in
-// memory and sent once. The draft runs on the server as a background job:
-// POST /api/grade { action: 'draft_homework' } answers 202 with an id, and the
-// panel asks { action: 'draft_status', id } every few seconds until it is
-// ready or failed. It stops asking when the drawer closes; reopening the form
-// shows Recent drafts (read from homework_drafts) and picks up a draft for
-// this student that is still drafting. Nothing is saved as an assignment
+// The tutor adds photos, PDFs, Word, PowerPoint, Excel, OpenDocument and text
+// files (draft-sources-model.js has the kinds and limits), or pastes lesson
+// notes. Photos are shrunk here; a PDF's pages are counted here. On Draft,
+// each file is uploaded to the private draft-sources bucket under the tutor's
+// own folder, with progress, and the paths go to POST /api/grade { action:
+// 'draft_homework' }. The server reads the files, drafts, and deletes them;
+// it answers 202 with an id, and the panel asks { action: 'draft_status', id }
+// every few seconds ("Reading your files…", then "Drafting…") until the draft
+// is ready or failed. It stops asking when the drawer closes; reopening the
+// form shows Recent drafts (read from homework_drafts) and picks up a draft
+// for this student that is still drafting. Nothing is saved as an assignment
 // until the tutor creates it with the form's own button.
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
 import { sb } from './supabase.js';
+import { SUPABASE_ANON_KEY } from './config.js';
 import { button, iconButton, field, select, pill, setFieldError, busy } from './ui.js';
 import { fileDrop } from './file-drop.js';
 import { relativeTime } from './dates.js';
 import { displayName } from './format.js';
+import { materialType } from './materials-model.js';
 import {
-  MAX_PHOTOS, SHRINK_TRIES, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES, POLL_MS, RECENT_DAYS,
-  DRAFTING_TEXT, READY_TEXT, GONE_ERROR,
-  fitSize, isImageFile, fitsBudget, overBudgetText, photoProblems, checkOptions, draftRequest, contextText,
+  SHRINK, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES, POLL_MS, RECENT_DAYS,
+  READY_TEXT, GONE_ERROR, SLOW_TEXT,
+  fitSize, photoFileName, stageText, checkOptions, draftRequest, contextText,
   formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft, shouldReopen,
   pollOutcome, tokenNeedsRefresh, elsewhereText,
 } from './homework-draft-model.js';
+import {
+  SOURCE_BUCKET, SOURCE_ACCEPT, SOURCE_KINDS, MAX_SOURCE_FILES, MAX_PASTED_NOTES, REFUSED,
+  classifyFile, fileProblem, sourcesProblem, sizeText, pagesText, draftKey, sourcePath,
+} from './draft-sources-model.js';
+import { pdfFacts } from './pdf-pages.js';
 
 const LIST_FIELDS = 'id, student_id, status, options, error, created_at, finished_at, title:result->title';
 const START_FAILED = 'We couldn’t start the draft. Check your connection and try again.';
+const UPLOAD_FAILED = 'This file could not be uploaded. Check your connection and try again.';
 
 // ---------------------------------------------------------------------------
 // The API (the same function as grading)
@@ -84,22 +98,14 @@ export const startDraft = (body) => callApi(body);
 export const draftStatus = (id) => callApi({ action: 'draft_status', id });
 
 // ---------------------------------------------------------------------------
-// Photos
+// Files
 
-function blobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error('read failed'));
-    reader.readAsDataURL(blob);
-  });
-}
-
-// One photo drawn on a canvas as a JPEG at most maxEdge on the long edge.
-// Drawing drops everything but the pixels, EXIF and location included.
-async function shrinkPhoto(file, { maxEdge, quality }) {
+// One photo drawn on a canvas as a JPEG at most SHRINK.maxEdge on the long
+// edge. Drawing drops everything but the pixels, EXIF and location included.
+// A HEIC photo works where the browser can open it (Safari).
+async function shrinkPhoto(file) {
   const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
-  const { width, height } = fitSize(bitmap.width, bitmap.height, maxEdge);
+  const { width, height } = fitSize(bitmap.width, bitmap.height, SHRINK.maxEdge);
   const offscreen = typeof OffscreenCanvas !== 'undefined';
   const canvas = offscreen ? new OffscreenCanvas(width, height) : h('canvas', { width, height });
   const context = canvas.getContext('2d');
@@ -108,11 +114,83 @@ async function shrinkPhoto(file, { maxEdge, quality }) {
   context.drawImage(bitmap, 0, 0, width, height);
   bitmap.close?.();
   const blob = offscreen
-    ? await canvas.convertToBlob({ type: 'image/jpeg', quality })
-    : await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
+    ? await canvas.convertToBlob({ type: 'image/jpeg', quality: SHRINK.quality })
+    : await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', SHRINK.quality));
   if (!blob || blob.type !== 'image/jpeg') throw new Error('not a JPEG');
-  const dataUrl = await blobToDataUrl(blob);
-  return { blob, dataUrl, chars: dataUrl.length - dataUrl.indexOf(',') - 1, width, height };
+  return blob;
+}
+
+// zlib inflate in the browser, for the compressed parts of a PDF (at most max bytes)
+async function inflate(bytes, max) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate'));
+  const reader = stream.getReader();
+  const parts = [];
+  let size = 0;
+  for (;;) {
+    let step;
+    try {
+      step = await reader.read();
+    } catch (error) {
+      // Bytes after the end of the data (a line end before endstream): keep what came out
+      if (size) break;
+      throw error;
+    }
+    const { done, value } = step;
+    if (done) break;
+    size += value.length;
+    if (size > max) {
+      reader.cancel().catch(() => {});
+      throw new Error('too large');
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) { out.set(part, at); at += part.length; }
+  return out;
+}
+
+/**
+ * Uploads one file to the draft-sources bucket with progress. On the live
+ * site this is a request to Storage (supabase-js has no upload progress);
+ * the local demo's client has no Storage address, so it goes through
+ * sb.storage there.
+ */
+async function uploadSource(path, blob, contentType, onProgress) {
+  const base = sb.storage?.url;
+  if (typeof base !== 'string' || !/^https:\/\//.test(base) || typeof XMLHttpRequest !== 'function') {
+    const { error } = await sb.storage.from(SOURCE_BUCKET).upload(path, blob, { contentType, upsert: false, onProgress });
+    if (error) throw new Error(error.message || 'upload failed');
+    onProgress?.(1);
+    return;
+  }
+  const token = await bearer();
+  await new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${base}/object/${SOURCE_BUCKET}/${path}`);
+    xhr.setRequestHeader('authorization', `Bearer ${token}`);
+    xhr.setRequestHeader('apikey', SUPABASE_ANON_KEY);
+    xhr.setRequestHeader('x-upsert', 'false');
+    xhr.setRequestHeader('content-type', contentType);
+    xhr.setRequestHeader('cache-control', 'max-age=3600');
+    xhr.upload.onprogress = (e) => { if (e.lengthComputable && e.total) onProgress?.(e.loaded / e.total); };
+    xhr.onload = () => {
+      if (xhr.status === 401) refreshNext = true;
+      if (xhr.status >= 200 && xhr.status < 300) { onProgress?.(1); resolve(); } else reject(new Error(`status ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error('network'));
+    xhr.onabort = () => reject(new Error('aborted'));
+    xhr.send(blob);
+  });
+}
+
+async function removeUploaded(paths) {
+  if (!paths.length) return;
+  try {
+    await sb.storage.from(SOURCE_BUCKET).remove(paths);
+  } catch {
+    /* the server's daily sweep removes them */
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -121,37 +199,45 @@ export function draftPanel(dctx, {
   getStudentId = () => null, getContext = async () => ({}), onFill, onDiscard, onBusy, attachRoom = () => Infinity, onPreview = null,
 } = {}) {
   const headingId = uid('hwd-head');
-  const photos = [];           // { blob, dataUrl, chars, url, name }
-  let active = null;           // { id, studentId, startedAt } while a draft of this panel is drafting
+  // Each file: { id, name, kind, blob, mime, bytes, pages, url (photo thumbnail), error, progress, path }
+  const items = [];
+  let active = null;           // { id, studentId, startedAt, stage } while a draft of this panel is drafting
   let filled = false;          // the form holds a draft
   let adding = false;
-  const queue = [];            // files chosen while earlier ones are still being shrunk
-  let starting = false;        // a draft request is on its way (one at a time)
+  const queue = [];            // files chosen while earlier ones are still being read
+  let starting = false;        // a draft is being uploaded or requested (one at a time)
   let recent = [];
   let names = new Map();
   let pollTimer = null;
   let tickTimer = null;
   let recentLoad = null;       // the Recent drafts query, once per form
   const alive = () => dctx.alive?.() !== false;
+  const usable = () => items.filter((it) => !it.error);
 
-  // Photos ------------------------------------------------------------------
+  // Files --------------------------------------------------------------------
   const fileInput = h('input', {
-    type: 'file', accept: 'image/*', multiple: true, class: 'visually-hidden', tabindex: '-1', 'aria-hidden': 'true',
-    dataset: { draftInput: 'photos' },
+    type: 'file', accept: SOURCE_ACCEPT, multiple: true, class: 'visually-hidden', tabindex: '-1', 'aria-hidden': 'true',
+    dataset: { draftInput: 'files' },
   });
   const cameraInput = h('input', {
     type: 'file', accept: 'image/*', capture: 'environment', class: 'visually-hidden', tabindex: '-1', 'aria-hidden': 'true',
   });
-  const thumbs = h('ul', { class: 'hwd-thumbs', 'aria-label': 'Lesson photos', hidden: true });
-  const photoProblem = h('div', { class: 'hwd-photo-problem' });
-  const addBtn = button({ label: 'Add photos', icon: 'image-square', size: 'sm', onClick: () => fileInput.click(), focusKey: 'hwd-add' });
-  const cameraBtn = button({ label: 'Take a photo', icon: 'upload-simple', size: 'sm', className: 'hwd-camera', onClick: () => cameraInput.click() });
-  const photoField = h('div', { class: 'field hwd-photos' },
-    h('span', { class: 'field-label', id: `${headingId}-photos` }, 'Lesson photos'),
-    thumbs,
+  const chips = h('ul', { class: 'hwd-chips', 'aria-label': 'Lesson files', hidden: true });
+  const fileProblemSlot = h('div', { class: 'hwd-photo-problem' });
+  const addBtn = button({ label: 'Add files', icon: 'paperclip', size: 'sm', onClick: () => fileInput.click(), focusKey: 'hwd-add' });
+  const cameraBtn = button({ label: 'Take a photo', icon: 'image-square', size: 'sm', className: 'hwd-camera', onClick: () => cameraInput.click() });
+  const sourceField = h('div', { class: 'field hwd-photos' },
+    h('span', { class: 'field-label', id: `${headingId}-files` }, 'Lesson materials'),
+    chips,
     h('div', { class: 'hwd-photo-actions' }, addBtn, cameraBtn, fileInput, cameraInput),
-    h('p', { class: 'field-hint' }, `1 to ${MAX_PHOTOS} photos of the whiteboard, worksheet or notes. They are made smaller in your browser, sent for this draft only, and not kept. You can also drag photos here or paste a screenshot.`),
-    photoProblem);
+    h('p', { class: 'field-hint' }, `Photos of the whiteboard or worksheet, PDFs, Word, PowerPoint, Excel or text files: up to ${MAX_SOURCE_FILES}, 25 MB in all. Photos are made smaller in your browser. Files are read for this draft only and deleted right after. You can also drag files here or paste a screenshot.`),
+    fileProblemSlot);
+
+  const pastedInput = h('textarea', { class: 'input textarea hwd-pasted', name: 'draft_lesson_notes', rows: '4', maxlength: String(MAX_PASTED_NOTES) });
+  const pastedField = field({
+    label: 'Or paste lesson notes', optional: true, control: pastedInput,
+    hint: `Text from a Google Doc, your notes or the lesson plan, up to ${MAX_PASTED_NOTES.toLocaleString('en-US')} characters.`,
+  });
 
   // Options -----------------------------------------------------------------
   const countInput = h('input', {
@@ -178,10 +264,13 @@ export function draftPanel(dctx, {
   // box shows the same words with a running timer that is not announced
   const timer = h('span', { class: 'hwd-timer num', 'aria-hidden': 'true' });
   const status = h('div', { class: 'visually-hidden', role: 'status', 'aria-live': 'polite' });
+  const statusText = h('span', { class: 'hwd-status-text' }, stageText('drafting'));
   const statusBox = h('div', { class: 'hwd-status-box', hidden: true, 'aria-hidden': 'true' },
-    h('span', { class: 'hwd-spinner' }), h('span', { class: 'hwd-status-text' }, DRAFTING_TEXT), timer);
+    h('span', { class: 'hwd-spinner' }),
+    h('span', { class: 'hwd-status-words' }, statusText, h('span', { class: 'hwd-status-sub' }, SLOW_TEXT)),
+    timer);
   const errorSlot = h('div', { class: 'hwd-error' });
-  // Staff only: problems the server left out to fit the assignment
+  // Staff only: problems the server left out to fit the assignment, and parts of files it could not use
   const noticeText = h('span', {});
   const noticeBox = h('p', { class: 'note hwd-notice', hidden: true }, icon('info'), noticeText);
   const elsewhere = h('p', { class: 'note hwd-elsewhere', hidden: true }, icon('info'), h('span', {}));
@@ -194,10 +283,7 @@ export function draftPanel(dctx, {
       button({ label: 'Discard draft', size: 'sm', variant: 'ghost', icon: 'trash', onClick: () => discard(), focusKey: 'hwd-discard' })));
   // Preview worksheet: the page the student will print or mark up, from the form as it is now
   function previewButton() {
-    const btn = button({
-      label: 'Preview worksheet', icon: 'arrow-square-out', size: 'sm', focusKey: 'hwd-preview',
-      ariaLabel: 'Preview worksheet, opens in a new tab',
-    });
+    const btn = button({ label: 'Preview worksheet', icon: 'corners-out', size: 'sm', focusKey: 'hwd-preview' });
     btn.addEventListener('click', async () => {
       try {
         await busy(btn, 'Preparing…', () => onPreview());
@@ -217,22 +303,23 @@ export function draftPanel(dctx, {
   const closeBtn = iconButton({ icon: 'x', label: 'Close the draft panel', tip: 'left', onClick: () => close() });
   const root = h('section', { class: 'hwd-panel', 'aria-labelledby': headingId, hidden: true },
     h('div', { class: 'hwd-head' },
-      h('h3', { class: 'hwd-title', id: headingId, tabindex: '-1' }, 'Draft homework from lesson photos'),
+      h('h3', { class: 'hwd-title', id: headingId, tabindex: '-1' }, 'Draft homework from lesson materials'),
       closeBtn),
     h('p', { class: 'hwd-lede' }, 'The AI writes a full problem set on the skills in your lesson: a warm-up, a worked example, practice, a word problem, a challenge and a reflection, with an answer key only staff see. Nothing is saved until you create the assignment.'),
-    photoField,
+    sourceField,
+    pastedField,
     h('div', { class: 'hwd-options' },
       h('div', { class: 'hwd-option-row' }, countField, levelField),
       h('label', { class: 'check' }, hintsBox, h('span', {}, 'Include worked hints')),
       h('label', { class: 'check' }, challengeBox, h('span', {}, 'Include a challenge problem')),
       notesField),
     contextNote,
-    h('label', { class: 'check hwd-attach' }, attachBox, h('span', {}, 'Attach these photos to the assignment for the student')),
+    h('label', { class: 'check hwd-attach' }, attachBox, h('span', {}, 'Attach these to the assignment for the student (photos, PDFs, Word and PowerPoint files)')),
     h('div', { class: 'hwd-actions' }, draftBtn),
     status, statusBox, errorSlot, elsewhere, resultBar, recentBox);
 
   const opener = button({
-    label: 'Draft with AI from lesson photos', icon: 'note-pencil', size: 'sm', className: 'hwd-opener', focusKey: 'hwd-open',
+    label: 'Draft with AI from lesson materials', icon: 'note-pencil', size: 'sm', className: 'hwd-opener', focusKey: 'hwd-open',
     onClick: () => open({ focus: true }),
   });
 
@@ -242,108 +329,172 @@ export function draftPanel(dctx, {
     e.preventDefault();
     e.stopPropagation();
   });
-  // A screenshot pasted into the panel is a lesson photo, not an attachment
+  // A file or screenshot pasted into the panel is a lesson file, not an
+  // attachment; pasted text still goes into the field
   root.addEventListener('paste', (e) => {
-    const images = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
-    if (!images.length) return;
+    const files = [...(e.clipboardData?.files ?? [])];
+    if (!files.length) return;
     e.preventDefault();
     e.stopPropagation();
-    addPhotos(images);
+    addFiles(files);
   });
-  fileDrop(photoField, { onFiles: (files) => addPhotos(files), label: 'Drop photos to add them', iconName: 'image-square' });
+  fileDrop(sourceField, { onFiles: (files) => addFiles(files), enabled: () => !starting, label: 'Drop files to add them', iconName: 'paperclip' });
   for (const input of [fileInput, cameraInput]) {
     input.addEventListener('change', () => {
       const files = [...(input.files ?? [])];
       input.value = '';
-      if (files.length) addPhotos(files);
+      if (files.length) addFiles(files);
     });
   }
-  // Ticking "Attach these photos" must leave room within the assignment's attachments
+  // Ticking "Attach these" must leave room within the assignment's attachments
   attachBox.addEventListener('change', () => {
+    renderChips();
     if (!attachBox.checked) return;
     const room = attachRoom();
-    if (photos.length <= room) {
-      showPhotoProblem('');
+    const want = attachable().length;
+    if (want <= room) {
+      showFileProblem('');
       return;
     }
     attachBox.checked = false;
-    showPhotoProblem(room > 0
-      ? `Only ${room} more ${room === 1 ? 'attachment fits' : 'attachments fit'} on this assignment (at most 10 in all). Remove a file under Attachments or a photo here, then tick it again.`
-      : 'This assignment already has 10 attachments, the most it can have. Remove a file under Attachments to attach these photos.');
+    renderChips();
+    showFileProblem(room > 0
+      ? `Only ${room} more ${room === 1 ? 'attachment fits' : 'attachments fit'} on this assignment (at most 10 in all). Remove a file under Attachments or a lesson file here, then tick it again.`
+      : 'This assignment already has 10 attachments, the most it can have. Remove a file under Attachments to attach these.');
   });
   countInput.addEventListener('input', () => setFieldError(countField, ''));
   notesInput.addEventListener('input', () => setFieldError(notesField, ''));
+  pastedInput.addEventListener('input', () => setFieldError(pastedField, ''));
   dctx.signal?.addEventListener('abort', stop, { once: true });
 
-  function renderPhotos() {
-    thumbs.replaceChildren(...photos.map((p, i) => h('li', { class: 'hwd-thumb' },
-      h('img', { src: p.url, alt: `Lesson photo ${i + 1}`, width: '72', height: '72', decoding: 'async' }),
-      iconButton({
-        icon: 'x', label: `Remove lesson photo ${i + 1}`, tip: 'top', className: 'hwd-thumb-remove',
-        onClick: () => {
-          const [gone] = photos.splice(i, 1);
-          URL.revokeObjectURL(gone.url);
-          renderPhotos();
-          showPhotoProblem('');
-          addBtn.focus();
-        },
-      }))));
-    thumbs.hidden = photos.length === 0;
-    attachBox.disabled = photos.length === 0;
-    if (!photos.length) attachBox.checked = false;
-    addBtn.disabled = photos.length >= MAX_PHOTOS;
-    cameraBtn.disabled = photos.length >= MAX_PHOTOS;
+  // The kinds an assignment can hold as attachments (materials-model.js)
+  const canAttach = (it) => Boolean(materialType({ type: it.mime, name: it.name }));
+  const attachable = () => usable().filter(canAttach);
+
+  function metaText(it) {
+    return [SOURCE_KINDS[it.kind]?.label, it.bytes ? sizeText(it.bytes) : '', it.kind === 'pdf' ? pagesText(it.pages) : ''].filter(Boolean).join(', ');
   }
 
-  function showPhotoProblem(text) {
-    photoProblem.replaceChildren(text ? h('p', { class: 'field-error', role: 'alert' }, icon('warning-circle'), h('span', {}, text)) : '');
+  function renderChips() {
+    chips.replaceChildren(...items.map((it) => {
+      const lead = it.url
+        ? h('img', { class: 'hwd-chip-thumb', src: it.url, alt: '', width: '36', height: '36', decoding: 'async' })
+        : h('span', { class: 'hwd-chip-icon' }, icon(it.error ? 'warning-circle' : SOURCE_KINDS[it.kind]?.icon ?? 'file-text', { size: 20 }));
+      const uploading = typeof it.progress === 'number';
+      const bar = uploading
+        ? h('span', {
+          class: 'hwd-chip-bar', role: 'progressbar', 'aria-label': `Uploading ${it.name}`,
+          'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(it.progress * 100)),
+        }, h('span', { class: 'hwd-chip-fill' }))
+        : null;
+      if (bar) bar.firstChild.style.setProperty('--hwd-progress', String(it.progress));
+      it.bar = bar;
+      const note = attachBox.checked && !it.error && !canAttach(it) ? h('span', { class: 'hwd-chip-note' }, 'Can’t be attached') : null;
+      return h('li', { class: `hwd-chip${it.error ? ' is-error' : ''}`, dataset: { kind: it.kind ?? 'unknown' } },
+        lead,
+        h('span', { class: 'hwd-chip-main' },
+          h('span', { class: 'hwd-chip-name', title: it.name }, it.name),
+          h('span', { class: 'hwd-chip-meta' }, it.error ? '' : metaText(it)),
+          bar,
+          note,
+          it.error ? h('span', { class: 'hwd-chip-error' }, it.error) : null),
+        iconButton({
+          icon: 'x', label: `Remove ${it.name}`, tip: 'top', className: 'hwd-chip-remove',
+          onClick: () => removeItem(it),
+        }));
+    }));
+    chips.hidden = items.length === 0;
+    const count = usable().length;
+    attachBox.disabled = attachable().length === 0;
+    if (attachBox.disabled) attachBox.checked = false;
+    addBtn.disabled = count >= MAX_SOURCE_FILES || starting;
+    cameraBtn.disabled = count >= MAX_SOURCE_FILES || starting;
   }
 
-  // Files chosen while others are still being shrunk wait their turn
-  async function addPhotos(files) {
+  function removeItem(it) {
+    if (starting) return;
+    const i = items.indexOf(it);
+    if (i < 0) return;
+    items.splice(i, 1);
+    if (it.url) URL.revokeObjectURL(it.url);
+    renderChips();
+    showFileProblem('');
+    addBtn.focus();
+  }
+
+  function showFileProblem(text) {
+    fileProblemSlot.replaceChildren(text ? h('p', { class: 'field-error', role: 'alert' }, icon('warning-circle'), h('span', {}, text)) : '');
+  }
+
+  // One chosen file -> an item, with an error when it can't be used
+  async function readFile(file) {
+    const name = file.name || 'Pasted picture';
+    const kind = classifyFile(file);
+    if (kind.refused) return { id: uid('hwd-file'), name, kind: null, error: kind.refused };
+    const base = { id: uid('hwd-file'), name, kind: kind.kind, error: null, pages: null, url: null };
+    const tooBig = fileProblem(file, kind.kind);
+    if (tooBig) return { ...base, error: tooBig };
+    if (kind.kind === 'image') {
+      try {
+        const blob = await shrinkPhoto(file);
+        return { ...base, blob, mime: 'image/jpeg', bytes: blob.size, url: URL.createObjectURL(blob) };
+      } catch {
+        return { ...base, error: kind.heic ? REFUSED.heic : 'This photo could not be opened. Try a JPG or PNG.' };
+      }
+    }
+    const mime = SOURCE_KINDS[kind.kind].mime;
+    const blob = new Blob([file], { type: mime });
+    if (kind.kind === 'pdf') {
+      try {
+        const facts = await pdfFacts(new Uint8Array(await file.arrayBuffer()), { inflate });
+        if (facts.encrypted) return { ...base, error: REFUSED.encrypted };
+        return { ...base, blob, mime, bytes: file.size, pages: facts.pages };
+      } catch {
+        return { ...base, error: 'This PDF could not be opened. Save a new copy and add it again.' };
+      }
+    }
+    return { ...base, blob, mime, bytes: file.size };
+  }
+
+  // Files chosen while others are still being read wait their turn
+  async function addFiles(files) {
+    if (starting) return;
     queue.push(...files);
     if (adding) return;
     adding = true;
     root.setAttribute('aria-busy', 'true');
-    const notImages = [];
-    const unreadable = [];
     let tooMany = 0;
-    let overBudget = '';
     try {
       while (queue.length && alive()) {
         const file = queue.shift();
-        if (!isImageFile(file)) { notImages.push(file.name || 'A file'); continue; }
-        if (photos.length >= MAX_PHOTOS) { tooMany += 1; continue; }
-        let shot = null;
-        try {
-          for (const tryOptions of SHRINK_TRIES) {
-            shot = await shrinkPhoto(file, tryOptions);
-            if (fitsBudget(photos, shot.chars)) break;
-          }
-        } catch {
-          unreadable.push(file.name || 'A photo');
-          continue;
+        if (usable().length >= MAX_SOURCE_FILES) { tooMany += 1; continue; }
+        const item = await readFile(file);
+        // The drawer may have closed while it was read: no link to free later
+        if (!alive()) { if (item.url) URL.revokeObjectURL(item.url); break; }
+        if (!item.error) {
+          const together = sourcesProblem([...usable(), item]);
+          if (together) item.error = together;
         }
-        if (!fitsBudget(photos, shot.chars)) {
-          overBudget = overBudgetText(photos, shot.chars);
-          continue;
-        }
-        // The drawer may have closed while it was shrunk: no link to free later
-        if (!alive()) break;
-        photos.push({ ...shot, name: file.name, url: URL.createObjectURL(shot.blob) });
+        if (item.error && item.url) { URL.revokeObjectURL(item.url); item.url = null; }
+        items.push(item);
+        renderChips();
       }
     } finally {
       adding = false;
       root.removeAttribute('aria-busy');
     }
     if (!alive()) {
-      // stop() ran while photos were being added: free every link, the late ones too
+      // stop() ran while files were being added: free every link, the late ones too
       queue.length = 0;
-      for (const p of photos) URL.revokeObjectURL(p.url);
+      for (const it of items) if (it.url) URL.revokeObjectURL(it.url);
       return;
     }
-    renderPhotos();
-    showPhotoProblem(photoProblems({ notImages, unreadable, tooMany, overBudget }));
+    renderChips();
+    const refused = items.filter((it) => it.error).length;
+    showFileProblem([
+      tooMany ? `Add at most ${MAX_SOURCE_FILES} files to one draft.` : '',
+      refused ? `${refused === 1 ? 'One file' : `${refused} files`} can’t be used. ${refused === 1 ? 'It says' : 'Each says'} why; remove ${refused === 1 ? 'it' : 'them'} or add another.` : '',
+    ].filter(Boolean).join(' '));
   }
 
   // Context, shown before it is sent ----------------------------------------
@@ -357,7 +508,7 @@ export function draftPanel(dctx, {
     }
     const text = contextText(ctx);
     contextNote.hidden = !text;
-    contextNote.lastChild.textContent = text ? `Sent with the photos: ${text}.` : '';
+    contextNote.lastChild.textContent = text ? `Sent with the files: ${text}.` : '';
     return ctx;
   }
 
@@ -381,16 +532,21 @@ export function draftPanel(dctx, {
     clearInterval(tickTimer);
     pollTimer = null;
     tickTimer = null;
-    for (const p of photos) URL.revokeObjectURL(p.url);
+    for (const it of items) if (it.url) URL.revokeObjectURL(it.url);
   }
 
   // Drafting ----------------------------------------------------------------
-  function setDrafting(on) {
+  function showStage(stage) {
+    statusText.textContent = stageText(stage);
+  }
+
+  function setDrafting(on, stage = 'drafting') {
     draftBtn.disabled = on;
     if (on) draftBtn.setAttribute('aria-busy', 'true');
     else draftBtn.removeAttribute('aria-busy');
     draftBtn.querySelector('.btn-label').textContent = on ? 'Drafting…' : 'Draft homework';
     statusBox.hidden = !on;
+    showStage(stage);
     onBusy?.(on);
     clearInterval(tickTimer);
     tickTimer = null;
@@ -398,6 +554,8 @@ export function draftPanel(dctx, {
       const tick = () => { timer.textContent = elapsedText(Date.now() - active.startedAt); };
       tick();
       tickTimer = setInterval(tick, 1000);
+    } else {
+      timer.textContent = '';
     }
   }
 
@@ -419,7 +577,41 @@ export function draftPanel(dctx, {
       await startOnce();
     } finally {
       starting = false;
+      for (const it of items) delete it.progress;
+      if (alive()) renderChips();
     }
+  }
+
+  // Uploads every usable file into a new folder of the tutor's -> the sources, or null (shown why)
+  async function uploadAll() {
+    const me = dctx.me?.id;
+    const key = draftKey();
+    const list = usable();
+    const done = [];
+    list.forEach((it) => { it.progress = 0; });
+    renderChips();
+    for (const [i, it] of list.entries()) {
+      const path = sourcePath(me, key, i + 1, it.kind === 'image' ? photoFileName(it.name, i + 1) : it.name);
+      try {
+        await uploadSource(path, it.blob, it.mime, (p) => {
+          it.progress = Math.max(0, Math.min(1, Number(p) || 0));
+          it.bar?.setAttribute('aria-valuenow', String(Math.round(it.progress * 100)));
+          it.bar?.firstChild.style.setProperty('--hwd-progress', String(it.progress));
+        });
+      } catch {
+        await removeUploaded(done.map((s) => s.path));
+        if (!alive()) return null;
+        it.error = UPLOAD_FAILED;
+        renderChips();
+        return null;
+      }
+      if (!alive()) {
+        await removeUploaded([...done.map((s) => s.path), path]);
+        return null;
+      }
+      done.push({ path, name: it.name, kind: it.kind });
+    }
+    return done;
   }
 
   async function startOnce() {
@@ -429,36 +621,61 @@ export function draftPanel(dctx, {
     });
     setFieldError(countField, checked.errors.count ?? '');
     setFieldError(notesField, checked.errors.notes ?? '');
-    if (!photos.length) {
-      showPhotoProblem(adding ? 'Wait for the photos to finish adding.' : 'Add at least one photo of the lesson.');
+    const pasted = pastedInput.value.trim();
+    if (!usable().length && !pasted) {
+      showFileProblem(adding ? 'Wait for the files to finish adding.' : 'Add at least one lesson file or photo, or paste lesson notes.');
       addBtn.focus();
       return;
     }
+    if (pasted.length > MAX_PASTED_NOTES) {
+      setFieldError(pastedField, `Keep the pasted notes under ${MAX_PASTED_NOTES.toLocaleString('en-US')} characters.`);
+      pastedInput.focus();
+      return;
+    }
+    const together = sourcesProblem(usable());
+    if (together) { showFileProblem(together); addBtn.focus(); return; }
     if (checked.errors.count) { countInput.focus(); return; }
     if (checked.errors.notes) { notesInput.focus(); return; }
+    showFileProblem('');
     const studentId = getStudentId();
     const context = await paintContext();
     draftBtn.disabled = true;
-    const res = await startDraft(draftRequest({ photos, options: checked.values, context, studentId }));
+    statusBox.hidden = false;
+    showStage('uploading');
+    timer.textContent = '';
+    renderChips();
+    announce(stageText('uploading'));
+    const sources = usable().length ? await uploadAll() : [];
+    if (!alive()) return;
+    if (!sources) {
+      statusBox.hidden = true;
+      draftBtn.disabled = false;
+      showError(UPLOAD_FAILED, { retry: true });
+      return;
+    }
+    const res = await startDraft(draftRequest({ sources, notesText: pasted, options: checked.values, context, studentId }));
     if (!alive()) return;
     draftBtn.disabled = false;
     if (res.status !== 202 || !Number.isSafeInteger(res.body?.id)) {
+      statusBox.hidden = true;
+      await removeUploaded(sources.map((s) => s.path));
       showError(res.body?.error || START_FAILED, { retry: false });
       return;
     }
-    active = { id: res.body.id, studentId, startedAt: Date.now() };
+    const stage = res.body.stage === 'reading' ? 'reading' : 'drafting';
+    active = { id: res.body.id, studentId, startedAt: Date.now(), stage };
     elsewhere.hidden = true;
-    recent = [{ id: res.body.id, student_id: studentId, status: 'drafting', options: { ...checked.values, photos: photos.length }, error: null, created_at: res.body.created_at ?? new Date().toISOString(), title: null }, ...recent.filter((r) => r.id !== res.body.id)];
+    recent = [{ id: res.body.id, student_id: studentId, status: 'drafting', options: { ...checked.values, files: sources.length }, error: null, created_at: res.body.created_at ?? new Date().toISOString(), title: null }, ...recent.filter((r) => r.id !== res.body.id)];
     resultBar.hidden = true;
-    announce(DRAFTING_TEXT);
-    setDrafting(true);
+    announce(stageText(stage));
+    setDrafting(true, stage);
     renderRecent();
     schedulePoll(true);
   }
 
   function tryAgain() {
-    if (!photos.length) {
-      showError('Add the lesson photos again to draft again. Photos are not kept after the form closes.', { retry: false });
+    if (!usable().length && !pastedInput.value.trim()) {
+      showError('Add the lesson files again to draft again. Files are not kept after the form closes.', { retry: false });
       addBtn.focus();
       return;
     }
@@ -528,6 +745,11 @@ export function draftPanel(dctx, {
       const status = draftState(next);
       const row = recent.find((r) => r.id === id);
       if (row) Object.assign(row, { status, error: next.error ?? null, title: next.result?.title ?? row.title ?? null });
+      if (active?.id === id && status === 'drafting' && next.stage && next.stage !== active.stage) {
+        active.stage = next.stage;
+        showStage(next.stage);
+        announce(stageText(next.stage));
+      }
       if (active?.id === id && status !== 'drafting') finish(active, status, next);
     }
     renderRecent();
@@ -584,11 +806,11 @@ export function draftPanel(dctx, {
     const known = new Set(recent.map((r) => r.id));
     recent = [...recent, ...(list.data ?? []).filter((r) => !known.has(r.id))];
     // A draft for this student still drafting (the form was closed while it ran) is picked up again
-    if (!active) {
+    if (!active && !starting) {
       const again = activeDraft(recent, { studentId: getStudentId() });
       if (again) {
-        active = { id: again.id, studentId: again.student_id ?? null, startedAt: Date.parse(again.created_at) || Date.now() };
-        announce(DRAFTING_TEXT);
+        active = { id: again.id, studentId: again.student_id ?? null, startedAt: Date.parse(again.created_at) || Date.now(), stage: 'drafting' };
+        announce(stageText('drafting'));
         setDrafting(true);
       }
     }
@@ -665,19 +887,20 @@ export function draftPanel(dctx, {
     }));
   }
 
-  renderPhotos();
+  renderChips();
   return {
     opener,
     root,
     open,
-    // The photos as files to attach to the assignment, when the box is ticked
+    // The lesson files to attach to the assignment, when the box is ticked:
+    // photos as the JPEGs they became, and the PDFs, Word and PowerPoint files
     attachFiles() {
       if (!attachBox.checked) return [];
-      return photos.map((p, i) => new File([p.blob], `Lesson photo ${i + 1}.jpg`, { type: 'image/jpeg' }));
+      return attachable().map((it, i) => new File([it.blob], it.kind === 'image' ? photoFileName(it.name, i + 1) : it.name, { type: it.mime }));
     },
-    photoCount: () => photos.length,
-    // How many photos will be attached (0 unless the box is ticked)
-    attachCount: () => (attachBox.checked ? photos.length : 0),
+    sourceCount: () => usable().length,
+    // How many lesson files will be attached (0 unless the box is ticked)
+    attachCount: () => (attachBox.checked ? attachable().length : 0),
     // When the form opens: a draft for this student still drafting, or one
     // just finished, opens the panel by itself (the tutor left while it ran)
     async peek() {
