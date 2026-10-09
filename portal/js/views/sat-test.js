@@ -226,11 +226,12 @@ export async function mount(ctx, where) {
       bySkill.set(name, c);
     }
     screen(h('section', { class: 'card sat-result', 'aria-labelledby': 'sat-result-title' },
-      h('p', { class: 'sat-kicker' }, set.title),
+      h('p', { class: 'sat-kicker' }, run?.auto ? 'Time is up: your answers were submitted' : 'Module submitted'),
       h('h2', { class: 'sat-screen-title', id: 'sat-result-title', tabindex: '-1' }, 'Your results'),
       h('div', { class: 'sat-result-score' },
         h('p', { class: 'sat-result-figure num' }, `${correct} of ${total}`),
         h('p', { class: 'sat-result-pct num' }, `${pct(correct, total) ?? 0}% correct`)),
+      bySkill.size ? h('h3', { class: 'sat-sub-title' }, 'By skill') : null,
       breakdownList([...bySkill.values()], 'By skill'),
       h('div', { class: 'sat-intro-actions' },
         button({ label: 'Review answers', variant: 'primary', href: reviewHref(result?.attempt?.id), focusKey: 'sat-review' }),
@@ -435,6 +436,7 @@ export async function mount(ctx, where) {
     if (run.phase === 'submitting' || run.result) return;
     const r = run;
     r.phase = 'submitting';
+    r.auto = auto;
     const all = await settleSaves();
     if (!all && !auto && remainingMs(r.deadline, Date.now(), r.skew) > -GRACE_MS) {
       r.phase = 'check';
@@ -521,8 +523,8 @@ export async function mount(ctx, where) {
     });
     return h('div', { class: 'sat-test-bar' },
       h('div', { class: 'sat-test-bar-title' },
-        h('span', { class: 'sat-test-bar-module' }, full ? modTitle(run.module) : set.title),
-        full ? h('span', { class: 'sat-test-bar-set' }, set.title) : null),
+        h('span', { class: 'sat-test-bar-module' }, modTitle(run.module)),
+        h('span', { class: 'sat-test-bar-set' }, full ? `${set.title}, module ${modNumber(run.module)} of ${mods.length}` : 'Skill test')),
       h('div', { class: 'sat-clock' }, icon('clock'), h('span', { class: 'visually-hidden' }, 'Time left: '), timeEl, toggle),
       h('p', { class: 'sat-save' }, statusText()));
   }

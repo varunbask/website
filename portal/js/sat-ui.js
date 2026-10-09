@@ -164,9 +164,9 @@ export function sprField(item, { value = '', onInput = null, disabled = false, r
   });
   const state = reveal ? (reveal.correct ? 'is-correct' : 'is-wrong') : null;
   return h('div', { class: ['sat-spr', state].filter(Boolean).join(' ') },
-    h('label', { class: 'field-label', for: id }, 'Your answer'),
+    h('label', { class: 'field-label', for: id }, reveal ? 'Answer given' : 'Your answer'),
     input,
-    h('p', { class: 'sat-spr-hint', id: hintId },
+    h('p', { class: 'sat-spr-hint', id: hintId, hidden: Boolean(reveal) },
       `Up to ${SPR_MAX} characters, ${SPR_MAX_NEGATIVE} with a minus sign. A fraction like 7/2 or a decimal like 3.5 both work.`));
 }
 
@@ -184,20 +184,23 @@ export function questionLayout(item, main) {
   return h('div', { class: passage ? 'sat-q has-passage' : 'sat-q' }, passage, main);
 }
 
-// "Correct" or "Incorrect. The correct answer is C.", then the explanation
-export function explanation(item, result, { heading = 'Explanation' } = {}) {
+// "Correct" or "Incorrect. The correct answer is C.", then the explanation.
+// asKey: staff looking at a question's key, not at anyone's answer
+export function explanation(item, result, { heading = 'Explanation', asKey = false } = {}) {
   const right = Boolean(result?.correct);
   const answered = result?.response !== null && result?.response !== undefined && result?.response !== '';
   const ans = answerText(item.kind, result?.answer, result?.accept);
   let verdict;
-  if (right) verdict = 'Correct.';
+  if (asKey) verdict = ans ? `Answer on file: ${ans}.` : 'No answer on file.';
+  else if (right) verdict = 'Correct.';
   else if (!answered) verdict = ans ? `Not answered. The correct answer is ${ans}.` : 'Not answered.';
   else verdict = ans ? `Incorrect. The correct answer is ${ans}.` : 'Incorrect.';
-  const glyph = icon(right ? 'check-circle' : 'x-circle', { size: 20 });
+  const glyph = icon(asKey ? 'info' : right ? 'check-circle' : 'x-circle', { size: 20 });
   glyph.classList.add('sat-explain-icon');
-  return h('section', { class: ['sat-explain', right ? 'is-correct' : 'is-wrong'].join(' '), 'aria-label': heading },
+  const tone = asKey ? 'is-key' : right ? 'is-correct' : 'is-wrong';
+  return h('section', { class: ['sat-explain', tone].join(' '), 'aria-label': heading },
     h('p', { class: 'sat-explain-verdict' }, glyph, h('span', {}, verdict)),
-    item.kind === 'spr' && answered && !right ? h('p', { class: 'sat-explain-yours' }, `Your answer: ${result.response}`) : null,
+    item.kind === 'spr' && answered && !right && !asKey ? h('p', { class: 'sat-explain-yours' }, `Answer given: ${result.response}`) : null,
     result?.explanation ? h('div', { class: 'sat-explain-body' }, h('h3', { class: 'sat-explain-title' }, heading), satDoc(result.explanation, { figure })) : null);
 }
 

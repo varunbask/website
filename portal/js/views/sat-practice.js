@@ -80,7 +80,7 @@ export async function mount(ctx, where) {
   const skill = content.skillsBySlug.get(set.skill);
   ctx.setHeader({
     title: set.title,
-    lede: [originLabel(set.origin), skill?.name ?? domainName(set.domain)].filter(Boolean).join(', '),
+    lede: [originLabel(set.origin), skill && skill.name !== set.title ? skill.name : domainName(set.domain)].filter(Boolean).join(', '),
     crumbs: satCrumbs(ctx.route, { title: set.title }),
     docTitle: set.title,
   });
@@ -249,6 +249,8 @@ export async function mount(ctx, where) {
     run.answers.set(id, result);
     run.drafts.delete(id);
     redraw({ focus: 'sat-next' });
+    // The result and explanation are what the student reads next
+    body.querySelector('.sat-explain')?.scrollIntoView?.({ block: 'nearest' });
     const ans = answerText(item.kind, result.answer, result.accept);
     say(result.correct ? 'Correct.' : `Incorrect. The correct answer is ${ans}.`);
   }

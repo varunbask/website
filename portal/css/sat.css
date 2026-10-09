@@ -326,7 +326,6 @@
 .sat-skill-layout { display: grid; gap: var(--s-6); align-items: start; }
 @container sat (min-width: 900px) {
   .sat-skill-layout { grid-template-columns: minmax(0, 1fr) 340px; }
-  .sat-skill-aside { position: sticky; top: calc(var(--sticky-top) + var(--s-4)); }
 }
 .sat-skill-aside { display: flex; flex-direction: column; gap: var(--s-4); }
 .sat-guide {
@@ -572,6 +571,7 @@
 }
 .sat-explain.is-correct { --tone-solid: var(--success-solid); }
 .sat-explain.is-wrong { --tone-solid: var(--danger-solid); }
+.sat-explain.is-key { --tone-solid: var(--info-solid); }
 .sat-explain-verdict { display: flex; align-items: center; gap: var(--s-2); font: 600 16px/24px var(--font-ui); }
 .sat-explain.is-correct .sat-explain-verdict { color: var(--success-text); }
 .sat-explain.is-wrong .sat-explain-verdict { color: var(--danger-text); }
@@ -666,7 +666,7 @@
 .sat-past { max-width: 720px; width: 100%; margin-inline: auto; }
 
 .sat-result-score { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s-3); }
-.sat-result-figure { font: 500 40px/48px var(--font-mono); letter-spacing: -0.02em; }
+.sat-result-figure { font: 600 40px/48px var(--font-ui); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .sat-result-pct { font: var(--t-h3); color: var(--text-2); }
 .sat-result-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s-3); }
 .sat-result-section { padding: var(--s-4); border-radius: var(--r-md); background-color: var(--surface-2); }

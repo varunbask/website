@@ -314,9 +314,9 @@ function heldRow(ctx, row, reload) {
         const choices = item.kind === 'mc'
           ? choiceList(item, { reveal: { answer: key?.answer ?? null, response: null }, label: `Choices for ${where}` })
           : sprField(item, { value: key?.answer ?? '', reveal: { correct: true } });
-        preview.replaceChildren(
-          questionLayout(item, questionMain(item, { head: h('div', { class: 'sat-q-head' }, numberBadge(row.position)), choices })),
-          explanation(item, { correct: true, response: key?.answer ?? null, answer: key?.answer ?? null, accept: key?.accept ?? [], explanation: key?.explanation ?? null }, { heading: 'Explanation on file' }));
+        const main = questionMain(item, { head: h('div', { class: 'sat-q-head' }, numberBadge(row.position)), choices });
+        main.append(explanation(item, { answer: key?.answer ?? null, accept: key?.accept ?? [], explanation: key?.explanation ?? null }, { heading: 'Explanation on file', asKey: true }));
+        preview.replaceChildren(questionLayout(item, main));
         typeset(preview);
       } catch (error) {
         console.error(error);
