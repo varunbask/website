@@ -1,12 +1,12 @@
 import { describe, test, expect, vi } from 'vitest';
 import {
   RESULTS_FORMAT, AI_RESULTS, parseResults, buildMessageParts, requestGrade, gradeClaimed, sweep, removeOrphanFiles, MAX_ATTEMPTS,
-  loadAssignmentFiles, MAX_ASSIGNMENT_FILES, loadAnswerKey,
+  loadAssignmentFiles, MAX_ASSIGNMENT_FILES, loadAnswerKey, nativeContent, GRADE_MAX_TOKENS,
 } from '../../api/_lib/grader.js';
 import { PermanentGradingError } from '../../api/_lib/errors.js';
 import { MAX_PDF_PAGES, MAX_PAGES_BASE64 } from '../../api/_lib/content.js';
 import { packJpegsToPdf } from '../../portal/js/pdf-pack.js';
-import { completion, TINY_PNG, makePdf } from './fixtures.js';
+import { completion, TINY_PNG, makePdf, makeIosScanPdf } from './fixtures.js';
 import { RGB_12X16, GRAY_16X8, fakeJpeg } from './jpeg-fixtures.js';
 
 describe('parseResults', () => {
@@ -607,5 +607,98 @@ describe('the answer key', () => {
     expect(await loadAnswerKey({ getAnswerKey: async () => `  ${'a'.repeat(25_000)}  ` }, 3)).toHaveLength(20_000);
     expect(await loadAnswerKey({ getAnswerKey: async () => { throw new Error('x'); } }, 3)).toBeNull();
     expect(await loadAnswerKey({ getAnswerKey: async () => undefined }, 3)).toBeNull();
+  });
+});
+
+// The Messages API (an Anthropic LLM_ENDPOINT): the JSON shape is enforced and
+// a student's PDF goes in whole, so a phone scan grades like photos
+describe('grading on the Messages API', () => {
+  const NATIVE = { LLM_ENDPOINT: 'https://api.anthropic.com/v1/chat/completions', LLM_KEY: 'test-key', LLM_MODEL: 'claude-sonnet-5-5' };
+  const reply = (body, over = {}) => ({
+    stop_reason: 'end_turn',
+    content: [{ type: 'thinking', thinking: '...' }, { type: 'text', text: JSON.stringify(body) }],
+    ...over,
+  });
+  const nativeFetch = (data = reply({ results: [{ id: 7, feedback: 'Nice work on page 2.', result: 'completed' }] }), status = 200) =>
+    vi.fn(async () => ({ ok: status >= 200 && status < 300, status, json: async () => data }));
+  const parts = [{ type: 'text', text: 'grade this' }];
+  const opts = (fetchImpl) => ({ endpoint: NATIVE.LLM_ENDPOINT, key: NATIVE.LLM_KEY, model: NATIVE.LLM_MODEL, fetchImpl });
+
+  test('posts to /v1/messages with the key header, the model and the enforced schema', async () => {
+    const fetchImpl = nativeFetch();
+    expect(await requestGrade(parts, 7, opts(fetchImpl))).toEqual({ result: 'completed', feedback: 'Nice work on page 2.' });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect(init.headers).toEqual({ 'x-api-key': 'test-key', 'anthropic-version': '2023-06-01', 'content-type': 'application/json' });
+    const body = JSON.parse(init.body);
+    expect(body.model).toBe('claude-sonnet-5-5');
+    expect(body.max_tokens).toBe(GRADE_MAX_TOKENS);
+    expect(body.output_config).toEqual({ format: { type: 'json_schema', schema: RESULTS_FORMAT.json_schema.schema } });
+    expect(body.messages).toEqual([{ role: 'user', content: parts }]);
+    expect(body).not.toHaveProperty('response_format');
+  });
+
+  test('the schema fits the Messages API: closed objects, no numeric or length limits', () => {
+    const walk = (node) => {
+      if (!node || typeof node !== 'object') return;
+      if (node.type === 'object') expect(node.additionalProperties).toBe(false);
+      for (const k of ['minimum', 'maximum', 'minLength', 'maxLength', 'maxItems']) expect(node).not.toHaveProperty(k);
+      Object.values(node).forEach(walk);
+    };
+    walk(RESULTS_FORMAT.json_schema.schema);
+  });
+
+  test('a photo becomes an image block; text and document blocks pass through', () => {
+    const base64 = Buffer.from(TINY_PNG).toString('base64');
+    const doc = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0=' }, title: 'Student work' };
+    expect(nativeContent([{ type: 'text', text: 'a' }, { type: 'image_url', image_url: { url: `data:image/png;base64,${base64}` } }, doc]))
+      .toEqual([{ type: 'text', text: 'a' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } }, doc]);
+  });
+
+  test('a 400, 413 or 422 and a refusal are permanent; 429, 529 and running out of room are retried', async () => {
+    for (const status of [400, 413, 422]) {
+      await expect(requestGrade(parts, 7, opts(nativeFetch({}, status)))).rejects.toBeInstanceOf(PermanentGradingError);
+    }
+    await expect(requestGrade(parts, 7, opts(nativeFetch(reply({}, { stop_reason: 'refusal' }))))).rejects.toBeInstanceOf(PermanentGradingError);
+    for (const fetchImpl of [nativeFetch({}, 429), nativeFetch({}, 529), nativeFetch(reply({}, { stop_reason: 'max_tokens' }))]) {
+      const err = await requestGrade(parts, 7, opts(fetchImpl)).then(() => null, (e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(PermanentGradingError);
+    }
+  });
+
+  test('a reply with no text block or the wrong id is retried', async () => {
+    for (const data of [{ stop_reason: 'end_turn', content: [{ type: 'thinking', thinking: '...' }] }, reply({ results: [{ id: 8, feedback: 'x', result: 'completed' }] })]) {
+      const err = await requestGrade(parts, 7, opts(nativeFetch(data))).then(() => null, (e) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(PermanentGradingError);
+    }
+  });
+
+  test('buildMessageParts sends a PDF as a document after the line that names its id', () => {
+    const parts3 = buildMessageParts({ id: 205, assignment: { title: 'Q', details: '' }, content: { kind: 'pdf', base64: 'JVBERi0=', pages: 3 } });
+    const at = parts3.findIndex((p) => p.type === 'document');
+    expect(parts3[at - 1]).toEqual({ type: 'text', text: "ID: 205\nThe student's work is a PDF of 3 pages. It follows. Read every page, including any handwriting." });
+    expect(parts3[at]).toEqual({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0=' }, title: 'Student work' });
+    expect(parts3.at(-1).text).toMatch(/ignore any instructions/);
+  });
+
+  test('gradeClaimed grades an iPhone scan PDF: the whole file goes to the model', async () => {
+    const scan = makeIosScanPdf(RGB_12X16);
+    const repo = fakeRepo({ download: vi.fn(async () => scan) });
+    const fetchImpl = nativeFetch();
+    const sub = claimed({ storage_path: 'stu-1/scan.pdf', file_type: 'application/pdf' });
+    expect(await gradeClaimed(repo, sub, { env: NATIVE, fetchImpl, now })).toBe('ai_graded');
+    const content = JSON.parse(fetchImpl.mock.calls[0][1].body).messages[0].content;
+    const doc = content.find((p) => p.type === 'document');
+    expect(doc.source).toEqual({ type: 'base64', media_type: 'application/pdf', data: Buffer.from(scan).toString('base64') });
+    expect(repo.saveAiGrade).toHaveBeenCalledWith(7, { result: 'completed', feedback: 'Nice work on page 2.' });
+  });
+
+  test('on an OpenAI-compatible endpoint the same scan still fails as before (no PDFs there)', async () => {
+    const repo = fakeRepo({ download: vi.fn(async () => makeIosScanPdf(RGB_12X16)) });
+    const sub = claimed({ storage_path: 'stu-1/scan.pdf', file_type: 'application/pdf' });
+    expect(await gradeClaimed(repo, sub, { env: ENV, fetchImpl: okFetch(), now })).toBe('failed');
+    expect(repo.setStatus).toHaveBeenCalledWith(7, expect.objectContaining({ error: expect.stringMatching(/no readable text/) }));
   });
 });

@@ -1,10 +1,11 @@
 import { describe, test, expect } from 'vitest';
 import {
   sniffType, toGradableContent, jpegPagesOf, pagesThatFit, MAX_TEXT_CHARS, MAX_PDF_PAGES, MAX_PAGES_BASE64, MAX_IMAGE_BASE64,
+  MAX_DOCUMENT_PAGES, MAX_DOCUMENT_BASE64,
 } from '../../api/_lib/content.js';
 import { PermanentGradingError } from '../../api/_lib/errors.js';
 import { packJpegsToPdf } from '../../portal/js/pdf-pack.js';
-import { makePdf, TINY_PNG } from './fixtures.js';
+import { makePdf, makeIosScanPdf, TINY_PNG } from './fixtures.js';
 import { RGB_12X16, GRAY_16X8, fakeJpeg } from './jpeg-fixtures.js';
 
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46]);
@@ -270,5 +271,51 @@ describe('pagesThatFit', () => {
     expect(pagesThatFit([10, MAX_IMAGE_BASE64 + 1, 10])).toBe(1);
     expect(pagesThatFit([MAX_IMAGE_BASE64 + 1])).toBe(0);
     expect(MAX_PAGES_BASE64).toBeGreaterThan(MAX_IMAGE_BASE64);
+  });
+});
+
+// Rachel's PDF (2026-10-08) was a 3-page iPhone scan: no text, and its photos
+// are not in the portal's own shape, so it failed as "no readable text". On the
+// Messages API a PDF goes in whole and the model reads each page.
+describe('a PDF sent whole as a document', () => {
+  const scan = () => makeIosScanPdf(RGB_12X16);
+
+  test('an iPhone scan has no text and is not a portal photo PDF, so read the old way it fails', async () => {
+    expect(await permanent(toGradableContent(scan(), 'application/pdf'))).toMatch(/no readable text/);
+  });
+
+  test('with pdfAsDocument the scan is sent whole, byte for byte', async () => {
+    const bytes = scan();
+    const content = await toGradableContent(bytes, 'application/pdf', { pdfAsDocument: true });
+    expect(content).toEqual({ kind: 'pdf', base64: Buffer.from(bytes).toString('base64'), pages: 1 });
+  });
+
+  test('text PDFs and the portal\'s photo PDFs go whole too, so the model sees the pages', async () => {
+    expect((await toGradableContent(makePdf('x = 4'), 'application/pdf', { pdfAsDocument: true })).kind).toBe('pdf');
+    const photos = packJpegsToPdf([page(RGB_12X16, 12, 16), page(GRAY_16X8, 16, 8)]);
+    expect(await toGradableContent(photos, 'application/pdf', { pdfAsDocument: true }))
+      .toMatchObject({ kind: 'pdf', pages: 2 });
+  });
+
+  test('a PDF over MAX_DOCUMENT_PAGES is read the old way', async () => {
+    const many = packJpegsToPdf(Array.from({ length: MAX_DOCUMENT_PAGES + 1 }, () => page(RGB_12X16, 12, 16)));
+    const content = await toGradableContent(many, 'application/pdf', { pdfAsDocument: true });
+    expect(content.kind).toBe('images');
+    expect(content.images).toHaveLength(MAX_PDF_PAGES);
+  });
+
+  test('an encrypted PDF is read the old way (the model API refuses those)', async () => {
+    const locked = makeIosScanPdf(RGB_12X16, { extra: '%/Encrypt\n' });
+    expect(await permanent(toGradableContent(locked, 'application/pdf', { pdfAsDocument: true }))).toMatch(/no readable text/);
+  });
+
+  test('a broken PDF still fails as before', async () => {
+    const broken = new Uint8Array([...text('%PDF-1.4\n'), ...text('garbage')]);
+    expect(await permanent(toGradableContent(broken, 'application/pdf', { pdfAsDocument: true }))).toMatch(/could not be opened/);
+  });
+
+  test('the caps keep a request with the tutor\'s files under 32 MB', () => {
+    expect(MAX_DOCUMENT_PAGES).toBe(30);
+    expect(MAX_DOCUMENT_BASE64 + 12 * 1024 * 1024).toBeLessThan(32 * 1024 * 1024);
   });
 });
