@@ -50,6 +50,8 @@ export function loadMathJax() {
         },
       },
       svg: { fontCache: 'none' },
+      // No \class, \cssId, \style or \data: a formula never styles the page
+      tex: { packages: { '[-]': ['html'] } },
       options: { enableMenu: false, enableAssistiveMml: false, enableEnrichment: false, enableExplorer: false },
     };
     const script = document.createElement('script');
@@ -65,6 +67,34 @@ export function loadMathJax() {
   return loading;
 }
 
+// TeX can carry links, ids, classes and styles (\href, and \class, \cssId,
+// \style from the html package). A formula is only a picture, so the svg
+// keeps its drawing and loses every link (keeping what the link wrapped),
+// every style, class and id, any event attribute, and anything that is not
+// drawing (scripts, foreign content, images). Works on any element tree with
+// children, attributes and remove / replaceWith (the browser's, or a test's).
+const DROP_ELEMENTS = new Set(['script', 'style', 'foreignobject', 'iframe', 'image', 'use']);
+const DROP_ATTRIBUTES = new Set(['href', 'xlink:href', 'style', 'class', 'id']);
+export function sanitizeSvg(root) {
+  const clean = (el) => {
+    for (const attr of [...(el.attributes ?? [])]) {
+      const name = String(attr.name).toLowerCase();
+      if (DROP_ATTRIBUTES.has(name) || name.startsWith('on') || name.endsWith(':href')) el.removeAttribute(attr.name);
+    }
+    for (const child of [...(el.children ?? [])]) {
+      const tag = String(child.localName ?? child.tagName ?? '').toLowerCase();
+      if (DROP_ELEMENTS.has(tag)) {
+        child.remove();
+        continue;
+      }
+      clean(child);
+      if (tag === 'a') child.replaceWith(...child.childNodes);
+    }
+  };
+  clean(root);
+  return root;
+}
+
 // The svg of one formula, labelled with its TeX (as written) for screen
 // readers. Inline math with a fraction is set in display style (inlineTex),
 // so the fraction is full size; the line around it grows to fit.
@@ -77,6 +107,7 @@ export function texToSvg(MathJax, tex, { display = false } = {}) {
   }
   const svg = node?.querySelector?.('svg');
   if (!svg || svg.querySelector('[data-mjx-error], merror, [data-mml-node="merror"]')) return null;
+  sanitizeSvg(svg);
   svg.setAttribute('role', 'img');
   svg.setAttribute('aria-label', tex);
   svg.setAttribute('focusable', 'false');
