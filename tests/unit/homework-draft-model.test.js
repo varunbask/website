@@ -1,0 +1,259 @@
+import { describe, test, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import {
+  MAX_PHOTOS, MAX_PHOTO_CHARS, SHRINK_TRIES, MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS, MAX_NOTES, DIFFICULTIES,
+  POLL_MS, RECENT_DAYS, DRAFTING_TEXT, READY_TEXT, MAX_ATTACHMENTS, GONE_ERROR, MAX_DETAILS,
+  pollOutcome, tokenNeedsRefresh, attachmentsProblem, elsewhereText,
+  fitSize, base64Length, isImageFile, sizeText, fitsBudget, overBudgetText, photoProblems, checkOptions, draftRequest,
+  draftContext, contextText, formFromDraft, draftState, elapsedText, recentDrafts, optionsText, activeDraft, shouldReopen,
+} from '../../portal/js/homework-draft-model.js';
+import * as server from '../../api/_lib/homework-draft.js';
+
+const NOW = new Date('2026-10-08T18:00:00Z');
+const ago = (ms) => new Date(NOW.getTime() - ms).toISOString();
+
+describe('the browser and the server agree', () => {
+  test('photos, problems, notes, difficulties and the stale time', () => {
+    expect(MAX_PHOTOS).toBe(server.MAX_DRAFT_IMAGES);
+    expect(MAX_PHOTO_CHARS).toBe(server.MAX_DRAFT_IMAGE_CHARS);
+    expect([MIN_PROBLEMS, MAX_PROBLEMS, DEFAULT_PROBLEMS]).toEqual([server.MIN_PROBLEMS, server.MAX_PROBLEMS, server.DEFAULT_PROBLEMS]);
+    expect(MAX_NOTES).toBe(server.MAX_NOTES);
+    expect(DIFFICULTIES.map((d) => d.value)).toEqual(Object.keys(server.DIFFICULTIES));
+  });
+
+  test('the request body the panel builds passes the server check', () => {
+    const photos = [{ dataUrl: `data:image/jpeg;base64,${'A'.repeat(800)}`, chars: 800 }];
+    const body = draftRequest({
+      photos, options: checkOptions({ count: '7', difficulty: 'harder', hints: true, notes: ' negatives ' }).values,
+      context: { subject: 'Algebra', grade: '9th grade' }, studentId: 'u-maya',
+    });
+    expect(body).toEqual({
+      action: 'draft_homework', images: [photos[0].dataUrl], count: 7, difficulty: 'harder', hints: true, challenge: true, notes: 'negatives',
+      subject: 'Algebra', grade: '9th grade', student_id: 'u-maya',
+    });
+    const checked = server.checkDraftRequest(body);
+    expect(checked.error).toBeUndefined();
+    expect(checked.values).toMatchObject({ count: 7, difficulty: 'harder', hints: true, notes: 'negatives', subject: 'Algebra', studentId: 'u-maya' });
+  });
+});
+
+describe('downscale math', () => {
+  test('the long edge goes to 1600 px at JPEG quality 0.85 first, then a smaller try', () => {
+    expect(SHRINK_TRIES[0]).toEqual({ maxEdge: 1600, quality: 0.85 });
+    expect(SHRINK_TRIES[1].maxEdge).toBeLessThan(1600);
+    expect(SHRINK_TRIES[1].quality).toBeLessThan(0.85);
+  });
+
+  test('fitSize keeps the shape and never enlarges', () => {
+    expect(fitSize(4032, 3024)).toEqual({ width: 1600, height: 1200, scale: 1600 / 4032 });
+    expect(fitSize(3024, 4032)).toMatchObject({ width: 1200, height: 1600 });
+    expect(fitSize(800, 600)).toEqual({ width: 800, height: 600, scale: 1 });
+    expect(fitSize(1600, 10)).toMatchObject({ width: 1600, height: 10 });
+    expect(fitSize(20000, 3)).toMatchObject({ width: 1600, height: 1 });
+    expect(fitSize(4032, 3024, 1200)).toMatchObject({ width: 1200, height: 900 });
+    expect(fitSize(0, 0)).toMatchObject({ width: 1, height: 1 });
+  });
+
+  test('base64 is four characters for every three bytes, rounded up', () => {
+    expect(base64Length(0)).toBe(0);
+    expect(base64Length(1)).toBe(4);
+    expect(base64Length(3)).toBe(4);
+    expect(base64Length(4)).toBe(8);
+    expect(base64Length(300_000)).toBe(400_000);
+    expect(base64Length(Buffer.alloc(1234).length)).toBe(Buffer.alloc(1234).toString('base64').length);
+  });
+});
+
+describe('the photo budget', () => {
+  test('3.5 MB of base64 in all, checked before a photo is added', () => {
+    expect(MAX_PHOTO_CHARS).toBe(3.5 * 1024 * 1024);
+    const six = Array.from({ length: 5 }, () => ({ chars: 700_000 }));
+    expect(fitsBudget(six, MAX_PHOTO_CHARS - 3_500_000)).toBe(true);
+    expect(fitsBudget(six, MAX_PHOTO_CHARS - 3_500_000 + 1)).toBe(false);
+    expect(fitsBudget([], MAX_PHOTO_CHARS)).toBe(true);
+    expect(fitsBudget([], MAX_PHOTO_CHARS + 1)).toBe(false);
+  });
+
+  test('says clearly when photos are over', () => {
+    expect(overBudgetText([{ chars: 3_000_000 }], 900_000)).toBe('These photos are too large together (3.7 MB of 3.5 MB). Remove a photo, or use fewer or smaller ones.');
+    expect(sizeText(850 * 1024)).toBe('850 KB');
+    expect(sizeText(1.2 * 1024 * 1024)).toBe('1.2 MB');
+  });
+
+  test('only images are photos (a blank type falls back to the name)', () => {
+    expect(isImageFile({ type: 'image/jpeg', name: 'a.jpg' })).toBe(true);
+    expect(isImageFile({ type: 'image/heic', name: 'a.heic' })).toBe(true);
+    expect(isImageFile({ type: 'application/pdf', name: 'a.pdf' })).toBe(false);
+    expect(isImageFile({ type: 'text/plain', name: 'a.jpg' })).toBe(false);
+    expect(isImageFile({ type: '', name: 'IMG_1.HEIC' })).toBe(true);
+    expect(isImageFile({ type: '', name: 'notes.docx' })).toBe(false);
+    expect(isImageFile(null)).toBe(false);
+  });
+
+  test('what was not added, in one sentence each', () => {
+    expect(photoProblems({})).toBe('');
+    expect(photoProblems({ notImages: ['a.pdf'], tooMany: 2 })).toBe('a.pdf: not an image. Add photos (JPG, PNG or WebP). Add at most 6 photos.');
+    expect(photoProblems({ unreadable: ['b.heic'] })).toMatch(/could not be opened/);
+  });
+});
+
+describe('options', () => {
+  test('defaults: 5 problems, about the same, no hints, no notes', () => {
+    expect(checkOptions({})).toEqual({ values: { count: 5, difficulty: 'same', hints: false, challenge: true, notes: null }, errors: {} });
+    expect(checkOptions({ challenge: false }).values.challenge).toBe(false);
+    expect(DIFFICULTIES.map((d) => d.label)).toEqual(['Easier', 'About the same', 'Harder']);
+  });
+
+  test('1 to 15 problems', () => {
+    for (const count of ['1', '15', 1, 15, ' 8 ']) expect(checkOptions({ count }).errors.count, String(count)).toBeUndefined();
+    for (const count of ['0', '16', '2.5', 'many', -3]) expect(checkOptions({ count }).errors.count, String(count)).toBe('Choose 1 to 15 problems.');
+  });
+
+  test('notes up to 500 characters, trimmed; an unknown difficulty is about the same', () => {
+    expect(checkOptions({ notes: 'x'.repeat(501) }).errors.notes).toBe('Keep the notes under 500 characters.');
+    expect(checkOptions({ notes: `  ${'x'.repeat(500)}  ` }).errors.notes).toBeUndefined();
+    expect(checkOptions({ difficulty: 'brutal' }).values.difficulty).toBe('same');
+    expect(checkOptions({ hints: 'on' }).values.hints).toBe(true);
+  });
+
+  test('context: the lesson\'s subject, else the tutor\'s link; the grade from the profile', () => {
+    const links = [{ tutor_id: 't1', student_id: 's1', subject: 'Math' }, { tutor_id: 't2', student_id: 's1', subject: 'SAT Reading' }];
+    expect(draftContext({ lesson: { student_id: 's1', subject: 'Algebra' }, links, studentId: 's1', tutorId: 't1', gradeLevel: '9th grade' }))
+      .toEqual({ subject: 'Algebra', grade: '9th grade' });
+    expect(draftContext({ links, studentId: 's1', tutorId: 't2' })).toEqual({ subject: 'SAT Reading', grade: null });
+    expect(draftContext({ lesson: { student_id: 'other', subject: 'Chemistry' }, links, studentId: 's1', tutorId: 't1' }).subject).toBe('Math');
+    expect(draftContext({ links: null, studentId: 's1', tutorId: 't3' })).toEqual({ subject: null, grade: null });
+    // an admin who does not teach the student: their only subject, never a guess between two
+    expect(draftContext({ links, studentId: 's1', tutorId: 'admin' }).subject).toBeNull();
+    expect(draftContext({ links: [...links, { tutor_id: 't1', student_id: 's2', subject: 'Chemistry' }], studentId: 's2', tutorId: 'admin' }).subject).toBe('Chemistry');
+    expect(contextText({ subject: 'Algebra', grade: '9th grade' })).toBe('Algebra, 9th grade');
+    expect(contextText({})).toBe('');
+  });
+});
+
+describe('a finished draft fills the form', () => {
+  test('title, details and the answer key text, clamped to the columns', () => {
+    const result = { title: ' Factoring practice ', details: '1. Factor x^2 + 5x + 6.', answer_key_text: '1. (x + 2)(x + 3)', problems: [] };
+    expect(formFromDraft(result)).toEqual({ title: 'Factoring practice', details: '1. Factor x^2 + 5x + 6.', answerKey: '1. (x + 2)(x + 3)', notice: null });
+    expect(formFromDraft({ ...result, notice: '2 problems were left out.' }).notice).toBe('2 problems were left out.');
+    const long = formFromDraft({ title: 't'.repeat(300), details: 'd'.repeat(13000), answer_key_text: 'k'.repeat(30000) });
+    expect([long.title.length, long.details.length, long.answerKey.length]).toEqual([200, 12000, 20000]);
+    expect(MAX_DETAILS).toBe(server.MAX_DETAILS);
+    expect(formFromDraft(null)).toEqual({ title: '', details: '', answerKey: '', notice: null });
+  });
+});
+
+describe('job status', () => {
+  test('the state is what the server said: no clock check here (draft_status marks a stale one failed)', () => {
+    expect(draftState({ status: 'drafting', created_at: ago(60_000) })).toBe('drafting');
+    expect(draftState({ status: 'drafting', created_at: ago(server.DRAFT_STALE_MS * 10) })).toBe('drafting');
+    expect(draftState({ status: 'ready', created_at: ago(1) })).toBe('ready');
+    expect(draftState({ status: 'failed', created_at: ago(1) })).toBe('failed');
+    expect(draftState({ status: 'odd' })).toBe('failed');
+    expect(draftState(null)).toBe('failed');
+  });
+
+  test('polling: only a 404 means gone; every other answer that is not a 200 is asked again', () => {
+    expect(pollOutcome(200)).toBe('apply');
+    expect(pollOutcome(404)).toBe('gone');
+    for (const status of [0, 400, 401, 403, 408, 429, 500, 502, 503]) expect(pollOutcome(status), String(status)).toBe('retry');
+    expect(GONE_ERROR).toBe('This draft is no longer available.');
+  });
+
+  test('the sign-in token is refreshed near its expiry, or after a 401', () => {
+    const nowMs = NOW.getTime();
+    const expiresIn = (s) => ({ access_token: 't', expires_at: Math.floor(nowMs / 1000) + s });
+    expect(tokenNeedsRefresh(expiresIn(3600), nowMs)).toBe(false);
+    expect(tokenNeedsRefresh(expiresIn(59), nowMs)).toBe(true);
+    expect(tokenNeedsRefresh(expiresIn(-10), nowMs)).toBe(true);
+    expect(tokenNeedsRefresh(expiresIn(3600), nowMs, { forced: true })).toBe(true);
+    expect(tokenNeedsRefresh({ access_token: 'demo-token' }, nowMs)).toBe(false);   // no expiry: the local demo
+    expect(tokenNeedsRefresh(null, nowMs)).toBe(false);
+    expect(tokenNeedsRefresh(null, nowMs, { forced: true })).toBe(true);
+  });
+
+  test('a finished draft for another student says where to find it', () => {
+    expect(elsewhereText('Leo Park')).toBe('Draft for Leo Park is ready. Open it from Recent drafts.');
+    expect(elsewhereText(null)).toBe('Draft for another student is ready. Open it from Recent drafts.');
+  });
+
+  test('polling every 5 s; the elapsed timer reads m:ss', () => {
+    expect(POLL_MS).toBe(5000);
+    expect(elapsedText(0)).toBe('0:00');
+    expect(elapsedText(5_400)).toBe('0:05');
+    expect(elapsedText(83_000)).toBe('1:23');
+    expect(elapsedText(723_000)).toBe('12:03');
+    expect(elapsedText(-5)).toBe('0:00');
+  });
+
+  test('the slow-draft wording', () => {
+    expect(DRAFTING_TEXT).toBe('Drafting your homework. This can take a few minutes; you can keep working and come back.');
+    expect(`${DRAFTING_TEXT}${READY_TEXT}`).not.toMatch(/[–—]/);
+  });
+
+  test('recent drafts: the last 7 days, this student first, newest first', () => {
+    expect(RECENT_DAYS).toBe(7);
+    const rows = [
+      { id: 1, student_id: 's2', created_at: ago(60_000) },
+      { id: 2, student_id: 's1', created_at: ago(3 * 86_400_000) },
+      { id: 3, student_id: 's1', created_at: ago(120_000) },
+      { id: 4, student_id: 's1', created_at: ago(8 * 86_400_000) },
+      { id: 5, student_id: null, created_at: ago(30_000) },
+    ];
+    expect(recentDrafts(rows, { studentId: 's1', now: NOW }).map((r) => r.id)).toEqual([3, 2, 5, 1]);
+    expect(recentDrafts(rows, { studentId: null, now: NOW }).map((r) => r.id)).toEqual([5, 1, 3, 2]);
+  });
+
+  test('the draft to pick up again when the form reopens: this student\'s newest still drafting', () => {
+    const rows = [
+      { id: 1, student_id: 's1', status: 'drafting', created_at: ago(server.DRAFT_STALE_MS + 5) },
+      { id: 2, student_id: 's1', status: 'drafting', created_at: ago(90_000) },
+      { id: 3, student_id: 's2', status: 'drafting', created_at: ago(10_000) },
+      { id: 4, student_id: 's1', status: 'ready', created_at: ago(5_000) },
+    ];
+    expect(activeDraft(rows, { studentId: 's1' }).id).toBe(2);
+    expect(activeDraft(rows, { studentId: 's3' })).toBeNull();
+    // no student in the form: never a draft, not even one saved without a student
+    const loose = [...rows, { id: 5, student_id: null, status: 'drafting', created_at: ago(1000) }];
+    expect(activeDraft(loose, { studentId: null })).toBeNull();
+    expect(activeDraft(loose, { studentId: undefined })).toBeNull();
+    expect(activeDraft(loose, { studentId: '' })).toBeNull();
+  });
+
+  test('one line about a draft\'s options', () => {
+    expect(optionsText({ count: 5, difficulty: 'same' })).toBe('5 practice problems, about the same');
+    expect(optionsText({ count: 1, difficulty: 'harder', hints: true })).toBe('1 practice problem, harder, with hints');
+    expect(optionsText({})).toBe('5 practice problems');
+  });
+});
+
+describe('reopening the panel by itself', () => {
+  test('a draft still drafting, or one ready in the last hour, for this student', () => {
+    const row = (over) => ({ id: 1, student_id: 's1', status: 'ready', created_at: ago(30 * 60_000), finished_at: ago(29 * 60_000), ...over });
+    expect(shouldReopen([row({ status: 'drafting', created_at: ago(60_000), finished_at: null })], { studentId: 's1', now: NOW })).toBe(true);
+    expect(shouldReopen([row()], { studentId: 's1', now: NOW })).toBe(true);
+    expect(shouldReopen([row({ finished_at: ago(61 * 60_000) })], { studentId: 's1', now: NOW })).toBe(false);
+    expect(shouldReopen([row({ status: 'failed' })], { studentId: 's1', now: NOW })).toBe(false);
+    // still drafting as far as the server last said: reopen, and its status poll settles it
+    expect(shouldReopen([row({ status: 'drafting', created_at: ago(server.DRAFT_STALE_MS + 1), finished_at: null })], { studentId: 's1', now: NOW })).toBe(true);
+    expect(shouldReopen([row()], { studentId: 's2', now: NOW })).toBe(false);
+    expect(shouldReopen([row()], { studentId: null, now: NOW })).toBe(false);
+  });
+});
+
+describe('attachments', () => {
+  test('files and ticked lesson photos together stay within the 10 an assignment allows', () => {
+    expect(MAX_ATTACHMENTS).toBe(10);
+    expect(attachmentsProblem(4, 6)).toBe('');
+    expect(attachmentsProblem(10, 0)).toBe('');
+    expect(attachmentsProblem(5, 6)).toBe('An assignment can have at most 10 attachments. This one has 5 files and 6 lesson photos. Remove some files, or untick Attach these photos.');
+    expect(attachmentsProblem(1, 10)).toMatch(/1 file and 10 lesson photos/);
+    expect(attachmentsProblem(10, 1)).toMatch(/10 files and 1 lesson photo\./);
+  });
+
+  test('the form uses the same limit', () => {
+    const form = readFileSync(new URL('../../portal/js/item-form.js', import.meta.url), 'utf8');
+    expect(form).toContain("import { draftContext, attachmentsProblem, MAX_ATTACHMENTS } from './homework-draft-model.js';");
+    expect(form).not.toMatch(/const MAX_ATTACHMENTS = /);
+  });
+});

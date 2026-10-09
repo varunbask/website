@@ -258,10 +258,11 @@ async function endSeries(session) {
 }
 
 // '#/calendar?...&open=new&kind=assignment&due=...&session=12': the create
-// form for homework set in this lesson
-function newHomeworkHref(hash, { due, sessionId }) {
+// form for homework set in this lesson; with draft, its "Draft from lesson
+// photos" panel opens at once
+function newHomeworkHref(hash, { due, sessionId, draft = false }) {
   const base = drawerHref(hash, 'new');
-  return `${base}&kind=assignment&due=${encodeURIComponent(due)}&session=${encodeURIComponent(sessionId)}`;
+  return `${base}&kind=assignment&due=${encodeURIComponent(due)}&session=${encodeURIComponent(sessionId)}${draft ? '&draft=1' : ''}`;
 }
 
 // Hands a calendar app an .ics file without leaving the page. The temporary
@@ -708,7 +709,15 @@ function buildDetail(dctx, found, { now, names, actions }) {
           size: 'sm',
           focusKey: 'ses-homework',
           onClick: () => dctx.go(newHomeworkHref(hash, { due, sessionId: session.id })),
-        })));
+        }),
+        // Once the lesson has happened: draft the homework from photos of it
+        started ? button({
+          label: 'Make homework from this lesson',
+          icon: 'note-pencil',
+          size: 'sm',
+          focusKey: 'ses-homework-draft',
+          onClick: () => dctx.go(newHomeworkHref(hash, { due, sessionId: session.id, draft: true })),
+        }) : null));
       }
       nodes.push(section('Homework', ...body));
     }

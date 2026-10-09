@@ -30,6 +30,8 @@
 // Order: validate, then (only with a file) prepareUpload (or preparePagesPdf
 // for two or more photos), storagePath and the storage upload (upsert false),
 // then the submissions insert, startGrading (not awaited, silent), then the redraw.
+// sendWork() is that upload, insert and grading start; a marked-up worksheet
+// (markup.js) is handed in through it too, as the student's PDF.
 
 import { h, uid } from './dom.js';
 import { icon } from './icons.js';
@@ -87,6 +89,36 @@ function failureText(error) {
 // when this page's attempt count was out of date.
 function atLimit(error) {
   return error?.code === 'P0001' && /submission limit/.test(error?.message ?? '');
+}
+
+// What a failed hand-in says: a string, or a sentence with a mail link
+export function handInFailure(error) {
+  return failureText(error);
+}
+export { atLimit as overSubmissionLimit };
+
+/**
+ * Hands work in: the file (when there is one) goes to the student's folder in
+ * the homework bucket, then the submission row is added, then grading starts
+ * in the background. The database still holds the attempt limit.
+ *   upload  { body: Blob, type } from prepareUpload, preparePagesPdf or a worksheet PDF
+ * -> the new submission's id; throws what failed
+ */
+export async function sendWork({ taskId, studentId, text = '', doc = null, note = null, upload = null }) {
+  const row = { task_id: taskId, body: text || null, body_doc: text ? doc : null, note: note || null };
+  if (upload) {
+    const path = storagePath(studentId, upload.type);
+    const uploaded = await sb.storage.from('homework').upload(path, upload.body, { contentType: upload.type, upsert: false });
+    if (uploaded.error) throw uploaded.error;
+    row.storage_path = path;
+    row.file_type = upload.type;
+  }
+  const inserted = await sb.from('submissions').insert(row).select('id').single();
+  if (inserted.error) throw inserted.error;
+  // Not awaited, and silent: the work is in either way, and the daily
+  // sweep grades anything whose grading did not start
+  startGrading(inserted.data.id, { keepalive: true }).catch(() => null);
+  return inserted.data.id;
 }
 
 export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
@@ -575,7 +607,7 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
       await busy(submit, asPages ? 'Preparing pages…' : attached.length ? 'Uploading…' : 'Submitting…', async () => {
         try {
           // The plain text is what grading reads; the document keeps the formatting
-          const row = { task_id: task.id, body: text || null, body_doc: text ? doc : null, note: note.value.trim() || null };
+          let upload = null;
           if (attached.length) {
             if (asPages) say(`Combining your ${attached.length} pages into one PDF.`);
             const { body, type } = asPages
@@ -586,20 +618,14 @@ export function submitWorkSection(dctx, item, { onSubmitted } = {}) {
               })
               : await prepareUpload(attached[0]);
             if (asPages) label.textContent = 'Uploading…';
-            const path = storagePath(studentId, type);
-            const uploaded = await sb.storage.from('homework').upload(path, body, { contentType: type, upsert: false });
-            if (uploaded.error) throw uploaded.error;
-            row.storage_path = path;
-            row.file_type = type;
+            upload = { body, type };
           }
-          const inserted = await sb.from('submissions').insert(row).select('id').single();
-          if (inserted.error) throw inserted.error;
+          const submissionId = await sendWork({
+            taskId: task.id, studentId, text, doc, note: note.value.trim() || null, upload,
+          });
           files = [];
           releaseAll();
-          // Not awaited, and silent: the work is in either way, and the daily
-          // sweep grades anything whose grading did not start
-          startGrading(inserted.data.id, { keepalive: true }).catch(() => null);
-          if (onSubmitted) onSubmitted({ submissionId: inserted.data.id });
+          if (onSubmitted) onSubmitted({ submissionId });
           else {
             dctx.store?.invalidate(studentId);
             dctx.toast?.({ text: SUCCESS });

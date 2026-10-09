@@ -22,6 +22,7 @@ import { docPreview } from '../doc-preview.js';
 import {
   normalizeFilter, queueOrder, neighbors, attemptInfo, reviewHref, stampLabel,
 } from '../review-model.js';
+import { homeworkView } from '../homework-view.js';
 
 const FIELDS = 'id, task_id, student_id, body, body_doc, storage_path, file_type, note, status, error, attempts, '
   + 'status_changed_at, created_at, student:profiles(full_name, email), task:tasks(id, title, details, due_at, extended_from), '
@@ -218,7 +219,7 @@ export async function mount(ctx) {
   main.append(h('details', { class: 'rvw-block rvw-disclosure' },
     h('summary', { class: 'rvw-disclosure-summary' }, caret, h('span', {}, 'Assignment instructions')),
     task?.details
-      ? h('p', { class: 'read is-pre rvw-instructions' }, task.details)
+      ? h('div', { class: 'rvw-instructions' }, homeworkView(task.details))
       : h('p', { class: 'rvw-muted' }, 'No extra instructions.')));
 
   const ordered = [...taskSubs].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || Number(a.id) - Number(b.id));

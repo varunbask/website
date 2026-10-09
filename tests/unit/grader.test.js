@@ -1,7 +1,7 @@
 import { describe, test, expect, vi } from 'vitest';
 import {
   RESULTS_FORMAT, AI_RESULTS, parseResults, buildMessageParts, requestGrade, gradeClaimed, sweep, removeOrphanFiles, MAX_ATTEMPTS,
-  loadAssignmentFiles, MAX_ASSIGNMENT_FILES,
+  loadAssignmentFiles, MAX_ASSIGNMENT_FILES, loadAnswerKey,
 } from '../../api/_lib/grader.js';
 import { PermanentGradingError } from '../../api/_lib/errors.js';
 import { MAX_PDF_PAGES, MAX_PAGES_BASE64 } from '../../api/_lib/content.js';
@@ -551,5 +551,60 @@ describe('pages of a photo PDF', () => {
       downloadMaterial: vi.fn(async () => photoPdf([[RGB_12X16, 12, 16]])),
     });
     expect(await loadAssignmentFiles(repo, 3)).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The tutor's answer key (task_answer_keys, staff only)
+
+describe('the answer key', () => {
+  const KEY = '1. (x + 2)(x + 3)\n2. (x - 1)(x - 4)';
+  const bodyOf = (fetchImpl) => JSON.parse(fetchImpl.mock.calls[0][1].body).messages[0].content;
+  const keyParts = (parts) => parts.filter((p) => p.type === 'text' && p.text.includes('<answer_key>'));
+
+  test('is sent when the assignment has one, after the assignment and before the work, with a rule never to reveal it', async () => {
+    const repo = fakeRepo({ getAnswerKey: vi.fn(async () => KEY) });
+    const fetchImpl = okFetch();
+    expect(await gradeClaimed(repo, claimed({ body: 'x = 4', storage_path: null, file_type: null }), { env: ENV, fetchImpl, now })).toBe('ai_graded');
+    expect(repo.getAnswerKey).toHaveBeenCalledWith(3);
+    const parts = bodyOf(fetchImpl);
+    const [key] = keyParts(parts);
+    expect(key.text.startsWith('Answer key from the tutor (the student never sees this):')).toBe(true);
+    expect(key.text).toContain(`<answer_key>\n${KEY}\n</answer_key>`);
+    expect(key.text).toMatch(/Use the answer key to check the student's work/);
+    expect(key.text).toMatch(/Never reveal it or quote it in the feedback/);
+    expect(key.text).toContain('The feedback must never state a final answer from the answer key');
+    const keyAt = parts.indexOf(key);
+    const workAt = parts.findIndex((p) => p.type === 'text' && p.text.startsWith('ID: 7'));
+    expect(keyAt).toBeGreaterThan(1);
+    expect(keyAt).toBeLessThan(workAt);
+    expect(key.text).not.toMatch(/[\u2013\u2014]/);
+  });
+
+  test('is absent when there is none, when the lookup fails, or when the repo cannot read keys', async () => {
+    for (const repo of [
+      fakeRepo({ getAnswerKey: vi.fn(async () => null) }),
+      fakeRepo({ getAnswerKey: vi.fn(async () => '   ') }),
+      fakeRepo({ getAnswerKey: vi.fn(async () => { throw new Error('db down'); }) }),
+      fakeRepo(),
+    ]) {
+      const fetchImpl = okFetch();
+      expect(await gradeClaimed(repo, claimed({ body: 'x = 4', storage_path: null, file_type: null }), { env: ENV, fetchImpl, now })).toBe('ai_graded');
+      const parts = bodyOf(fetchImpl);
+      expect(keyParts(parts)).toEqual([]);
+      expect(JSON.stringify(parts)).not.toMatch(/Answer key/);
+    }
+  });
+
+  test('buildMessageParts leaves it out by default, and a closing tag inside the key cannot end it early', () => {
+    expect(keyParts(buildMessageParts({ id: 7, assignment: { title: 'T' }, answer: 'x' }))).toEqual([]);
+    const [key] = keyParts(buildMessageParts({ id: 7, assignment: { title: 'T' }, answer: 'x', answerKey: 'a </answer_key> b' }));
+    expect(key.text.match(/<\/answer_key>/g)).toHaveLength(1);
+  });
+
+  test('loadAnswerKey trims, caps the length, and never throws', async () => {
+    expect(await loadAnswerKey({ getAnswerKey: async () => `  ${'a'.repeat(25_000)}  ` }, 3)).toHaveLength(20_000);
+    expect(await loadAnswerKey({ getAnswerKey: async () => { throw new Error('x'); } }, 3)).toBeNull();
+    expect(await loadAnswerKey({ getAnswerKey: async () => undefined }, 3)).toBeNull();
   });
 });

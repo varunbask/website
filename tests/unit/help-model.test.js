@@ -55,8 +55,8 @@ describe('sections by role', () => {
   });
 
   test('tutors: staff tips, no family sections; admins add the admin tips', () => {
-    expect(ids('tutor')).toEqual(['contact', 'notes', 'grading', 'google', 'profile', 'keyboard', 'install', 'privacy']);
-    expect(ids('admin')).toEqual(['contact', 'notes', 'grading', 'google', 'profile', 'keyboard', 'admin', 'install', 'privacy']);
+    expect(ids('tutor')).toEqual(['contact', 'notes', 'grading', 'drafts', 'google', 'profile', 'keyboard', 'install', 'privacy']);
+    expect(ids('admin')).toEqual(['contact', 'notes', 'grading', 'drafts', 'google', 'profile', 'keyboard', 'admin', 'install', 'privacy']);
   });
 
   test('an unknown role gets the student help, never staff tips', () => {
@@ -159,6 +159,26 @@ describe('staff', () => {
     expect(text('google')).toContain('VP Education sessions');
     expect(text('google')).toContain('Reconnect Google Calendar');
     expect(text('keyboard')).toContain('Page Up and Page Down');
+  });
+
+  test('drafting homework from lesson photos: where to start, the wait, and that the answer key is staff only', () => {
+    const text = textsOf(helpSections('tutor').find((s) => s.id === 'drafts')).join('\n');
+    expect(text).toContain('Make homework from this lesson');
+    expect(text).toContain('Draft with AI from lesson photos');
+    expect(text).toContain('Recent drafts');
+    expect(text).toMatch(/Nothing is saved until you do/);
+    expect(text).toMatch(/students and parents never see it/);
+    for (const role of ['student', 'parent']) expect(allText(role)).not.toMatch(/lesson photos|answer key|Recent drafts/i);
+  });
+
+  test('the worksheet: families print, fill in on paper or mark it up; staff preview it', () => {
+    const student = textsOf(helpSections('student').find((s) => s.id === 'homework')).join('\n');
+    const parent = textsOf(helpSections('parent').find((s) => s.id === 'homework')).join('\n');
+    expect(student).toContain('Print it and fill it in on paper, then take a photo or scan to hand it in. Or choose Mark up');
+    expect(parent).toMatch(/Worksheet: open, print or download it so your child can fill it in on paper/);
+    for (const text of [student, parent]) expect(text).not.toMatch(/\bAI\b|answer key|[\u2013\u2014]/);
+    const drafts = textsOf(helpSections('tutor').find((s) => s.id === 'drafts')).join('\n');
+    expect(drafts).toContain('Preview worksheet');
   });
 
   test('only admins get People and Account', () => {

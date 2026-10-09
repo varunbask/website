@@ -46,6 +46,7 @@ import {
   openTasks, gradedItems, weekStrip, stripLabel, chipStyle, shortDay, firstLine, lastUpdateLabel,
   reviewEntries,
 } from '../overview-model.js';
+import { detailsSummary, parseHomework, plainMath } from '../homework-doc.js';
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const STRIP_CHIPS = 2;
@@ -515,7 +516,10 @@ function dueNextSection(ctx, pick) {
   const { task } = next;
   const status = itemStatus(next, { audience: ctx.audience });
   const due = task.due_at ? dueLabel(task.due_at, ctx.now) : null;
-  const details = firstLine(task.details) ? task.details.trim() : '';
+  // A structured problem set shows its objective; typed text shows as typed (math as TeX)
+  const details = firstLine(task.details)
+    ? (parseHomework(task.details).structured ? detailsSummary(task.details) : plainMath(task.details.trim()))
+    : '';
 
   const actions = next.canSubmit
     ? [

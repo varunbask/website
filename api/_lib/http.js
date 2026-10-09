@@ -1,6 +1,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { gradeClaimed, sweep, removeOrphanFiles, STALE_GRADING_MS } from './grader.js';
 import { googleConfig } from './google/config.js';
+import { handleDraftStart, handleDraftStatus } from './homework-draft.js';
 import { maintainAll } from './google/handlers.js';
 
 const json = (status, body) => Response.json(body, { status });
@@ -35,6 +36,10 @@ export async function handleGrade(request, {
   } catch {
     /* handled below */
   }
+  // Homework drafts share this function (the plan allows 12 functions, all in use)
+  if (body?.action === 'draft_homework') return handleDraftStart(caller, body, { repo, env, now, fetchImpl, waitUntil });
+  if (body?.action === 'draft_status') return handleDraftStatus(caller, body, { repo, now });
+
   const id = body?.submission_id;
   if (!Number.isSafeInteger(id) || id <= 0) return json(400, { error: 'submission_id must be a positive integer' });
   if (!env.LLM_ENDPOINT || !env.LLM_KEY) return json(500, { error: 'Grading is not configured.' });

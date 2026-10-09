@@ -2,13 +2,21 @@
 // student's upload, submission history, and for staff create, edit, mark done
 // and delete. The drawer host (drawer.js) owns the dialog; this file fills it.
 //
+// Staff see an assignment's answer key (answer-key.js), collapsed, with Edit.
+// The create and edit form (item-form.js, with the draft panel) and the answer
+// key are imported with import() on staff paths only, so student.html and
+// parent.html never download them or their staff wording. A test walks the
+// static imports from the family pages to keep it that way.
+//
 // Staff can also Extend an assignment still waiting on the student (To do,
 // Missing, or archived as missing): a new due date, checked like the review
 // page's Extended (results.js), that keeps the first original due date in
 // tasks.extended_from. Families never see it.
 //
 // renderItemDrawer(dctx)
-//   dctx.taskId 'new'  the create form (staff only; params kind and due)
+//   dctx.taskId 'new'  the create form (staff only; params kind and due, session
+//                      for homework set in a lesson, draft=1 to open the panel
+//                      that drafts it from lesson photos)
 //   dctx.taskId <id>   the item. Staff whose scope does not hold the task (Today,
 //                      the all-students calendar) find its student in the
 //                      workspace and load that student's data.
@@ -31,7 +39,6 @@ import { workLabel, workIcon } from './labels.js';
 import { displayName, firstName } from './format.js';
 import { staffNames } from './updates-feed.js';
 import { taskCheck } from './task-check.js';
-import { itemForm } from './item-form.js';
 import { submitWorkSection } from './submit-work.js';
 import { materialsSection, filesOn, removeFilesOf } from './materials-ui.js';
 import { materialsFor, lessonLabel } from './materials-model.js';
@@ -44,6 +51,9 @@ import { PROFILE_DRAWER } from './student-profile-model.js';
 import { sb } from './supabase.js';
 import { answerView } from './rich-doc-dom.js';
 import { followingInTaskSeries, seriesPosition, seriesText, itemNoun } from './task-repeat-model.js';
+import { worksheetSection } from './worksheet-ui.js';
+import { homeworkView } from './homework-view.js';
+import { hasWorksheet } from './worksheet-model.js';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const SUBMITTED = 'Work submitted. Your tutor will review it soon.';
@@ -60,6 +70,10 @@ const HAS_WORK = 'This assignment has submitted work, so it cannot be deleted.';
 const SOME_HAVE_WORK = 'Some of these have submitted work, so they cannot be deleted. Refresh the page and try again.';
 
 const blank = (v) => v === null || v === undefined || v === '';
+
+// Staff-only modules, fetched when staff first need them (never by families)
+const staffForm = () => import('./item-form.js');
+const answerKeyModule = () => import('./answer-key.js');
 const sameId = (a, b) => String(a) === String(b);
 
 // "Oct 5", or "Oct 5, 2025" in another year (business zone)
@@ -125,6 +139,16 @@ async function renderCreate(dctx) {
     lesson = await findSession(dctx, dctx.params.session).catch(() => null);
     if (!dctx.alive()) return;
   }
+  let itemForm;
+  try {
+    ({ itemForm } = await staffForm());
+  } catch (error) {
+    if (!dctx.alive()) return;
+    console.error(error);
+    paintError(dctx, { onRetry: () => dctx.store.invalidate(null) });
+    return;
+  }
+  if (!dctx.alive()) return;
   // Keep what the tutor typed through any store change
   dctx.onRefresh(() => {});
   const form = itemForm(dctx, {
@@ -133,6 +157,7 @@ async function renderCreate(dctx) {
     studentOptions: lesson ? null : studentOptions,
     selectedStudent: lesson ? lesson.student_id : dctx.scope?.student?.id ?? null,
     lesson,
+    draft: dctx.params?.draft === '1',
   });
   dctx.header.replaceChildren();
   dctx.headerActions.replaceChildren();
@@ -155,20 +180,32 @@ async function findSession(dctx, id) {
   return summary ? pick(await store.getSessions(summary.student_id)) : null;
 }
 
-// The task's attachments and the lesson it was set in. Either failing leaves
-// that part out instead of failing the drawer.
+// The task's attachments, the lesson it was set in and (staff, an
+// assignment) its answer key. Any failing leaves that part out instead of
+// failing the drawer.
 async function loadExtras(dctx, found) {
-  const [materials, lesson] = await Promise.all([
+  const keyed = dctx.audience === 'staff' && found.task.kind !== 'task';
+  const [materials, lesson, answerKey] = await Promise.all([
     dctx.store.getMaterials(found.studentId).catch((error) => { console.error(error); return null; }),
     found.task.session_id !== null && found.task.session_id !== undefined
       ? dctx.store.getSessions(found.studentId)
         .then((list) => list.find((s) => sameId(s.id, found.task.session_id)) ?? null)
         .catch(() => null)
       : null,
+    keyed
+      ? answerKeyModule()
+        .then(async ({ loadAnswerKey, answerKeySection, keyWorksheetButton }) => ({
+          body: await loadAnswerKey(found.task.id), build: answerKeySection, worksheetButton: keyWorksheetButton,
+        }))
+        .catch((error) => { console.error(error); return null; })
+      : null,
   ]);
   return {
     attachments: materials ? materialsFor(materials, { taskId: found.task.id }) : null,
     lesson,
+    // { body, build } for staff (body null when there is none; build makes the
+    // section); null for families, for tasks, or when it failed
+    answerKey,
   };
 }
 
@@ -299,8 +336,10 @@ function renderItem(dctx) {
     // The upload section in the drawer now: reused on a refresh unless a
     // submission just landed, so the chosen file and typed note survive
     const keepSubmit = refresh && !flash ? dctx.body.querySelector('.asg-submit') : null;
+    // The answer key being edited is kept too, with what was typed
+    const keepAnswerKey = refresh ? dctx.body.querySelector('.asg-key-section[data-editing="true"]') : null;
 
-    const view = buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, actions: { enterEdit, toggleDone, remove, removeFollowing, submitted, extend } });
+    const view = buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, keepAnswerKey, actions: { enterEdit, toggleDone, remove, removeFollowing, submitted, extend } });
     dctx.header.replaceChildren(...view.status);
     dctx.headerActions.replaceChildren(...view.actions);
     dctx.setFooter(null);
@@ -351,9 +390,18 @@ function renderItem(dctx) {
     slot.replaceChildren(callout({ tone: 'danger', icon: 'warning-circle', title: text, role: 'alert' }));
   }
 
-  function enterEdit() {
+  async function enterEdit() {
+    if (!state.found) return;
+    let itemForm;
+    try {
+      ({ itemForm } = await staffForm());
+    } catch (error) {
+      console.error(error);
+      if (dctx.alive()) showActionError('We couldn’t open the editor. Check your connection and try again.');
+      return;
+    }
     const found = state.found;
-    if (!found) return;
+    if (!found || !dctx.alive() || state.mode !== 'detail') return;
     state.mode = 'edit';
     state.seq += 1;
     const status = itemStatus(found.item, { audience: dctx.audience });
@@ -537,7 +585,7 @@ function renderItem(dctx) {
 }
 
 // Builds the detail content. Returns { status, actions, nodes, live }.
-function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, actions }) {
+function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, keepAnswerKey = null, actions }) {
   const { task, item, student, crossScope } = found;
   const audience = dctx.audience;
   const staff = audience === 'staff';
@@ -593,8 +641,27 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
 
   // 1. Instructions
   nodes.push(section('Instructions', task.details
-    ? h('p', { class: 'read is-pre asg-instructions' }, task.details)
+    ? h('div', { class: 'asg-instructions' }, homeworkView(task.details))
     : h('p', { class: 'asg-muted' }, 'No extra instructions.')));
+
+  // The worksheet: the details as a page to print, fill in or mark up. The
+  // student may hand a marked-up one in while they can still submit; staff
+  // also get the version with the answer key (built by answer-key.js).
+  if (!isTask && hasWorksheet(task)) {
+    const canHandIn = isStudent && item.canSubmit && item.attempts < MAX_SUBMISSIONS;
+    nodes.push(worksheetSection(dctx, {
+      task,
+      studentId: found.studentId,
+      role: staff ? 'staff' : (parent ? 'parent' : 'student'),
+      canMarkUp: staff || canHandIn,
+      canHandIn,
+      attemptText: `It counts as attempt ${item.attempts + 1} of ${MAX_SUBMISSIONS}.`,
+      onHandedIn: () => actions.submitted(found.studentId),
+      extra: staff && found.answerKey?.body && found.answerKey.worksheetButton
+        ? [found.answerKey.worksheetButton(dctx, { task })] : [],
+      keyText: staff ? found.answerKey?.body ?? null : null,
+    }));
+  }
 
   // Worksheets and files from the tutor (staff add and remove them)
   if (found.attachments) {
@@ -608,6 +675,12 @@ function buildDetail(dctx, found, { now, names, shown, flash, keepSubmit, action
       keyPrefix: 'asg-mat',
     });
     if (files) nodes.push(files);
+  }
+
+  // The answer key: staff only, collapsed, with Edit (never built for families)
+  if (staff && !isTask && found.answerKey) {
+    const kept = keepAnswerKey && keepAnswerKey.dataset.taskId === String(task.id) ? keepAnswerKey : null;
+    nodes.push(kept ?? found.answerKey.build(dctx, { taskId: task.id, body: found.answerKey.body }));
   }
 
   if (isTask) {
