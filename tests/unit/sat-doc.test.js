@@ -111,13 +111,13 @@ describe('blocks', () => {
     expect(nodes[1].attrs['aria-label']).toBe('Passage');
   });
 
-  test('a figure is sized before it loads, at half its 2x pixels, from a signed link', async () => {
+  test('a figure is sized before it loads (w and h in CSS pixels), from a signed link', async () => {
     const asked = [];
-    const [fig] = satDocNodes({ v: 1, blocks: [{ t: 'img', src: 'figures/geo-01.png', w: 480, h: 300, alt: 'A rectangle' }] }, {
+    const [fig] = satDocNodes({ v: 1, blocks: [{ t: 'img', src: 'figures/geo-01.png', w: 390, h: 227, alt: 'A rectangle' }] }, {
       figure: async (src) => { asked.push(src); return `blob:${src}`; },
     });
     const img = fig.children[0];
-    expect(img.attrs).toMatchObject({ alt: 'A rectangle', width: '240', height: '150' });
+    expect(img.attrs).toMatchObject({ alt: 'A rectangle', width: '390', height: '227' });
     expect(img.attrs.src).toBeUndefined();
     await tick();
     await tick();

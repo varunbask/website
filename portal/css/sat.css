@@ -534,6 +534,7 @@
   color: var(--text-2);
 }
 .sat-choice-body { min-width: 0; flex: 1; }
+.sat-choice.is-short .sat-choice-body > .sat-doc { font: 600 22px/28px var(--font-ui); letter-spacing: .02em; }
 .sat-choice-body .sat-doc > p { margin: 0; }
 .sat-choice[aria-checked="true"] {
   border-color: var(--accent);
@@ -575,7 +576,6 @@
 .sat-explain-verdict { display: flex; align-items: center; gap: var(--s-2); font: 600 16px/24px var(--font-ui); }
 .sat-explain.is-correct .sat-explain-verdict { color: var(--success-text); }
 .sat-explain.is-wrong .sat-explain-verdict { color: var(--danger-text); }
-.sat-explain-yours { font: var(--t-meta); color: var(--text-2); }
 .sat-explain-title { font: var(--t-caption); color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--s-1); }
 .sat-explain-body > .sat-doc { font: var(--t-read); }
 

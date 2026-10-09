@@ -14,8 +14,9 @@
 // (showing its TeX) and typeset by math.js typesetIn(), whose svg is
 // sanitized. A figure's picture comes from figure(src) -> Promise<url> (a
 // signed link to the sat-files bucket); its box is sized from w and h before
-// it loads, so nothing moves. w and h are the PNG's pixels, drawn at 2x, so
-// the figure shows at half that size (never wider than its column).
+// it loads, so nothing moves. w and h are the figure's size in CSS pixels
+// (the PNG itself is drawn at twice that, for sharp screens); it is never
+// shown wider than its column.
 //
 // satDocNodes(doc, { figure }) -> [Node | string]
 // satInlineNodes(inlines) -> [Node | string]
@@ -64,8 +65,8 @@ export function satInlineNodes(inlines) {
 }
 
 function figureNode(block, figure) {
-  const w = Math.max(1, Math.round(Number(block.w) / 2) || 0);
-  const ht = Math.max(1, Math.round(Number(block.h) / 2) || 0);
+  const w = Math.max(1, Math.round(Number(block.w)) || 0);
+  const ht = Math.max(1, Math.round(Number(block.h)) || 0);
   const sized = Number(block.w) > 0 && Number(block.h) > 0;
   const img = h('img', {
     class: 'sat-figure-img',

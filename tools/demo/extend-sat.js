@@ -17,6 +17,11 @@
      staff.html?as=admin&student=u-maya#/sat        the access switch, attempts, held questions
      staff.html?as=tutor&student=u-maya#/sat        Daniel: read-only
 
+   The real content, locally (never in git): build with
+     node tools/demo/build.mjs <folder outside the repo> --sat-content <bundle>
+   and the converter's content.json, figures and lesson PDFs replace the
+   sample (see the end of this file). Other PDFs open a placeholder.
+
    Where the demo differs from the database: scoring and the rules are a copy
    in plain JavaScript, items come back with every column (the portal never
    asks for the staff-only ones), and the PDFs and the figure are drawn here. */
@@ -24,6 +29,9 @@
   'use strict';
   if (!window.portalDemo) return;
   const { db, helpers: hp } = window.portalDemo;
+  // The real converted content, when the build was given --sat-content
+  const local = window.portalDemoSatLocal ?? null;
+  let ready = null;
 
   // ---------------------------------------------------------------------------
   // Building SAT documents
@@ -226,7 +234,7 @@
   item('geo-area-ch1', null, 1, {
     ...area, difficulty: 'easy',
     stem: doc(
-      { t: 'img', src: 'figures/geo-area-ch1-01.png', w: 480, h: 300, alt: 'A rectangle labeled 8 centimeters along the bottom and 5 centimeters along the side.' },
+      { t: 'img', src: 'figures/geo-area-ch1-01.png', w: 240, h: 150, alt: 'A rectangle labeled 8 centimeters along the bottom and 5 centimeters along the side.' },
       p(t('What is the area, in square centimeters, of the rectangle shown?')),
     ),
     choices: choices('13', '26', '40', '80'),
@@ -698,14 +706,22 @@
   async function fileBlob(path) {
     if (path.startsWith('figures/')) return figurePng();
     const f = db.sat_files.find((x) => x.storage_path === path);
-    return pdf(f?.title ?? 'SAT file', [
-      'A made-up file for the local demo.',
-      'The real PDFs live in the private sat-files bucket.',
-    ]);
+    return pdf(f?.title ?? 'SAT file', local
+      ? ['This PDF was not copied into the local demo.', 'Only lesson PDFs and figures are.']
+      : ['A made-up file for the local demo.', 'The real PDFs live in the private sat-files bucket.']);
   }
   // The bucket's read policy
   const canRead = (path) => hp.isStaff() || (allowed(hp.meId)
     && (/^figures\/[a-z0-9-]{1,80}\.png$/.test(path) || db.sat_files.some((f) => f.storage_path === path && !f.staff_only)));
+
+  // With the real content, figures and lesson PDFs are the copies in sat-local/
+  function localUrl(path) {
+    if (!local) return null;
+    if (path.startsWith('figures/')) return `${local.figures}${path.slice('figures/'.length)}`;
+    const f = db.sat_files.find((x) => x.storage_path === path);
+    if (f?.collection === 'lesson' && path.startsWith('lessons/')) return `${local.lessons}${path.slice('lessons/'.length)}`;
+    return null;
+  }
 
   const client = window.supabase.createClient();
   const from = client.storage.from;
@@ -714,10 +730,85 @@
     return {
       createSignedUrl: async (path) => {
         await new Promise((r) => setTimeout(r, 40));
+        if (ready) await ready;
         if (!canRead(path)) return { data: null, error: { statusCode: '400', message: 'Object not found' } };
+        const direct = localUrl(path);
+        if (direct) return { data: { signedUrl: direct }, error: null };
         if (!blobUrls.has(path)) blobUrls.set(path, URL.createObjectURL(await fileBlob(path)));
         return { data: { signedUrl: blobUrls.get(path) }, error: null };
       },
     };
   };
+
+  // ---------------------------------------------------------------------------
+  // The real content, for looking at it locally (build.mjs --sat-content)
+  //
+  // sat-local.js (written by the build, outside the repo) says where the
+  // converter's content.json is. It is fetched at startup and replaces the
+  // sample sets, skills, guides, items, keys and files; the sample history is
+  // dropped (it was about sample questions). Questions the converter's
+  // holds.json holds back are held, as the loader would hold them. The SAT
+  // tables and RPCs wait for it, so pages show their usual loading state.
+
+  function useLocal(content, holdsFile) {
+    const replace = (name, rows) => {
+      db[name].length = 0;
+      for (const row of rows) db[name].push(row);
+    };
+    const holdLines = new Map();
+    for (const h of holdsFile?.holds ?? []) {
+      if (!holdLines.has(h.item)) holdLines.set(h.item, { hold: [], other: [] });
+      const text = `${h.verdict ?? h.severity}: ${h.reason ?? ''}`.trim();
+      holdLines.get(h.item)[h.severity === 'hold' ? 'hold' : 'other'].push(h.severity === 'hold' ? text : `${h.severity}, ${text}`);
+    }
+    holds.clear();
+    replace('sat_skills', (content.skills ?? []).map((x) => ({ slug: x.slug, domain: x.domain, name: x.name, position: x.position ?? 0 })));
+    replace('sat_sets', (content.sets ?? []).map((x) => ({
+      id: x.id, kind: x.kind, domain: x.domain ?? null, skill: x.skill ?? null, title: x.title, position: x.position ?? 0,
+      modules: x.modules ?? [], origin: x.origin ?? 'matthew',
+    })));
+    replace('sat_guides', (content.guides ?? []).map((g) => ({ skill: g.skill, domain: g.domain, title: g.title, position: g.position ?? 0, body: g.body })));
+    replace('sat_items', (content.items ?? []).map((it) => {
+      const lines = holdLines.get(it.id);
+      const held = Boolean(lines?.hold.length) && !it.source?.repaired;
+      if (held || lines?.other.length) holds.set(it.id, { hold_reason: held ? lines.hold.join('\n') : null, review_note: lines.other.join('\n') || null });
+      return {
+        id: it.id, set_id: it.set, module: it.module ?? null, position: it.position, domain: it.domain, skill: it.skill ?? null,
+        difficulty: it.difficulty ?? null, kind: it.kind, passage: it.passage ?? null, stem: it.stem, choices: it.choices ?? null, held,
+      };
+    }));
+    replace('sat_keys', (content.keys ?? []).map((k) => ({ item_id: k.item, answer: k.answer, accept: k.accept ?? [], explanation: k.explanation ?? null })));
+    replace('sat_files', (content.files ?? []).map((f) => ({
+      id: f.id, collection: f.collection, domain: f.domain ?? null, skill: f.skill ?? null, difficulty: f.difficulty ?? null, title: f.title,
+      storage_path: f.path, bytes: f.bytes ?? null, pages: f.pages ?? null, staff_only: Boolean(f.staff_only), position: f.position ?? 0,
+    })));
+    replace('sat_attempts', []);
+    replace('sat_responses', []);
+    console.info(`SAT demo: real content from ${content.built_at ?? 'a content bundle'} (${db.sat_items.length} questions, ${db.sat_sets.length} sets)`);
+  }
+
+  if (local) {
+    const getJson = async (url) => {
+      const r = await fetch(url, { cache: 'no-store' });
+      if (!r.ok) throw new Error(`${url}: ${r.status}`);
+      return r.json();
+    };
+    ready = Promise.all([getJson(local.content), local.holds ? getJson(local.holds).catch(() => null) : null])
+      .then(([content, holdsFile]) => useLocal(content, holdsFile))
+      .catch((error) => console.error('SAT demo: the local content could not load, so the sample shows', error));
+
+    // The content tables and the SAT RPCs answer once it is in
+    const WAIT = new Set(['sat_sets', 'sat_skills', 'sat_guides', 'sat_items', 'sat_keys', 'sat_files', 'sat_attempts', 'sat_responses']);
+    const proto = Object.getPrototypeOf(client.from('sat_sets'));
+    const then = proto.then;
+    proto.then = function (resolve, reject) {
+      if (!WAIT.has(this.table)) return then.call(this, resolve, reject);
+      return ready.then(() => then.call(this, resolve, reject));
+    };
+    const rpcCall = client.rpc;
+    client.rpc = async (name, args) => {
+      if (String(name).startsWith('sat_')) await ready;
+      return rpcCall(name, args);
+    };
+  }
 })();

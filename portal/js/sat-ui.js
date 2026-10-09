@@ -110,11 +110,14 @@ export function choiceList(item, { selected = null, onChoose = null, reveal = nu
       else state = 'is-dim';
     }
     const words = satDocText(choice);
+    // A choice that is only punctuation or a word fragment (",", "; but") is
+    // set larger, so a comma can be told from a period
     const mark = state === 'is-correct' ? icon('check', { size: 14 }) : state === 'is-wrong' ? icon('x', { size: 14 }) : null;
     const suffix = state === 'is-correct' ? ', correct answer' : state === 'is-wrong' ? ', your answer, incorrect' : '';
+    const short = words.trim().length <= 3 && !JSON.stringify(choice ?? '').includes('"tex"');
     const btn = h('button', {
       type: 'button',
-      class: ['sat-choice', state].filter(Boolean).join(' '),
+      class: ['sat-choice', state, short ? 'is-short' : null].filter(Boolean).join(' '),
       role: 'radio',
       'aria-checked': chosen || (reveal && reveal.response === letter) ? 'true' : 'false',
       'aria-label': `${letter}. ${words}${suffix}`,
@@ -200,7 +203,6 @@ export function explanation(item, result, { heading = 'Explanation', asKey = fal
   const tone = asKey ? 'is-key' : right ? 'is-correct' : 'is-wrong';
   return h('section', { class: ['sat-explain', tone].join(' '), 'aria-label': heading },
     h('p', { class: 'sat-explain-verdict' }, glyph, h('span', {}, verdict)),
-    item.kind === 'spr' && answered && !right && !asKey ? h('p', { class: 'sat-explain-yours' }, `Answer given: ${result.response}`) : null,
     result?.explanation ? h('div', { class: 'sat-explain-body' }, h('h3', { class: 'sat-explain-title' }, heading), satDoc(result.explanation, { figure })) : null);
 }
 
