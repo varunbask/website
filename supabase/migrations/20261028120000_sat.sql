@@ -286,11 +286,12 @@ language sql immutable set search_path = ''
 as $$ select regexp_replace(regexp_replace(coalesce(p_text, ''), '\s', '', 'g'), '^\+', '') $$;
 revoke execute on function private.sat_spr_clean(text) from public;
 
--- The value of a grid-in entry (an integer, a decimal or a fraction a/b with
--- b not 0), or null when it is none of those. No length limit: the answer key
--- and its accepted forms are read with it too.
-create function private.sat_spr_value(p_text text)
-returns numeric
+-- A grid-in entry as an exact fraction: { numerator, denominator } (a
+-- decimal is itself over 1, as numeric keeps it exact), or null when it is
+-- not an integer, a decimal or a fraction a/b with b not 0. No length limit:
+-- the answer key and its accepted forms are read with it too.
+create function private.sat_spr_parts(p_text text)
+returns numeric[]
 language plpgsql immutable set search_path = ''
 as $$
 declare
@@ -298,45 +299,94 @@ declare
   parts text[];
 begin
   if s ~ '^-?([0-9]+\.?[0-9]*|\.[0-9]+)$' then
-    return s::numeric;
+    return array[s::numeric, 1::numeric];
   end if;
   parts := regexp_match(s, '^(-?[0-9]+)/([0-9]+)$');
   if parts is null or parts[2]::numeric = 0 then
     return null;
   end if;
-  return parts[1]::numeric / parts[2]::numeric;
+  return array[parts[1]::numeric, parts[2]::numeric];
 end;
 $$;
-revoke execute on function private.sat_spr_value(text) from public;
+revoke execute on function private.sat_spr_parts(text) from public;
 
 -- A grid-in answer: a valid form of at most 5 characters (6 with a minus
--- sign) whose value is the answer's, or an accepted form's, within 1e-9.
--- Rounded or cut-off decimals of a repeating value count only when listed
--- in accept.
+-- sign) that is either
+--   exactly an exact answer (compared as fractions, so 6/4 = 3/2 and
+--   3.50 = 7/2), or
+--   character for character an approximation listed in accept (after
+--   trimming and dropping a leading +), so for 8/17 ".4706" counts but ".47"
+--   does not, though it is the value of "0.470": a repeating decimal must
+--   fill the box.
+-- The exact answers are the answer, every fraction or whole number in
+-- accept, and every decimal in accept that equals one of them or is not a
+-- rounding of one (a second root). A decimal within one unit of its last
+-- place of an exact answer, without equalling it, is an approximation.
 create function private.sat_spr_correct(response text, answer text, accept jsonb)
 returns boolean
 language plpgsql immutable set search_path = ''
 as $$
 declare
   s text := private.sat_spr_clean(response);
-  v numeric := private.sat_spr_value(response);
-  target text;
-  t numeric;
+  r numeric[] := private.sat_spr_parts(response);
+  entries text[] := array(select jsonb_array_elements_text(case when jsonb_typeof(accept) = 'array' then accept else '[]'::jsonb end));
+  nums numeric[] := '{}';
+  dens numeric[] := '{}';
+  approx text[] := '{}';
+  e text;
+  c text;
+  a numeric[];
+  places int;
+  equal boolean;
+  near boolean;
+  i int;
 begin
-  if v is null or char_length(s) > (case when left(s, 1) = '-' then 6 else 5 end) then
+  if r is null or char_length(s) > (case when left(s, 1) = '-' then 6 else 5 end) then
     return false;
   end if;
-  for target in
-    select answer
-    union all
-    select jsonb_array_elements_text(case when jsonb_typeof(accept) = 'array' then accept else '[]'::jsonb end)
-  loop
-    t := private.sat_spr_value(target);
-    if t is not null and abs(v - t) <= 0.000000001 then
+  a := private.sat_spr_parts(answer);
+  if a is not null then
+    nums := nums || a[1];
+    dens := dens || a[2];
+  end if;
+  -- fractions and whole numbers in accept are exact answers
+  foreach e in array entries loop
+    a := private.sat_spr_parts(e);
+    if a is not null and position('.' in private.sat_spr_clean(e)) = 0 then
+      nums := nums || a[1];
+      dens := dens || a[2];
+    end if;
+  end loop;
+  -- decimals: equal to an exact answer, a rounding of one, or another answer
+  foreach e in array entries loop
+    c := private.sat_spr_clean(e);
+    a := private.sat_spr_parts(e);
+    continue when a is null or position('.' in c) = 0;
+    places := char_length(split_part(c, '.', 2));
+    equal := false;
+    near := false;
+    for i in 1 .. coalesce(array_length(nums, 1), 0) loop
+      if a[1] * dens[i] = nums[i] * a[2] then
+        equal := true;
+        exit;
+      end if;
+      if abs(a[1] * dens[i] - nums[i] * a[2]) * power(10::numeric, places) < abs(a[2] * dens[i]) then
+        near := true;
+      end if;
+    end loop;
+    if near and not equal then
+      approx := approx || c;
+    elsif not equal then
+      nums := nums || a[1];
+      dens := dens || a[2];
+    end if;
+  end loop;
+  for i in 1 .. coalesce(array_length(nums, 1), 0) loop
+    if r[1] * dens[i] = nums[i] * r[2] then
       return true;
     end if;
   end loop;
-  return false;
+  return s = any(approx);
 end;
 $$;
 revoke execute on function private.sat_spr_correct(text, text, jsonb) from public;

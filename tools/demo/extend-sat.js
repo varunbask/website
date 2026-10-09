@@ -401,17 +401,33 @@
   // Scoring (a copy of private.sat_spr_correct and sat_is_correct)
 
   const clean = (s) => String(s ?? '').replace(/\s/g, '').replace(/^\+/, '');
-  function value(s) {
+  // An entry as an exact fraction (BigInt), or null
+  function parts(s) {
     const c = clean(s);
-    if (/^-?(\d+\.?\d*|\.\d+)$/.test(c)) return Number(c);
+    const d = c.match(/^(-?)(\d*)\.?(\d*)$/);
+    if (d && /^-?(\d+\.?\d*|\.\d+)$/.test(c)) return { num: BigInt(`${d[1]}${d[2] || '0'}${d[3]}`), den: 10n ** BigInt(d[3].length) };
     const m = c.match(/^(-?\d+)\/(\d+)$/);
-    return !m || Number(m[2]) === 0 ? null : Number(m[1]) / Number(m[2]);
+    return !m || BigInt(m[2]) === 0n ? null : { num: BigInt(m[1]), den: BigInt(m[2]) };
   }
+  const same = (a, b) => a.num * b.den === b.num * a.den;
+  const abs = (n) => (n < 0n ? -n : n);
+  // Exact answers match by value; listed roundings of one match as typed
   function sprCorrect(response, answer, accept) {
     const c = clean(response);
-    const v = value(c);
-    if (v === null || c.length > (c.startsWith('-') ? 6 : 5)) return false;
-    return [answer, ...(Array.isArray(accept) ? accept : [])].some((a) => value(a) !== null && Math.abs(v - value(a)) <= 1e-9);
+    const r = parts(c);
+    if (!r || c.length > (c.startsWith('-') ? 6 : 5)) return false;
+    const entries = (Array.isArray(accept) ? accept : []).map(String);
+    const exact = [parts(answer), ...entries.filter((e) => !clean(e).includes('.')).map(parts)].filter(Boolean);
+    const approx = [];
+    for (const e of entries) {
+      const ce = clean(e);
+      const p = parts(e);
+      if (!p || !ce.includes('.') || exact.some((x) => same(p, x))) continue;
+      const scale = 10n ** BigInt(ce.split('.')[1].length);
+      if (exact.some((x) => abs(p.num * x.den - x.num * p.den) * scale < abs(p.den * x.den))) approx.push(ce);
+      else exact.push(p);
+    }
+    return exact.some((x) => same(r, x)) || approx.includes(c);
   }
   function isCorrect(kind, response, answer, accept) {
     if (!response || !String(response).trim() || !answer) return false;

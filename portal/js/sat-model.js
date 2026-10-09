@@ -111,18 +111,62 @@ export function sprInput(text) {
   return s.slice(0, negative ? SPR_MAX_NEGATIVE : SPR_MAX);
 }
 
-// Correct when the entry is valid and within the limit, and its value is the
-// answer's or an accepted form's (within 1e-9). A rounded or cut-off decimal
-// of a repeating value counts only when it is listed in accept.
+// An entry as an exact fraction { num, den } (BigInt), or null when it is not
+// an integer, a decimal or a fraction a/b with b not 0 ("3.50" is 350/100)
+export function sprParts(text) {
+  const s = sprClean(text);
+  const d = s.match(/^(-?)(\d*)\.?(\d*)$/);
+  if (d && /^-?(\d+\.?\d*|\.\d+)$/.test(s)) {
+    return { num: BigInt(`${d[1]}${d[2] || '0'}${d[3]}`), den: 10n ** BigInt(d[3].length) };
+  }
+  const m = s.match(/^(-?\d+)\/(\d+)$/);
+  if (!m || BigInt(m[2]) === 0n) return null;
+  return { num: BigInt(m[1]), den: BigInt(m[2]) };
+}
+
+const sameValue = (a, b) => a.num * b.den === b.num * a.den;
+const absBig = (n) => (n < 0n ? -n : n);
+// Within one unit of the entry's last decimal place of x, without equalling it
+const rounds = (entry, places, x) => absBig(entry.num * x.den - x.num * entry.den) * 10n ** BigInt(places) < absBig(entry.den * x.den);
+
+// The forms a grid-in answer is checked against (mirrors private.sat_spr_correct):
+//   exact   the answer, every fraction or whole number in accept, and every
+//           decimal in accept that equals one of those or is no rounding of
+//           one (a second root): matched by value
+//   approx  decimals in accept that round or cut off an exact answer:
+//           matched character for character
+export function sprForms(answer, accept = []) {
+  const entries = (Array.isArray(accept) ? accept : []).map((a) => String(a));
+  const exact = [];
+  const approx = [];
+  const first = sprParts(answer);
+  if (first) exact.push(first);
+  for (const e of entries) {
+    const p = sprParts(e);
+    if (p && !sprClean(e).includes('.')) exact.push(p);
+  }
+  for (const e of entries) {
+    const c = sprClean(e);
+    const p = sprParts(e);
+    if (!p || !c.includes('.')) continue;
+    const places = c.split('.')[1].length;
+    if (exact.some((x) => sameValue(p, x))) continue;
+    if (exact.some((x) => rounds(p, places, x))) approx.push(c);
+    else exact.push(p);
+  }
+  return { exact, approx };
+}
+
+// Correct when the entry is valid and within the limit, and it equals an
+// exact answer (6/4 = 3/2, 3.50 = 7/2) or is exactly one of the listed
+// approximations: for 8/17, ".4706" counts and ".47" does not, though it is
+// the value of "0.470", because a repeating decimal must fill the box.
 export function sprCorrect(response, answer, accept = []) {
   const s = sprClean(response);
-  const v = sprValue(s);
-  if (v === null || s.length > sprLimit(s)) return false;
-  const targets = [answer, ...(Array.isArray(accept) ? accept : [])];
-  return targets.some((t) => {
-    const tv = sprValue(t);
-    return tv !== null && Math.abs(v - tv) <= 1e-9;
-  });
+  const r = sprParts(s);
+  if (!r || s.length > sprLimit(s)) return false;
+  const { exact, approx } = sprForms(answer, accept);
+  return exact.some((x) => sameValue(r, x)) || approx.includes(s);
 }
 
 export const mcValid = (text) => LETTERS.includes(String(text ?? '').trim().toUpperCase());

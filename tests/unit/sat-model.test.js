@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import {
   DOMAINS, SECTIONS, MODULE_TIMING, domainOf, sectionOf, moduleSection, originLabel,
-  sprClean, sprValue, sprValid, sprInput, sprCorrect, sprLimit, mcValid, isCorrect, validAnswer, answerText,
+  sprClean, sprValue, sprValid, sprInput, sprCorrect, sprLimit, mcValid, isCorrect, validAnswer, answerText, sprParts, sprForms,
   formatClock, clockWords, remainingMs, timerTone, timerAnnouncement, minutesText, timeUsed,
   satPage, satTitle, satCrumbs, practiceHref, testHref, reviewHref, learnHref,
   setCounts, countsText, practiceSetsFor, skillsByDomain, testGroups, modulesOf, nextModule, libraryGroups, skillFiles, fileSkillMatches,
@@ -99,6 +99,49 @@ describe('grid-in scoring (mirrors private.sat_spr_correct)', () => {
     expect(sprCorrect('3', '3', null)).toBe(true);
     expect(sprCorrect('3', 'x', ['3'])).toBe(true);
     expect(sprCorrect('3', 'x', 'nope')).toBe(false);
+  });
+
+  test('exact forms match by value; listed roundings match only as typed (a repeating decimal must fill the box)', () => {
+    const yes = (r, a, acc) => expect(sprCorrect(r, a, acc), `${r} for ${a}`).toBe(true);
+    const no = (r, a, acc) => expect(sprCorrect(r, a, acc), `${r} for ${a}`).toBe(false);
+    const A817 = ['.4705', '.4706', '0.470', '0.471'];
+    for (const r of ['8/17', '16/34', '.4705', '.4706', '0.470', '0.471']) yes(r, '8/17', A817);
+    // ".47" has the value of "0.470" but is too short; ".4710" is not what was listed; "0.4706" is 6 characters
+    for (const r of ['.47', '0.47', '.4710', '0.4706']) no(r, '8/17', A817);
+    const A23 = ['.6666', '.6667', '0.666', '0.667'];
+    for (const r of ['2/3', '.6666', '.6667', '0.666', '0.667']) yes(r, '2/3', A23);
+    for (const r of ['.67', '0.67', '.666', '0.6667']) no(r, '2/3', A23);
+    for (const r of ['3.5', '3.50', '14/4', '7/2']) yes(r, '7/2', ['3.5']);
+    const AN = ['-.6666', '-.6667', '-0.666', '-0.667'];
+    for (const r of [...AN, '-2/3']) yes(r, '-2/3', AN);
+    no('-.67', '-2/3', AN);
+    for (const r of ['12', '12.0', '24/2', '+12']) yes(r, '12', []);
+    no('12.5', '12', []);
+  });
+
+  test('several correct answers are all exact forms (two roots), with their own roundings', () => {
+    expect(sprCorrect('-2', '3', ['-2'])).toBe(true);
+    expect(sprCorrect('-4/2', '3', ['-2'])).toBe(true);
+    expect(sprCorrect('-2.0', '3', ['-2'])).toBe(true);
+    // a decimal second root is exact too
+    expect(sprCorrect('2.50', '3', ['2.5'])).toBe(true);
+    const acc = ['1/3', '.3333'];
+    expect(sprCorrect('1/3', '3', acc)).toBe(true);
+    expect(sprCorrect('2/6', '3', acc)).toBe(true);
+    expect(sprCorrect('.3333', '3', acc)).toBe(true);
+    expect(sprCorrect('.33', '3', acc)).toBe(false);
+    const forms = sprForms('3', acc);
+    expect(forms.approx).toEqual(['.3333']);
+    expect(forms.exact.map((x) => `${x.num}/${x.den}`)).toEqual(['3/1', '1/3']);
+  });
+
+  test('entries as exact fractions', () => {
+    expect(sprParts('3.50')).toEqual({ num: 350n, den: 100n });
+    expect(sprParts('-.5')).toEqual({ num: -5n, den: 10n });
+    expect(sprParts('3.')).toEqual({ num: 3n, den: 1n });
+    expect(sprParts('-7/2')).toEqual({ num: -7n, den: 2n });
+    expect(sprParts('+ 6 / 4')).toEqual({ num: 6n, den: 4n });
+    for (const bad of ['', '-', '.', '1/0', '1.5/2', 'x']) expect(sprParts(bad), bad).toBeNull();
   });
 
   test('the box keeps digits, one point, one slash and a leading minus, cut to the limit', () => {
