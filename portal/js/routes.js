@@ -22,7 +22,9 @@ import * as reviews from './views/reviews.js';
 import * as help from './views/help.js';
 import * as billing from './views/billing.js';
 import * as profile from './views/profile.js';
+import * as sat from './views/sat.js';
 import { normalizeFilter } from './review-model.js';
+import { SAT_SUBS, SAT_ID_SUBS, satTitle, satCrumbs, satPage } from './sat-model.js';
 
 export const ASSIGNMENT_SUBS = Object.freeze(['todo', 'in-review', 'graded', 'archived']);
 export const SUB_LABELS = Object.freeze({ todo: 'To do', 'in-review': 'In review', graded: 'Graded', archived: 'Archived' });
@@ -45,6 +47,28 @@ function assignmentsEntry() {
 // Help is the same for every page that shows it (student, parent, staff); the
 // view reads the role from ctx. Not scoped: it needs no student.
 const helpEntry = () => ({ mount: (ctx) => help.mount(ctx), title: fixed('Help') });
+
+// SAT (#/sat and its pages, sat-model.js satPage): the student's own on
+// student.html (the view shows a polite "not turned on" when the admin has not
+// turned it on), and every student's on staff.html. Not on parent.html.
+// The runners hide the phone tab bar and offer a way back instead.
+function satEntry() {
+  const BACK = {
+    'practice-run': { label: 'Back to practice', href: '#/sat/practice' },
+    'test-run': { label: 'Back to tests', href: '#/sat/tests' },
+  };
+  return {
+    mount: (ctx) => sat.mount(ctx),
+    subs: SAT_SUBS,
+    optionalSub: true,
+    subIds: SAT_ID_SUBS,
+    scoped: true,
+    title: (r) => satTitle(r),
+    crumbs: (r) => satCrumbs(r),
+    hideTabbar: (r) => Boolean(BACK[satPage(r).page]),
+    back: (r) => BACK[satPage(r).page] ?? null,
+  };
+}
 
 // Profile: the student's own, a parent's child's (so it needs the child: scoped
 // on the parent page), or a tutor's or the admin's own on the staff page
@@ -69,7 +93,7 @@ function studentViews({ overviewScoped }) {
 // so only the parent page has it: #/billing on student.html is an unknown view.
 export function familyRoutes(page = 'student') {
   const views = { ...studentViews({ overviewScoped: false }), profile: profileEntry({ scoped: page === 'parent' }), help: helpEntry() };
-  if (page !== 'parent') return views;
+  if (page !== 'parent') return { ...views, sat: satEntry() };
   return { ...views, billing: { mount: (ctx) => billing.mount(ctx), title: fixed('Billing'), scoped: false } };
 }
 
@@ -93,6 +117,7 @@ export function staffRoutes() {
     },
     students: { mount: (ctx) => students.mount(ctx), title: fixed('Students') },
     ...student,
+    sat: satEntry(),
     profile: profileEntry(),
     help: helpEntry(),
     // One calendar route: scope=all is the Workspace calendar, otherwise the student's

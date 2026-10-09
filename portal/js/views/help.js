@@ -48,6 +48,8 @@ function sectionCard(section) {
 
 export function mount(ctx) {
   ctx.setHeader({ title: 'Help', lede: helpLede(ctx.role) });
-  ctx.host.append(h('div', { class: 'hlp-layout' }, helpSections(ctx.role).map(sectionCard)));
+  // The SAT section: staff, and a student the admin turned SAT on for
+  const sat = ctx.page === 'staff' || (ctx.role === 'student' && ctx.scope?.sat === true);
+  ctx.host.append(h('div', { class: 'hlp-layout' }, helpSections(ctx.role, { sat }).map(sectionCard)));
   ctx.announce('Help');
 }

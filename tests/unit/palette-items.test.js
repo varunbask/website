@@ -80,7 +80,7 @@ describe('pageItems', () => {
   test('a tutor with a student: that student’s pages under their own header', () => {
     const items = pageItems({ role: 'tutor', page: 'staff', scope: { student: LEO } });
     const own = items.filter((i) => i.group === 'student-page');
-    expect(own.map((i) => i.title)).toEqual(['Overview', 'Assignments', 'To do', 'In review', 'Graded', 'Archived', 'Tasks', 'Files', 'Calendar', 'Updates', 'Report']);
+    expect(own.map((i) => i.title)).toEqual(['Overview', 'Assignments', 'To do', 'In review', 'Graded', 'Archived', 'Tasks', 'Files', 'Calendar', 'Updates', 'Report', 'SAT']);
     expect(own.every((i) => i.groupLabel === 'Leo Park’s pages' && i.key.endsWith(':s2'))).toBe(true);
     expect(items.filter((i) => !i.group).map((i) => i.title)).toEqual(['Today', 'Review queue', 'Students', 'Calendar', 'Profile', 'Help']);
     expect(find(items, 'page:profile').target.href).toBe('#/profile');
@@ -175,7 +175,7 @@ describe('staticItems', () => {
 
   test('staff get pages and actions, in that order, and no children', () => {
     const items = staticItems({ me: { id: 't1', role: 'tutor' }, page: 'staff', scope: { student: MAYA }, options: [MAYA, LEO] });
-    expect(items.map((i) => i.type)).toEqual([...Array(17).fill('page'), 'action', 'action', 'action']);
+    expect(items.map((i) => i.type)).toEqual([...Array(18).fill('page'), 'action', 'action', 'action']);
   });
 
   test('students get pages only', () => {
@@ -461,7 +461,7 @@ describe('the palette end to end', () => {
   test('an empty box shows pages and actions, in groups', () => {
     const { groups } = group(browse(items), { perGroup: 12, total: 30 });
     expect(groups.map((g) => g.label)).toEqual(['Pages', 'Maya Chen’s pages', 'Actions']);
-    expect(groups.map((g) => g.entries.length)).toEqual([6, 7, 3]);
+    expect(groups.map((g) => g.entries.length)).toEqual([6, 8, 3]);
   });
 
   test('recent picks lead and are not repeated below', () => {
