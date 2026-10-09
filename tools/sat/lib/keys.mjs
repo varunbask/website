@@ -253,3 +253,58 @@ export function approximates(v, value) {
   if (!a || !b || !m || (a.n === b.n && a.d === b.d)) return false;
   return Math.abs(a.n / a.d - b.n / b.d) < 10 ** -m[1].length;
 }
+
+// The end of a braced group that opens at tex[open] === '{'
+function groupEnd(tex, open) {
+  let depth = 0;
+  for (let j = open; j < tex.length; j++) {
+    if (tex[j] === '\\') {
+      j++;
+      continue;
+    }
+    if (tex[j] === '{') depth++;
+    else if (tex[j] === '}' && --depth === 0) return j + 1;
+  }
+  return -1;
+}
+
+const LEAD_LABEL = /^\s*\\textbf\s*\{\s*(?:Answer|Student-produced response|Answer to grid|SPR|Grid-in|Grid in|Correct answer)\b/i;
+
+// An explanation without the answer label it opens with ("Answer: (B).",
+// "Student-produced response: 15.", ...), which the portal already shows,
+// and for a grid-in without a leading "Also accepted: ..." sentence that
+// only lists forms the key accepts anyway. Everything after stays.
+export function stripAnswerLead(tex, { answer = null, accept = [] } = {}) {
+  let s = String(tex ?? '');
+  const label = LEAD_LABEL.exec(s);
+  if (label) {
+    const open = s.indexOf('{', label.index);
+    const end = groupEnd(s, open);
+    if (end > 0) {
+      s = s.slice(end);
+      // "\textbf{Answer:} (D)." leaves its letter outside the bold
+      s = s.replace(/^\s*\(?[A-D]\)?(?=[.\s]|$)\.?/, '').replace(/^\s*\.(?!\d)/, '');
+    }
+  } else {
+    s = s.replace(/^\s*(?:\\(?:textbf|emph|textit)\s*\{\s*(?:Student-produced response|SPR)\.?\s*\}|(?:Student-produced response|SPR)\.)/, '');
+  }
+  s = s.replace(/^\s+/, '');
+  if (answer !== null) {
+    const also = /^(?:\\(?:textbf|emph|textit)\s*\{\s*)?Also accepted\s*:?\s*\}?\s*:?\s*/i.exec(s);
+    if (also) {
+      const rest = s.slice(also[0].length);
+      // the sentence ends at a period followed by space and a capital, a command or the end
+      const stop = /(?<![\s(])\.(?=\s+[A-Z\\$(]|\s*$)/.exec(rest);
+      const list = stop ? rest.slice(0, stop.index) : rest;
+      const values = list.split(/\s*,\s*|\s+or\s+|\s+and\s+/).map((v) => v.replace(/^(?:or|and)\s+/, '')).filter((v) => v.trim());
+      const known = [answer, ...accept];
+      const all = values.length > 0 && values.every((v) => {
+        const p = plainValue(v);
+        // the same number (68.80 for 68.8) is accepted anyway; so is a listed form
+        return p !== null && known.some((k) => k === p || sameNumber(k, p));
+      });
+      if (all) s = (stop ? rest.slice(stop.index + 1) : '').replace(/^\s+/, '');
+    }
+  }
+  return s;
+}

@@ -275,7 +275,7 @@ describe('checks', () => {
 });
 
 // ---------- a whole build on a tiny made-up book tree ----------
-const CHAPTER = String.raw`\chapter{Made-Up Words}
+const CHAPTER = String.raw`\chapter{Made-Up Words --- Basics}
 A lesson.
 \practiceheader[Chapter 1 Practice --- Made-Up Words]
 \begin{mcq}
@@ -311,6 +311,7 @@ $x$ & $y$ \\
 \bottomrule
 \end{tabular}
 \end{databox}
+\figcaption{Values by week --- a made-up table.}
 Which is $y$ when $x=1$?
 \choices{$1$}{$2$}{$3$}{$4$}
 \end{mcq}
@@ -460,9 +461,19 @@ describe('buildBundle on a made-up tree', () => {
 
   test('explanations lose their em dashes; stems keep theirs', () => {
     const keys = new Map(first.content.keys.map((k) => [k.item, k]));
-    expect(keys.get('cs-ch1-01').explanation.blocks[0].c.map((n) => n.x).join('')).toBe('Answer: (A). Lanterns are bright: the text says so.');
+    // the answer label is gone too (the portal shows the verdict itself)
+    expect(keys.get('cs-ch1-01').explanation.blocks[0].c.map((n) => n.x).join('')).toBe('Lanterns are bright: the text says so.');
+    expect(keys.get('alg-ch1-01').explanation.blocks[0].c[0].x).toBe('Divide. Grid in 2/3.');
     expect(first.report.dash_changes).toBe(1);
-    expect(first.report.dash_samples).toEqual([{ item: 'cs-ch1-01', before: 'Answer: (A). Lanterns are bright \u2014 the text says so.', after: 'Answer: (A). Lanterns are bright: the text says so.' }]);
+    expect(first.report.dash_samples).toEqual([{ item: 'cs-ch1-01', before: 'Lanterns are bright \u2014 the text says so.', after: 'Lanterns are bright: the text says so.' }]);
+  });
+
+  test('titles and captions lose their dashes too', () => {
+    expect(first.content.sets.find((s) => s.id === 'cs-ch1').title).toBe('Made-Up Words: Basics');
+    const stem = first.content.items.find((i) => i.id === 'alg-ch1-02').stem.blocks;
+    expect(stem).toContainEqual({ t: 'p', c: [{ x: 'Values by week, a made-up table.', m: ['i'] }] });
+    expect(first.report.title_dash_changes).toBe(1);
+    expect(first.report.caption_dash_changes).toBe(1);
   });
 
   test('the report: no failures, and a rebuild gives the same ids', () => {

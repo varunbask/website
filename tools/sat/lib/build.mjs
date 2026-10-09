@@ -9,9 +9,9 @@ import { DOMAINS, domainByN, domainBySlug, FULL_MODULES, MODULES, ids, slugify, 
 import { fileSets, setItems, setKeys, splitItem, meaningfulRest, testNumber, bookTitle, chapterTitle, lessonPart, fullTestIndex } from './source.mjs';
 import { stripComments } from './tex.mjs';
 import { LatexConverter, inlineText, isCaption, docText, DOC_VERSION } from './latex-doc.mjs';
-import { mcAnswer, sprAnswer, sprKey, enterable, sameNumber, approximates } from './keys.mjs';
+import { mcAnswer, sprAnswer, sprKey, enterable, sameNumber, approximates, stripAnswerLead } from './keys.mjs';
 import { Figures, figurePreamble, yearTicks } from './figures.mjs';
-import { rewriteExplanation } from './dashes.mjs';
+import { rewriteExplanation, rewriteRuns, titleText, altText } from './dashes.mjs';
 import { buildLessons } from './lessons.mjs';
 import { scanQuestionBank, questionBankFiles, officialFiles, bookFiles, measure } from './files.mjs';
 import { guideFromMarkdown } from './markdown.mjs';
@@ -57,6 +57,8 @@ export async function buildBundle(opts) {
     dash_changes: 0,
     dashes_kept_in_explanations: 0,
     dash_samples: [],
+    caption_dash_changes: 0,
+    title_dash_changes: 0,
     guides: { count: 0, errors: [] },
     vp_sets: [],
     notes: [],
@@ -241,6 +243,18 @@ export async function buildBundle(opts) {
       report.item_notes.push({ ...where, item: id, note: 'text after the choices was kept at the end of the stem' });
     }
     const parts = splitPassage(stemBlocks, section);
+  // figure captions and alt text follow the explanations' dash rule
+  const captions = (blocks) => {
+    for (const b of blocks) {
+      if (isCaption(b) && args.explanationDashes) {
+        const r = rewriteRuns(b.c, { italic: true });
+        b.c = r.c;
+        report.caption_dash_changes += r.changed;
+      } else if (b.t === 'img' && args.explanationDashes) b.alt = altText(b.alt);
+      else if (b.t === 'passage') captions(b.blocks);
+    }
+  };
+  captions(stemBlocks);
     const choices = split.choices ? split.choices.map((c) => doc(conv.blocks(c))) : null;
     const kind = choices ? 'mc' : 'spr';
     if (choices && split.spr) report.item_notes.push({ ...where, item: id, note: 'marked student-produced response but has choices; kept as multiple choice' });
@@ -283,8 +297,8 @@ export async function buildBundle(opts) {
         }
       }
     }
-    // the bare "Student-produced response." label says nothing the item does not
-    let explanation = doc(conv.blocks(keyBody.replace(/^\s*(?:\\(?:textbf|emph|textit)\s*\{\s*Student-produced response\.?\s*\}|Student-produced response\.)\s*/, '')));
+    // the answer label the explanation opens with repeats the portal's verdict line
+    let explanation = doc(conv.blocks(stripAnswerLead(keyBody, kind === 'spr' ? { answer, accept } : {})));
     // no em or en dashes in explanations (passages, stems and choices keep theirs)
     if (args.explanationDashes) {
       const r = rewriteExplanation(explanation);
@@ -644,6 +658,19 @@ export async function buildBundle(opts) {
   report.dash_samples = pick(dashPool, 25, 2552);
   report.unknown_macros = [...unknownAll.entries()].sort((a, b) => b[1].count - a[1].count)
     .map(([macro, v]) => ({ macro, count: v.count, items: v.items.size, examples: [...v.items].slice(0, 8) }));
+
+  // no em or en dashes in titles and names either
+  const retitle = (obj, key) => {
+    const next = titleText(obj[key]);
+    if (next !== obj[key]) report.title_dash_changes++;
+    obj[key] = next;
+  };
+  if (args.explanationDashes) {
+    for (const x of sets) retitle(x, 'title');
+    for (const x of skills) retitle(x, 'name');
+    for (const x of files) retitle(x, 'title');
+    for (const x of guides) retitle(x, 'title');
+  }
 
   // ---------- counts ----------
   const counts = { items: { total: items.length, by_domain: {}, by_kind: { mc: 0, spr: 0 }, by_set_kind: {}, by_origin: {} }, sets: {}, figures: 0, lessons: lessonFiles.length, files: {}, guides: guides.length, skills: skills.length, keys: keys.length };

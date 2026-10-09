@@ -25,24 +25,25 @@ const DETERMINERS = new Set(('the a an its their his her our your my this that t
   + 'more most other few several two three four five six seven eight nine ten no any such which whose').split(' '));
 const JOINING = /^(and|but|or|so|yet|nor|which|who|whom|whose|while|because|since|though|although|not|rather|especially|even|then|just|only|unless|until|when|where|if|as|with|without|plus|instead|including|like|from|to|for|than|that|whether)\b/i;
 const LABEL_RUN = /^\s*(step|rule|part|case|one|two|three|four|five|check|goal)\b/i;
-const LABEL = /^\s*(step|part|case|check|note|tip|trap|rule|goal|answer|one|two|three|four|five|first|second|third|finally|desmos)\b[^.]{0,24}$/i;
+const LABEL = /^\s*(step|part|case|check|note|tip|trap|rule|goal|answer|one|two|three|four|five|first|second|third|finally|desmos|figure|fig|table|graph|chart)\b(?:[^.]|\.\d){0,24}$/i;
 
 // Whether text reads as a complete clause (it has something that works as a verb)
 export function isClause(text) {
   const words = text.toLowerCase().replace(/\([a-d]\)/g, ' choice ').split(/[^a-z’']+/).filter(Boolean);
   if (words.length < 3) return false;
-  return words.some((w, k) => AUX.has(w) || (/^[a-z]{3,}(s|ed)$/.test(w) && !/(ss|us|is|ous)$/.test(w) && !DETERMINERS.has(words[k - 1] ?? '') && !/^\d/.test(words[k - 1] ?? '')));
+  return words.some((w, k) => AUX.has(w) || (k > 0 && /^[a-z]{3,}(s|ed)$/.test(w) && !/(ss|us|is|ous)$/.test(w) && !DETERMINERS.has(words[k - 1] ?? '') && !/^\d/.test(words[k - 1] ?? '')));
 }
 
-// A run list -> the same list with its dashes rewritten.
+// A run list -> the same list with its dashes rewritten. { italic: true }
+// rewrites italic text too (a figure caption is all italic).
 // Returns { c, changed, kept, edits: [{ before, after }] }.
-export function rewriteRuns(c) {
+export function rewriteRuns(c, { italic = false } = {}) {
   let flat = '';
   const owner = [];
   c.forEach((n, run) => {
     if (n.x !== undefined) {
       // italic text is usually a quoted choice or passage; an italic step label ("Step 2 — ...") is not
-      const prot = Boolean(n.m?.includes('u') || (n.m?.includes('i') && !LABEL_RUN.test(n.x)));
+      const prot = Boolean(n.m?.includes('u') || (!italic && n.m?.includes('i') && !LABEL_RUN.test(n.x)));
       for (let k = 0; k < n.x.length; k++) owner.push({ run, off: k, prot });
       flat += n.x;
     } else {
@@ -190,4 +191,26 @@ export function rewriteExplanation(doc) {
     return b;
   });
   return { doc: { ...doc, blocks: walk(doc?.blocks ?? []) }, changed, kept, samples };
+}
+
+// A title or name: "Command of Evidence — Quantitative" -> "Command of
+// Evidence: Quantitative"; a range "1980–2020" -> "1980 to 2020"; a
+// compound keeps a hyphen; any later dash becomes a comma
+export function titleText(title) {
+  let first = true;
+  return String(title ?? '')
+    .replace(/(\d)\s*\u2013\s*(\d)/g, '$1 to $2')
+    .replace(/([A-Za-z])\u2013([A-Za-z])/g, '$1-$2')
+    .replace(/\s*[\u2014\u2013]\s*/g, () => {
+      const out = first ? ': ' : ', ';
+      first = false;
+      return out;
+    })
+    .replace(/:\s*$/, '')
+    .trim();
+}
+
+// Alt text: the caption rule applied to a plain string
+export function altText(alt) {
+  return rewriteRuns([{ x: String(alt ?? '') }], { italic: true }).c.map((n) => n.x).join('');
 }

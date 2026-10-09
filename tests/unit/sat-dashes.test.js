@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { rewriteRuns, rewriteExplanation, isClause } from '../../tools/sat/lib/dashes.mjs';
+import { rewriteRuns, rewriteExplanation, isClause, titleText, altText } from '../../tools/sat/lib/dashes.mjs';
 
 // Made-up explanation sentences
 const text = (runs) => runs.map((n) => (n.x !== undefined ? n.x : n.tex !== undefined ? `$${n.tex}$` : '')).join('');
@@ -62,5 +62,22 @@ describe('dashes in explanations', () => {
     expect(isClause('the coating supplies the gloss')).toBe(true);
     expect(isClause('A small change')).toBe(false);
     expect(isClause('the four tablets')).toBe(false);
+  });
+});
+
+describe('titles, names and captions', () => {
+  test('a title takes a colon, a range "to", a compound a hyphen', () => {
+    expect(titleText('Command of Evidence \u2014 Quantitative')).toBe('Command of Evidence: Quantitative');
+    expect(titleText('Chapter 2 Practice \u2014 Punctuation \u2014 Commas')).toBe('Chapter 2 Practice: Punctuation, Commas');
+    expect(titleText('Glacier length, 1980\u20132020')).toBe('Glacier length, 1980 to 2020');
+    expect(titleText('Subject\u2013Verb Agreement')).toBe('Subject-Verb Agreement');
+    expect(titleText('No dashes here')).toBe('No dashes here');
+  });
+
+  test('captions: italic text is rewritten too, quotes and math are not', () => {
+    expect(altText('Figure 3.4 \u2014 20 seeds were planted at each frequency.')).toBe('Figure 3.4: 20 seeds were planted at each frequency.');
+    const caption = rewriteRuns([{ x: 'Bars show visits \u2014 one per week.', m: ['i'] }], { italic: true });
+    expect(caption.c).toEqual([{ x: 'Bars show visits: one per week.', m: ['i'] }]);
+    expect(altText('The sign reads \u201cslow \u2014 school\u201d here.')).toBe('The sign reads \u201cslow \u2014 school\u201d here.');
   });
 });
