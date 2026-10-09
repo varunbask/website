@@ -1,11 +1,12 @@
 import { describe, test, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
 import {
   QUICK_DURATIONS, DEFAULT_COUNT, CLASH_WEEKS, createDefaults, editDefaults, minutesBetween, studentChoices,
   tutorChoices, subjectsFor, defaultSubject, rawFromState, checkSessionForm, plannedTimes, repeatDates,
   buildInsertRow, buildSeriesRow, followingChange, repeatChoices, weekdayName, clashCheckIsPartial,
   buildUpdates, changedUpdates, mergeSessions, scheduleLabel, sessionsToast, repeatSummary,
   followingSummary, seriesLeftText, whenText, icsFileName, clashLine, clashReport, saveErrorText,
-  ratedSubjects, subjectChoices, subjectRateHint,
+  ratedSubjects, subjectChoices, subjectRateHint, trialChange, TRIAL_LABEL, TRIAL_HINT,
 } from '../../portal/js/session-form-model.js';
 import { zonedIso } from '../../portal/js/dates.js';
 
@@ -626,5 +627,39 @@ describe('clash wording for a long repeat', () => {
     const two = [...clashing, session('2026-11-03', '16:00', '17:00', { student_id: 's2' })];
     expect(clashReport({ ...candidate, planned, list: two, partial: true }).title).toBe('2 dates in the next 6 months clash');
     expect(clashReport({ ...candidate, planned, list: two }).title).toBe('2 of 26 dates clash');
+  });
+});
+
+
+// The admin's "Free trial lesson" box: the family pays 0 percent, the tutor is paid
+describe('free trial', () => {
+  test('ticking marks the lesson a trial; nothing to write when it already is', () => {
+    expect(trialChange(null, true)).toEqual({ charge_pct: 0, reason: 'trial' });
+    expect(trialChange({ charge_pct: 50, reason: 'other' }, true)).toEqual({ charge_pct: 0, reason: 'trial' });
+    expect(trialChange({ charge_pct: 0, reason: 'trial' }, true)).toBeNull();
+  });
+
+  test('unticking clears only a trial, never another exception', () => {
+    expect(trialChange({ charge_pct: 0, reason: 'trial' }, false)).toEqual({ charge_pct: null, reason: null });
+    expect(trialChange({ charge_pct: 0, reason: 'no_show_forgiven' }, false)).toBeNull();
+    expect(trialChange(null, false)).toBeNull();
+  });
+
+  test('the words: no dashes, and they say the tutor is still paid', () => {
+    expect(TRIAL_LABEL).toBe('Free trial lesson');
+    expect(TRIAL_HINT).toMatch(/tutor is still paid/);
+    expect(`${TRIAL_LABEL} ${TRIAL_HINT}`).not.toMatch(/[\u2013\u2014]/);
+  });
+});
+
+describe('the form offers the trial to the admin only, for one lesson', () => {
+  const src = readFileSync(new URL('../../portal/js/session-form.js', import.meta.url), 'utf8');
+  test('only the admin gets the box, and it hides for a weekly series', () => {
+    expect(src).toMatch(/if \(isAdmin\) \{\n\s+trialBox = h\('input'/);
+    expect(src).toMatch(/trialField\.hidden = repeatSelect\?\.value === 'weekly'/);
+  });
+  test('a new lesson is marked after it is saved; an edit writes the trial first', () => {
+    expect(src).toMatch(/writeSessionBilling\(id, trialChange\(null, true\)\)/);
+    expect(src).toMatch(/if \(editing && !\(await saveTrial\(\)\)\) return;/);
   });
 });

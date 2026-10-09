@@ -8,6 +8,7 @@ import { icon } from '../icons.js';
 import { button, iconButton, linkTabs, errorCallout, skeletonRows, field } from '../ui.js';
 import { todayKey } from '../dates.js';
 import { buildContext, monthOf, monthParam, addMonths, monthName, money } from '../billing-model.js';
+import { writeSessionBilling } from '../session-billing.js';
 
 export const TABS = [
   { view: 'dashboard', label: 'Dashboard' },
@@ -133,12 +134,7 @@ export async function act(ctx, run, { done, failed = 'That didn’t save. Refres
 }
 
 // The exception row for a session: insert or update (no upsert)
-export async function saveSessionBilling(sessionId, fields) {
-  const existing = await sb.from('session_billing').select('session_id').eq('session_id', sessionId).maybeSingle();
-  if (existing.error) return existing;
-  if (existing.data) return sb.from('session_billing').update(fields).eq('session_id', sessionId).select('session_id');
-  return sb.from('session_billing').insert({ session_id: sessionId, ...fields }).select('session_id');
-}
+export const saveSessionBilling = writeSessionBilling;
 
 // A text input bound to a label, for inline forms
 export function input({ name, label, type = 'text', value = '', inputmode, placeholder, maxlength, required = false, className = '' }) {

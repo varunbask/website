@@ -521,3 +521,21 @@ export function clashReport({
     lines,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Free trial (the admin's form only): the family pays nothing for this one
+// lesson and the tutor is still paid (session_billing: charge_pct 0, reason
+// 'trial'). Offered for a single lesson, never for a weekly series.
+
+export const TRIAL_LABEL = 'Free trial lesson';
+export const TRIAL_HINT = 'The family pays nothing for this lesson. The tutor is still paid.';
+
+// The session_billing fields to write so the lesson is (or stops being) a
+// trial, or null when nothing changes. Unticking clears only a trial: another
+// exception (No-show forgiven, Other) is left as it is.
+export function trialChange(existing, wanted) {
+  const isTrial = existing?.reason === 'trial';
+  if (wanted && !isTrial) return { charge_pct: 0, reason: 'trial' };
+  if (!wanted && isTrial) return { charge_pct: null, reason: null };
+  return null;
+}
