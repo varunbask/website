@@ -9,7 +9,7 @@ import { icon } from '../icons.js';
 import { button } from '../ui.js';
 import { statementSnapshot, sendColumns } from '../billing-text.js';
 import { monthName } from '../billing-model.js';
-import { releaseHeadline, releaseCounts, releaseCopy, releaseAll, releaseResultCopy } from '../billing-release.js';
+import { releaseHeadline, releaseCounts, releaseCopy, releaseAll, releaseResultCopy, releaseOpensText } from '../billing-release.js';
 
 // What to save for a ready family: its snapshot and the statements columns
 export function statementColumns(b, today, { f, previous, action }) {
@@ -37,7 +37,14 @@ export function releaseBar(plan, { onOpen }) {
     h('div', { class: 'acct-release-text' },
       h('p', { class: 'acct-release-title' }, head.title),
       h('p', { class: 'acct-release-meta' }, head.meta)),
-    finished ? null : button({ label: 'Release bills', variant: 'primary', icon: 'envelope-simple', focusKey: 'release-bills', onClick: onOpen }));
+    finished ? null : releaseButton(plan, onOpen));
+}
+
+// Off until the month ends: a family pays one bill for the whole month
+function releaseButton(plan, onOpen) {
+  const btn = button({ label: 'Release bills', variant: 'primary', icon: 'envelope-simple', focusKey: 'release-bills', onClick: onOpen, disabled: !plan.monthEnded });
+  if (!plan.monthEnded) btn.title = releaseOpensText(plan);
+  return btn;
 }
 
 // The confirm dialog: who will be released, who is already out, who is held

@@ -1,12 +1,11 @@
 // One-click Mark paid on Account > Families: who gets the button, for how
-// much, what the row says afterwards, and the one row that is written (the
-// same one the Record payment form writes). No DOM, no network: the page
-// passes the write in.
+// much, what the row says afterwards, and the one row that is written. No DOM,
+// no network: the page passes the write in.
 //
-// A month is marked paid for exactly what the family's row shows as due for
-// that month (what the calendar prices it at, less what was already paid
-// toward it). Odd amounts, prepayments and several months at once stay on the
-// full Record payment form.
+// A family pays one bill a month. Once the month's bill is released, it is
+// marked paid for exactly what the family's row shows as due (what the
+// calendar prices the month at, plus anything carried from before, less what
+// was already paid toward it). There are no partial payments.
 
 import { money, familySnapshot } from './billing-model.js';
 import { methodText } from './billing-text.js';
@@ -21,12 +20,15 @@ export function paidMethod(contact) {
 
 // Why a row has no Mark paid button, or the amount and method when it has one.
 //   f     a familyRows() row (dueCents is the month's price less what was paid for it)
-//   held  true when a session in the month has no family rate (familyBlockers not ok)
-// -> { ok: true, cents, method } or { ok: false, reason: 'no_payer' | 'held' | 'nothing_due' | 'covered' }
+//   held      true when a session in the month has no family rate (familyBlockers not ok)
+//   released  false until the month's bill is released to the family: nothing is
+//             paid before the family has the bill
+// -> { ok: true, cents, method } or { ok: false, reason: 'no_payer' | 'held' | 'not_released' | 'nothing_due' | 'covered' }
 // A family whose earlier credit already covers the month is not asked to pay again.
-export function markPaidPlan(f, { held = false } = {}) {
+export function markPaidPlan(f, { held = false, released = true } = {}) {
   if (!f?.parentId) return { ok: false, reason: 'no_payer' };
   if (held) return { ok: false, reason: 'held' };
+  if (!released) return { ok: false, reason: 'not_released' };
   if (!(f.dueCents > 0)) return { ok: false, reason: 'nothing_due' };
   if (f.status?.key === 'covered') return { ok: false, reason: 'covered' };
   return { ok: true, cents: f.dueCents, method: paidMethod(f.contact) };
@@ -45,16 +47,16 @@ export function latestPayment(payments) {
 
 // What a family row offers: Mark paid, Undo for a month paid in full, or nothing
 // -> { kind: 'mark', cents, method } | { kind: 'undo', payment } | { kind: null }
-export function paidControl(f, { held = false } = {}) {
+export function paidControl(f, { held = false, released = true } = {}) {
   if (f.status?.key === 'paid') {
     const payment = latestPayment(f.payments);
     return payment ? { kind: 'undo', payment } : { kind: null };
   }
-  const plan = markPaidPlan(f, { held });
+  const plan = markPaidPlan(f, { held, released });
   return plan.ok ? { kind: 'mark', cents: plan.cents, method: plan.method } : { kind: null };
 }
 
-// The payments row, for the Record payment form and for Mark paid alike.
+// The payments row Mark paid writes.
 //   key         client_key: one per form or button, so a resend never records twice
 //   loose       a prepayment or a payment for several months: no month, no lines
 export function paymentRow(f, { key, month, cents, method, receivedOn, reference = null, loose = false }) {

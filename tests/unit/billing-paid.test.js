@@ -231,9 +231,9 @@ describe('words', () => {
 describe('wiring on the Families page', () => {
   const families = read('portal/js/views/account-families.js');
 
-  test('Mark paid and the Record payment form write the same row, from the one shared builder', () => {
+  test('Mark paid writes its row from the shared builder', () => {
     expect(families).toContain("from '../billing-paid.js'");
-    expect(families.match(/paymentRow\(f, \{/g)).toHaveLength(2);
+    expect(families.match(/paymentRow\(f, \{/g)).toHaveLength(1);
     // the page no longer spells out the columns itself
     expect(families).not.toContain('owed_cents:');
     expect(families).not.toContain('lines: ');
@@ -245,9 +245,11 @@ describe('wiring on the Families page', () => {
     expect(families).toContain("{ label: 'Undo', run: () => undoPaid(f.name, id) }");
     expect(families).toContain('markPaidText(');
     expect(families).toContain('todayKey(new Date())');
-    // the Record payment form stays
-    expect(families).toContain("h('h4', {}, 'Record payment')");
-    expect(families).toContain("label: 'Record payment'");
+    // one bill a month, marked paid in full: there is no form for part payments
+    expect(families).not.toContain("'Record payment'");
+    expect(families).not.toContain('function recordPayment');
+    // and only once the month's bill is released to the family
+    expect(families).toContain('paidControl(f, { held: !gate.ok, released })');
     // the toast's Undo and the Details void are the same update
     expect(families).toContain('const voidQuery = (tableName, id, reason) => sb.from(tableName).update({ voided_at');
     expect(families.match(/voidQuery\(/g)).toHaveLength(2);
@@ -292,5 +294,21 @@ describe('pay dates are shown where a period is', () => {
     expect(read('portal/js/views/account-payroll.js')).toContain('payDateText(start)');
     expect(read('portal/js/views/account-print.js')).toContain("meta('Pay date', dayText(payDate(start), start))");
     expect(read('portal/js/billing-text.js')).toContain("'Period end', 'Pay date'");
+  });
+});
+
+// The owner (2026-10-09): parents pay one bill at the end of the month, after it
+// is released, and the admin marks the monthly balance paid
+describe('Mark paid waits for the release', () => {
+  const row = { parentId: 'p1', dueCents: 45000, status: { key: 'due' }, contact: null, payments: [] };
+  test('no Mark paid before the bill is released', () => {
+    expect(markPaidPlan(row, { released: false })).toEqual({ ok: false, reason: 'not_released' });
+    expect(paidControl(row, { released: false })).toEqual({ kind: null });
+  });
+  test('after release, Mark paid is for the whole balance', () => {
+    expect(markPaidPlan(row, { released: true })).toEqual({ ok: true, cents: 45000, method: 'zelle' });
+  });
+  test('a missing rate still holds it back first', () => {
+    expect(markPaidPlan(row, { held: true, released: false })).toEqual({ ok: false, reason: 'held' });
   });
 });

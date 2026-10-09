@@ -248,7 +248,7 @@
   // part of last month's bill has been paid since it was sent.
   (function sentStatements() {
     const rate = { Algebra: 7500, 'SAT Reading': 9500 };
-    const statement = (month, end, previous) => {
+    const statement = (month, end, previous, paidTotal = 0) => {
       const sentOn = end; // billed on the 1st of the next month
       const lines = db.sessions
         .filter((x) => x.student_id === 'u-maya' && x.starts_at.slice(0, 10) >= month && x.starts_at.slice(0, 10) < end && x.status !== 'cancelled')
@@ -267,15 +267,17 @@
         snapshot: {
           v: 1, number: `${month.slice(0, 7)}-UGRACE`, business: 'VP Education Group', pay_note: db.billing_settings[0].pay_note,
           name: 'Grace Lin', month, bill_date: sentOn, due_date: `${sentOn.slice(0, 8)}15`, lines, adjustments: [], previous_cents: previous,
-          month_cents: total, payments: [], due_cents: previous + total, paid_total_cents: 0,
+          month_cents: total, payments: [], due_cents: previous + total, paid_total_cents: paidTotal,
         },
       });
       return total;
     };
+    // One bill a month: the month before last was paid in full after it was
+    // released (Mark paid); last month's bill is released and not paid yet
     const earlier = statement(monthStart(-2), monthStart(-1), 0);
-    const total = statement(monthStart(-1), monthStart(0), earlier);
-    // paid in part after the last one was sent, recorded under last month
-    db.payments.push({ id: id(), client_key: 'demo-pay-2', parent_id: 'u-grace', payer_name: 'Grace Lin', period: monthStart(-1), amount_cents: Math.round(total / 2), method: 'zelle', received_on: monthStart(0), reference: 'ZL-3310', note: 'First half', lines: [], owed_cents: total, recorded_by: 'u-admin', created_at: ago(1), voided_at: null, void_reason: null });
+    db.payments.push({ id: id(), client_key: 'demo-pay-2', parent_id: 'u-grace', payer_name: 'Grace Lin', period: monthStart(-2), amount_cents: earlier, method: 'zelle', received_on: `${monthStart(-1).slice(0, 8)}09`, reference: null, note: null, lines: [], owed_cents: earlier, recorded_by: 'u-admin', created_at: ago(20), voided_at: null, void_reason: null });
+    // released after that payment, so its snapshot counts it (as Release does)
+    statement(monthStart(-1), monthStart(0), 0, earlier);
   })();
 
   // ---------------------------------------------------------------------------

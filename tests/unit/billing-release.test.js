@@ -9,6 +9,7 @@ import { policyText, familiesCsv } from '../../portal/js/billing-text.js';
 import {
   releasePlan, releaseCounts, releaseHeadline, releaseCopy, releaseDoneText, releaseResultCopy, releaseLabel,
   outcomeOf, releaseAll,
+  releaseOpensText,
 } from '../../portal/js/billing-release.js';
 import { zonedIso } from '../../portal/js/dates.js';
 
@@ -176,12 +177,25 @@ describe('what the page and the dialog say', () => {
     expect(copy.warning).toBeNull();
   });
 
-  test('a month that has not ended gets a warning, not a block', () => {
-    const early = releaseCopy(releasePlan(b, MONTH, '2026-10-20'));
+  // The owner (2026-10-09): a family pays one bill for the whole month, released at the end
+  test('a month that has not ended cannot be released', () => {
+    const plan20 = releasePlan(b, MONTH, '2026-10-20');
+    expect(plan20.monthEnded).toBe(false);
+    const early = releaseCopy(plan20);
     expect(early.warning.title).toBe('October 2026 has not ended yet');
-    expect(early.warning.text).toContain('count only what has happened so far');
-    expect(early.warning.text).toContain('usually released on Sun, Nov 1');
-    expect(early.confirmLabel).toBe('Release 2 bills');
+    expect(early.warning.text).toBe('October 2026 bills can be released from Nov 1, once the month is over.');
+    expect(early.confirmLabel).toBeNull();
+    expect(releaseOpensText(plan20)).toBe('October 2026 bills can be released from Nov 1, once the month is over.');
+    // the last day of the month is still running; the 1st opens it
+    expect(releasePlan(b, MONTH, '2026-10-31').monthEnded).toBe(false);
+    expect(releasePlan(b, MONTH, '2026-11-01').monthEnded).toBe(true);
+  });
+
+  test('the Release buttons stay off until the month ends', () => {
+    const bar = readFileSync(new URL('../../portal/js/views/account-release.js', import.meta.url), 'utf8');
+    expect(bar).toContain('disabled: !plan.monthEnded');
+    const fam = readFileSync(new URL('../../portal/js/views/account-families.js', import.meta.url), 'utf8');
+    expect(fam).toContain('disabled: action.blocked || early');
   });
 
   test('singular and plural, and nothing ready leaves no release button', () => {
@@ -204,7 +218,7 @@ describe('what the page and the dialog say', () => {
     expect(releaseHeadline(fresh).title).toBe('None of 6 families released yet');
     expect(releaseHeadline(fresh).meta).toContain('Parents see nothing until you release.');
     expect(releaseHeadline(releasePlan(october(), MONTH, '2026-10-20'))).toMatchObject({ tone: 'waiting' });
-    expect(releaseHeadline(releasePlan(october(), MONTH, '2026-10-20')).meta).toBe('4 are ready. 2 held back. 1 student has no paying parent. October 2026 has not ended yet (usually released Nov 1).');
+    expect(releaseHeadline(releasePlan(october(), MONTH, '2026-10-20')).meta).toBe('4 are ready. 2 held back. 1 student has no paying parent. October 2026 bills can be released from Nov 1, once the month is over. Parents see nothing until you release.');
     // everything out
     const done = { ...plan, ready: [], held: plan.held.filter((x) => x.reason === 'no_payer') };
     expect(releaseHeadline(done)).toMatchObject({ title: 'All 2 families released', tone: 'done' });

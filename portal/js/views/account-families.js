@@ -1,11 +1,12 @@
 // Account > Families (account.html, admin). Monthly billing: one row per paying
 // parent with the month's sessions, adjustments and payments, a running
-// balance, a one-click Mark paid (and Undo once paid in full) on the row,
-// Record payment for odd amounts, the statement, Copy as text and Release.
-// Mark paid, Record payment and Release wait only for a rate on every session.
-// A parent sees nothing about a month until it is released: Release bills at
-// the top does every ready family at once, and each family has its own Release
-// (and Release again) too.
+// balance, the statement, Copy as text and Release.
+// A family pays one bill a month. A parent sees nothing about a month until it
+// is released, and a month is released only after it ends: Release bills at the
+// top does every ready family at once, and each family has its own Release (and
+// Release again) too. Once released, a one-click Mark paid on the row records
+// the month's balance as paid (Undo takes it back). Release and Mark paid wait
+// only for a rate on every session.
 
 import { sb } from '../supabase.js';
 import { h } from '../dom.js';
@@ -19,7 +20,7 @@ import {
   dueDate, billDate, dayText, shortDate, statementNumber,
 } from '../billing-model.js';
 import { statementText, sendAction, familiesCsv, labelText, methodText, stateText, METHODS, LABELS } from '../billing-text.js';
-import { releasePlan, releaseDoneText, releaseLabel } from '../billing-release.js';
+import { releasePlan, releaseDoneText, releaseLabel, releaseOpensText } from '../billing-release.js';
 import {
   FAMILY_METHODS, paidControl, paymentRow, paymentOutcome, markPaidText, markPaidLabel, undoLabel, undoDoneText, heldNote, UNDO_REASON,
 } from '../billing-paid.js';
@@ -139,7 +140,7 @@ export function mount(ctx) {
         h('aside', { class: 'acct-details-side' },
           summary(f, previous),
           contact(f),
-          gate.ok ? recordPayment(f, previous) : blocked(gate),
+          gate.ok ? null : blocked(gate),
           h('div', { class: 'acct-side-actions' },
             button({ label: 'Statement', size: 'sm', icon: 'printer', href: `#/statement/${f.parentId}?month=${month.slice(0, 7)}` }),
             button({ label: 'Copy as text', size: 'sm', icon: 'copy', variant: 'ghost', onClick: () => copy(statementText(b, f, { previousCents: previous }), 'Statement copied. Paste it into a message or a Zelle request.') }),
@@ -150,19 +151,21 @@ export function mount(ctx) {
     // the paying parent read it under Billing in the portal. A month whose
     // charges or brought forward changed after it was released can be released
     // again (the parent then sees the new version); a payment recorded later is
-    // no change. Like Record payment, it waits for the month's open items to be
+    // no change. Like Mark paid, it waits for the month's open items to be
     // resolved.
     function sentControls(f, previous, gate) {
       const sent = b.statements.find((x) => String(x.parent_id) === f.parentId && x.period === month);
       const action = sendAction(sent, f, previous, gate, today);
       const hasLogin = !noLogin.has(f.parentId);
       const write = ({ label, icon: iconName, again = false }) => {
-        const btn = button({ label, size: 'sm', variant: 'ghost', icon: iconName, disabled: action.blocked, onClick: () => {
+        const early = !plan.monthEnded;
+        const btn = button({ label, size: 'sm', variant: 'ghost', icon: iconName, disabled: action.blocked || early, onClick: () => {
           const { snap, columns } = statementColumns(b, today, { f, previous, action });
           return act(ctx, () => writeStatement(month, action.kind, f.parentId, columns),
             { done: releaseDoneText({ name: f.name, noLogin: !hasLogin, dueDay: dayText(snap.due_date), again }) });
         } });
-        if (action.blocked) btn.title = blockedTitle(gate);
+        if (early) btn.title = releaseOpensText(plan);
+        else if (action.blocked) btn.title = blockedTitle(gate);
         return btn;
       };
       if (action.kind === 'mark') {
@@ -260,38 +263,6 @@ export function mount(ctx) {
           h('p', { class: 'callout-text' }, note.text, ' ', h('a', { href: studentId ? `#/rates?student=${studentId}` : '#/rates' }, 'Add a rate'), '.')));
     }
 
-    function recordPayment(f, previous) {
-      const key = clientKey();
-      const dueNow = Math.max(0, previous + f.owedCents - f.paidCents);
-      const amount = h('input', { class: 'input acct-money-input', inputmode: 'decimal', value: dueNow ? (dueNow / 100).toFixed(2) : '', 'aria-label': 'Amount received' });
-      const on = h('input', { type: 'date', class: 'input', value: today, 'aria-label': 'Received on' });
-      const methodWrap = select({ label: 'Method', options: FAMILY_METHODS.map((m) => ({ value: m, label: METHODS[m] })), value: f.contact?.preferred_method ?? 'zelle' });
-      const ref = h('input', { class: 'input', maxlength: '120', placeholder: 'Confirmation or check number', 'aria-label': 'Reference' });
-      const loose = h('input', { type: 'checkbox', class: 'checkbox' });
-      const save = button({ label: 'Record payment', variant: 'primary', size: 'sm', icon: 'check' });
-      save.addEventListener('click', () => busy(save, 'Saving…', async () => {
-        const c = parseMoney(amount.value, { allowNegative: true });
-        if (c === null) { ctx.toast({ text: 'Enter the amount received, like 450 (a refund is negative).' }); amount.focus(); return; }
-        await act(ctx, () => sb.from('payments').insert(paymentRow(f, {
-          key,
-          month,
-          cents: c,
-          method: methodWrap.querySelector('select').value,
-          receivedOn: on.value || today,
-          reference: ref.value.trim() || null,
-          loose: loose.checked,
-        })).select('id'), { done: `${money(c)} from ${f.name} recorded.` });
-      }));
-      return h('div', { class: 'acct-pay-form' },
-        h('h4', {}, 'Record payment'),
-        h('label', { class: 'acct-inline-field' }, h('span', {}, 'Amount'), amount),
-        h('label', { class: 'acct-inline-field' }, h('span', {}, 'Received'), on),
-        h('label', { class: 'acct-inline-field' }, h('span', {}, 'Method'), methodWrap),
-        h('label', { class: 'acct-inline-field' }, h('span', {}, 'Reference'), ref),
-        h('label', { class: 'check' }, loose, h('span', {}, 'Not for one month (a prepayment or several months)')),
-        save);
-    }
-
     function adjustments(f) {
       const label = select({ label: 'Kind', options: FAMILY_LABELS.map((l) => ({ value: l, label: LABELS[l] })), value: 'late_fee' });
       const amount = h('input', { class: 'input acct-money-input', inputmode: 'decimal', placeholder: '25', 'aria-label': 'Amount' });
@@ -359,7 +330,8 @@ export function mount(ctx) {
     // usually pays, received today (Pacific). The toast can take it back.
     function paidAction(f) {
       const gate = gateOf(f);
-      const control = paidControl(f, { held: !gate.ok });
+      const released = (b.statements ?? []).some((x) => String(x.parent_id) === f.parentId && x.period === month);
+      const control = paidControl(f, { held: !gate.ok, released });
       if (control.kind === 'mark') return markPaidButton(f, control);
       if (control.kind === 'undo') {
         return button({
