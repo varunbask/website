@@ -15,6 +15,14 @@ export const MAX_TEXT_CHARS = 60_000;
 export const MAX_PDF_PAGES = 10;
 export const MAX_PAGES_BASE64 = 12 * 1024 * 1024;
 
+// A student's PDF sent whole, as a document the model reads page by page (its
+// text and a picture of each page), so scans and handwriting from any app can
+// be graded. Up to this many pages and this much base64: with the tutor's files
+// (MAX_ASSIGNMENT_IMAGE_BASE64) a request stays under the 32 MB limit. A larger
+// PDF is read the older way below.
+export const MAX_DOCUMENT_PAGES = 30;
+export const MAX_DOCUMENT_BASE64 = 16 * 1024 * 1024;
+
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 
 // The real type of a file from its first bytes, or null for plain text and anything unknown
@@ -103,14 +111,24 @@ function asText(raw, emptyMessage) {
   return { kind: 'text', text: `${text.slice(0, MAX_TEXT_CHARS)}\n[truncated]` };
 }
 
+// Whether a PDF is encrypted (even with an empty password): the model API
+// refuses those, so they are read the older way
+const ENCRYPT = Buffer.from('/Encrypt', 'latin1');
+const isEncrypted = (bytes) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).indexOf(ENCRYPT) !== -1;
+
 /**
- * What the grader sends to the model: text for PDFs and text files, the image
- * itself for photos (the model reads handwriting better than OCR does). A PDF the
- * portal made from several photos has no text layer: its pages are the photos,
- * returned as { kind: 'images', images: [{ mime, base64 }], omitted? } in page
- * order. Any other PDF with no text still fails with the message below.
+ * What the grader sends to the model: text for text files, the image itself for
+ * photos (the model reads handwriting better than OCR does).
+ *
+ * A PDF, with `pdfAsDocument` (the grader talks to the Messages API), is sent
+ * whole as { kind: 'pdf', base64, pages } when it fits MAX_DOCUMENT_PAGES and
+ * MAX_DOCUMENT_BASE64, so a phone scan or a page of handwriting from a notes
+ * app is read like a photo. Otherwise, a PDF is its text; a PDF the portal made
+ * from several photos has no text layer, so its pages are the photos, returned
+ * as { kind: 'images', images: [{ mime, base64 }], omitted? } in page order; any
+ * other PDF with no text fails with the message below.
  */
-export async function toGradableContent(bytes, declared) {
+export async function toGradableContent(bytes, declared, { pdfAsDocument = false } = {}) {
   if (!ALLOWED_TYPES.includes(declared)) {
     throw new PermanentGradingError('This file type cannot be graded.');
   }
@@ -136,6 +154,10 @@ export async function toGradableContent(bytes, declared) {
     try {
       const pdf = await getDocumentProxy(new Uint8Array(bytes));
       pageCount = pdf.numPages;
+      if (pdfAsDocument && pageCount >= 1 && pageCount <= MAX_DOCUMENT_PAGES
+        && base64Length(bytes.length) <= MAX_DOCUMENT_BASE64 && !isEncrypted(bytes)) {
+        return { kind: 'pdf', base64: Buffer.from(bytes).toString('base64'), pages: pageCount };
+      }
       ({ text } = await extractText(pdf, { mergePages: true }));
     } catch {
       throw new PermanentGradingError('The PDF could not be opened.');

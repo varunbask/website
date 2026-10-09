@@ -42,6 +42,9 @@
 import { serializeHomework, serializeKey } from '../../portal/js/homework-doc.js';
 import { MAX_SOURCE_FILES, MAX_PASTED_NOTES, MAX_TOTAL_BYTES, SOURCE_PATH } from '../../portal/js/draft-sources-model.js';
 import { sourceContent, SourceError, cleanName, MAX_REQUEST_BYTES } from './source-files.js';
+import { ANTHROPIC_VERSION, nativeEndpoint } from './anthropic.js';
+
+export { ANTHROPIC_VERSION, nativeEndpoint };
 
 export const HOMEWORK_MODEL_DEFAULT = 'claude-opus-5-5';
 export const DRAFT_TIMEOUT_MS = 270_000;            // the function itself may run 300 s
@@ -49,7 +52,6 @@ export const DRAFT_STALE_MS = 6 * 60_000;           // a row still drafting afte
 export const DRAFTS_PER_DAY = 30;                   // per person, in any 24 hours
 const DAY_MS = 24 * 3_600_000;
 export const MAX_OUTPUT_TOKENS = 16_000;
-export const ANTHROPIC_VERSION = '2023-06-01';
 export const SOURCE_SWEEP_MS = DAY_MS;              // draft sources older than this are deleted by the sweep
 const SOURCES_PER_SWEEP = 500;
 
@@ -717,26 +719,6 @@ async function aboutFiles(response) {
   } catch {
     return false;
   }
-}
-
-const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
-
-/**
- * The Messages API URL from LLM_ENDPOINT: its origin + /v1/messages when the
- * host is api.anthropic.com, else null (a setup problem). Only the local
- * preview server (tools/demo/serve-ai.mjs) allows a loopback host, for its
- * mock.
- */
-export function nativeEndpoint(endpoint, { allowLoopback = false } = {}) {
-  let url;
-  try {
-    url = new URL(String(endpoint ?? ''));
-  } catch {
-    return null;
-  }
-  const ok = (url.protocol === 'https:' && url.hostname === 'api.anthropic.com')
-    || (allowLoopback && url.protocol === 'http:' && LOOPBACK.has(url.hostname));
-  return ok ? `${url.origin}/v1/messages` : null;
 }
 
 /**
