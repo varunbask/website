@@ -161,14 +161,17 @@ describe('staff', () => {
     expect(text('keyboard')).toContain('Page Up and Page Down');
   });
 
-  test('drafting homework from lesson photos: where to start, the wait, and that the answer key is staff only', () => {
+  test('drafting homework from lesson materials: where to start, what it reads, the wait, and that the answer key is staff only', () => {
     const text = textsOf(helpSections('tutor').find((s) => s.id === 'drafts')).join('\n');
     expect(text).toContain('Make homework from this lesson');
-    expect(text).toContain('Draft with AI from lesson photos');
+    expect(text).toContain('Draft with AI from lesson materials');
+    expect(text).toMatch(/photos of the whiteboard or worksheet, PDFs, Word, PowerPoint or Excel files, or paste your lesson notes/);
+    expect(text).toMatch(/deleted right after/);
+    expect(text).not.toMatch(/[\u2013\u2014]/);
     expect(text).toContain('Recent drafts');
     expect(text).toMatch(/Nothing is saved until you do/);
     expect(text).toMatch(/students and parents never see it/);
-    for (const role of ['student', 'parent']) expect(allText(role)).not.toMatch(/lesson photos|answer key|Recent drafts/i);
+    for (const role of ['student', 'parent']) expect(allText(role)).not.toMatch(/lesson photos|lesson materials|answer key|Recent drafts/i);
   });
 
   test('the worksheet: families print, fill in on paper or mark it up; staff preview it', () => {

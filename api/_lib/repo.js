@@ -90,10 +90,33 @@ export function createRepo(db) {
       return count ?? 0;
     },
 
-    async createDraft({ createdBy, studentId, options }) {
+    async createDraft({ createdBy, studentId, options, stage = null }) {
       return check(await db.from('homework_drafts')
-        .insert({ created_by: createdBy, student_id: studentId ?? null, options })
+        .insert({ created_by: createdBy, student_id: studentId ?? null, options, ...(stage ? { stage } : {}) })
         .select('id, status, created_at').single(), 'createDraft');
+    },
+
+    // 'reading' while the draft's files are read, then 'drafting'
+    async setDraftStage(id, stage) {
+      check(await db.from('homework_drafts').update({ stage }).eq('id', id).eq('status', 'drafting'), 'setDraftStage');
+    },
+
+    // A draft's lesson file, from the private draft-sources bucket
+    async downloadDraftSource(path) {
+      const { data, error } = await db.storage.from('draft-sources').download(path);
+      if (error) throw new Error(`downloadDraftSource: ${error.message}`);
+      return new Uint8Array(await data.arrayBuffer());
+    },
+
+    async removeDraftSources(paths) {
+      if (!paths.length) return;
+      const { error } = await db.storage.from('draft-sources').remove(paths);
+      if (error) throw new Error(`removeDraftSources: ${error.message}`);
+    },
+
+    // Draft files older than a time (the sweep deletes them)
+    async listOldDraftSources(before, limit) {
+      return check(await db.rpc('old_draft_sources', { p_before: before.toISOString(), p_limit: limit }), 'listOldDraftSources');
     },
 
     // Only a draft still drafting is finished, so a late answer never overwrites a stale one
@@ -105,7 +128,7 @@ export function createRepo(db) {
 
     async getDraft(id) {
       return check(await db.from('homework_drafts')
-        .select('id, created_by, student_id, status, options, result, error, created_at, finished_at')
+        .select('id, created_by, student_id, status, stage, options, result, error, created_at, finished_at')
         .eq('id', id).maybeSingle(), 'getDraft');
     },
 

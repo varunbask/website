@@ -39,7 +39,7 @@ function staticGraph(entry) {
 const entryOf = (page) => read(`portal/${page}`).match(/<script type="module" src="\/(portal\/js\/[\w/-]+\.js)"><\/script>/)[1];
 
 describe('families never download the staff modules', () => {
-  const STAFF_ONLY = ['portal/js/item-form.js', 'portal/js/homework-draft.js', 'portal/js/homework-draft-model.js', 'portal/js/answer-key.js'];
+  const STAFF_ONLY = ['portal/js/item-form.js', 'portal/js/homework-draft.js', 'portal/js/homework-draft-model.js', 'portal/js/answer-key.js', 'portal/js/draft-sources-model.js', 'portal/js/pdf-pages.js'];
 
   test('student.html and parent.html reach none of them through static imports', () => {
     for (const page of ['student.html', 'parent.html']) {
@@ -161,9 +161,9 @@ describe('the entry points', () => {
     expect(form).toContain("const files = [...pendingFiles, ...(drafted?.attachFiles() ?? [])];");
   });
 
-  test('the panel: an image picker, a camera input for phones, one request at a time, polling through the API', () => {
+  test('the panel: a picker for every kind, a camera input for phones, one request at a time, polling through the API', () => {
     const panel = read('portal/js/homework-draft.js');
-    expect(panel).toContain("type: 'file', accept: 'image/*', multiple: true");
+    expect(panel).toContain("type: 'file', accept: SOURCE_ACCEPT, multiple: true");
     expect(panel).toContain("capture: 'environment'");
     expect(panel).toMatch(/async function start\(\) \{\n\s*if \(active \|\| adding \|\| starting\) return;\n\s*starting = true;/);
     // polling: only 404 is gone, the token is fresh for each call, a 401 forces a refresh
@@ -172,27 +172,62 @@ describe('the entry points', () => {
     expect(panel).toContain('const token = await bearer();');
     expect(panel).toContain('if (response.status === 401) refreshNext = true;');
     // a finished draft fills the form only for the student it was drafted for
-    expect(panel).toContain('active = { id: res.body.id, studentId, startedAt: Date.now() };');
+    expect(panel).toContain('active = { id: res.body.id, studentId, startedAt: Date.now(), stage };');
     expect(panel).toMatch(/if \(status === 'ready' && !sameStudent\) \{\n\s*const text = elsewhereText\(/);
-    // photos added while the drawer closed have their links freed; files chosen mid-shrink wait in a queue
-    expect(panel).toMatch(/if \(!alive\(\)\) \{\n\s*\/\/ stop\(\) ran[^\n]*\n\s*queue\.length = 0;\n\s*for \(const p of photos\) URL\.revokeObjectURL\(p\.url\);/);
-    expect(panel).toMatch(/async function addPhotos\(files\) \{\n\s*queue\.push\(\.\.\.files\);\n\s*if \(adding\) return;/);
+    // files added while the drawer closed have their links freed; files chosen mid-read wait in a queue
+    expect(panel).toMatch(/if \(!alive\(\)\) \{\n\s*\/\/ stop\(\) ran[^\n]*\n\s*queue\.length = 0;\n\s*for \(const it of items\) if \(it\.url\) URL\.revokeObjectURL\(it\.url\);/);
+    expect(panel).toMatch(/async function addFiles\(files\) \{\n\s*if \(starting\) return;\n\s*queue\.push\(\.\.\.files\);\n\s*if \(adding\) return;/);
     expect(panel).toContain("callApi({ action: 'draft_status', id })");
     expect(panel).toContain("fetch('/api/grade'");
     expect(panel).toContain("dctx.signal?.addEventListener('abort', stop, { once: true });");
     expect(panel).toContain("role: 'status', 'aria-live': 'polite'");
     expect(panel).not.toMatch(/90_?000|AbortSignal\.timeout/);   // no client timeout: drafts may take minutes
-    // the attach box is off until ticked
+    // the attach box is off until there is something it can attach
     expect(panel).toMatch(/h\('input', \{ type: 'checkbox', class: 'checkbox', name: 'draft_attach', disabled: true \}\)/);
   });
 
+  test('files go to Storage first, in the tutor\'s own folder, with progress; the request carries only their paths', () => {
+    const panel = read('portal/js/homework-draft.js');
+    expect(panel).toContain('const path = sourcePath(me, key, i + 1,');
+    expect(panel).toContain('xhr.upload.onprogress = (e) =>');
+    expect(panel).toContain("xhr.open('POST', `${base}/object/${SOURCE_BUCKET}/${path}`);");
+    expect(panel).toContain("xhr.setRequestHeader('x-upsert', 'false');");
+    expect(panel).toContain("role: 'progressbar'");
+    // the demo client has no Storage address, so it never sends a request to the live project
+    expect(panel).toContain("if (typeof base !== 'string' || !/^https:\\/\\//.test(base) || typeof XMLHttpRequest !== 'function') {");
+    expect(panel).toContain('const res = await startDraft(draftRequest({ sources, notesText: pasted, options: checked.values, context, studentId }));');
+    // turned down, or an upload failed: what went up is removed
+    expect(panel).toMatch(/if \(res\.status !== 202[^\n]*\n\s*statusBox\.hidden = true;\n\s*await removeUploaded\(sources\.map\(\(s\) => s\.path\)\);/);
+    expect(panel).toContain('await removeUploaded(done.map((s) => s.path));');
+    // a refused file says why on its own chip
+    expect(panel).toContain("it.error ? h('span', { class: 'hwd-chip-error' }, it.error) : null");
+    expect(panel).toContain("if (kind.refused) return { id: uid('hwd-file'), name, kind: null, error: kind.refused };");
+    // HEIC: the browser tries; where it can't, the message says what to do
+    expect(panel).toContain('error: kind.heic ? REFUSED.heic :');
+    // ticking Attach: only kinds an assignment can hold; the rest say so
+    expect(panel).toContain("const canAttach = (it) => Boolean(materialType({ type: it.mime, name: it.name }));");
+    expect(panel).toContain("h('span', { class: 'hwd-chip-note' }, 'Can’t be attached')");
+    // pasted notes
+    expect(panel).toContain("label: 'Or paste lesson notes'");
+    expect(panel).toContain('maxlength: String(MAX_PASTED_NOTES)');
+  });
+
+  test('the panel\'s words: lesson materials, the stages, and no em or en dashes', () => {
+    const panel = read('portal/js/homework-draft.js');
+    expect(panel).toContain("'Draft homework from lesson materials'");
+    expect(panel).toContain("label: 'Draft with AI from lesson materials'");
+    for (const text of literals(panel)) expect(text, text).not.toMatch(/[\u2013\u2014]/);
+    expect(panel).not.toMatch(/Lesson photos'|lesson photos\b/);
+  });
+
   test('the staff help has the tip', () => {
-    expect(helpSections('tutor').map((s) => s.title)).toContain('Draft homework from lesson photos');
+    expect(helpSections('tutor').map((s) => s.title)).toContain('Draft homework from lesson materials');
   });
 
   test('the styles exist', () => {
     const css = read('portal/css/assignments.css');
-    for (const rule of ['.hwd-panel', '.hwd-thumbs', '.hwd-status-box', '.hwd-recent-item', '.asg-key-summary', '.asg-key-field[hidden]']) expect(css).toContain(rule);
+    for (const rule of ['.hwd-panel', '.hwd-chips', '.hwd-chip.is-error', '.hwd-chip-fill', '.hwd-status-box', '.hwd-recent-item', '.asg-key-summary', '.asg-key-field[hidden]']) expect(css).toContain(rule);
+    expect(css).toContain('transform: scaleX(var(--hwd-progress, 0));');
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\) \{\n {2}\.hwd-spinner/);
   });
 });

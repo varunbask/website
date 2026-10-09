@@ -3,15 +3,18 @@ import { mkdtempSync, writeFileSync, rmSync, readFileSync, readdirSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readModelEnv, modelEnv, createJobs, createServer, MODEL_KEYS } from '../../tools/demo/serve-ai.mjs';
-import { completion } from './fixtures.js';
 import { draftV2 } from './draft-fixtures.js';
+import { docx, wp, wr, pdf } from './source-fixtures.js';
 
 // tools/demo/serve-ai.mjs: the local server for trying drafts in a browser.
 // Everything here runs offline with a fake model; nothing reads a real .env.
 const JPEG = `data:image/jpeg;base64,${'A'.repeat(400)}`;
 const DRAFT = draftV2();
-const ENV = { LLM_ENDPOINT: 'http://127.0.0.1:9/v1/chat/completions', LLM_KEY: 'test-key' };
-const okFetch = () => vi.fn(async () => ({ ok: true, status: 200, json: async () => completion(DRAFT) }));
+// A local mock of the Messages API, as the checks use; production allows only api.anthropic.com
+const ENV = { LLM_ENDPOINT: 'http://127.0.0.1:9/v1/messages', LLM_KEY: 'test-key' };
+const message = (body) => ({ type: 'message', content: [{ type: 'thinking', thinking: '' }, { type: 'text', text: JSON.stringify(body) }], stop_reason: 'end_turn' });
+const okFetch = () => vi.fn(async () => ({ ok: true, status: 200, json: async () => message(DRAFT) }));
+const b64 = (bytes) => Buffer.from(bytes).toString('base64');
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -57,7 +60,7 @@ describe('jobs', () => {
     const jobs = createJobs({ env: ENV, fetchImpl: okFetch(), now: () => NOW });
     const started = jobs.start({ action: 'draft_homework', images: [JPEG], count: 5, student_id: 'u-maya' });
     expect(started.status).toBe(202);
-    expect(started.body).toEqual({ id: 10_000_001, status: 'drafting', created_at: NOW.toISOString() });
+    expect(started.body).toEqual({ id: 10_000_001, status: 'drafting', stage: 'drafting', created_at: NOW.toISOString() });
     expect(jobs.status({ id: 10_000_001 }).body.status).toBe('drafting');
     await started.done;
     const ready = jobs.status({ id: 10_000_001 });
@@ -65,6 +68,35 @@ describe('jobs', () => {
     expect(ready.body).toMatchObject({ status: 'ready', student_id: 'u-maya', options: { count: 5, photos: 1 } });
     expect(ready.body.result.title).toBe('Factoring trinomials');
     expect(JSON.stringify(jobs.jobs.get(10_000_001).options)).not.toContain('base64');
+  });
+
+  test('files sent inline (only this server takes them): the native call production makes, through the mock', async () => {
+    const fetchImpl = okFetch();
+    const jobs = createJobs({ env: ENV, fetchImpl, now: () => NOW });
+    const started = jobs.start({
+      action: 'draft_homework', count: 5, notes_text: 'Ratios.',
+      inline_sources: [{ name: 'Worksheet.pdf', type: 'pdf', data: b64(pdf({ pages: 2 })) }, { name: 'Notes.docx', type: 'docx', data: b64(docx({ body: wp(wr('Unit rates')) })) }],
+    });
+    expect(started.status).toBe(202);
+    expect(started.body.stage).toBe('reading');
+    await started.done;
+    expect(jobs.status({ id: started.body.id }).body).toMatchObject({ status: 'ready', options: { files: 2, pasted_notes: true } });
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('http://127.0.0.1:9/v1/messages');
+    expect(init.headers).toEqual({ 'x-api-key': 'test-key', 'anthropic-version': '2023-06-01', 'content-type': 'application/json' });
+    const content = JSON.parse(init.body).messages[0].content;
+    expect(content.map((b) => b.type)).toEqual(['document', 'text', 'text', 'text', 'text']);
+    expect(content[0].title).toBe('Worksheet.pdf');
+    expect(content[1].text).toContain('Unit rates');
+    // paths need storage, which this server does not have
+    expect(jobs.start({ action: 'draft_homework', sources: [{ path: '11111111-2222-4333-8444-555555555555/k3yAbc12/1-a.pdf', name: 'a.pdf' }] }).status).toBe(400);
+  });
+
+  test('like production, only api.anthropic.com or a loopback mock', async () => {
+    const jobs = createJobs({ env: { LLM_ENDPOINT: 'https://llm.test/v1/chat/completions', LLM_KEY: 'k' }, fetchImpl: okFetch(), now: () => NOW });
+    const started = jobs.start({ action: 'draft_homework', images: [JPEG] });
+    await started.done;
+    expect(jobs.status({ id: started.body.id }).body).toMatchObject({ status: 'failed', error: 'The AI service rejected the request. This is a setup problem, not your files: tell the admin.' });
   });
 
   test('a model failure is failed with a message; bad input is 400; no settings is 500', async () => {
@@ -134,7 +166,10 @@ describe('the server', () => {
   test('the demo extension sends both actions to the network only with ?ai=live', () => {
     const ext = readFileSync(new URL('../../tools/demo/extend-homework-ai.js', import.meta.url), 'utf8');
     expect(ext).toContain("new URLSearchParams(location.search).get('ai') === 'live'");
-    expect(ext).toMatch(/if \(LIVE\) \{\n\s*const res = await network\(url\.href, init\);/);
+    expect(ext).toMatch(/if \(LIVE\) \{\n[^}]*const res = await network\(url\.href, \{ \.\.\.init, body \}\);/);
+    // the uploaded files go inline, and the demo's storage deletes them when the draft is done
+    expect(ext).toContain('return { ...rest, inline_sources: inline };');
+    expect(ext).toContain("if (data.status !== 'drafting') { dropSources(livePaths.get(data.id)); livePaths.delete(data.id); }");
     expect(ext).toContain("if (b.action !== 'draft_homework' && b.action !== 'draft_status') return demoFetch(input, init);");
     expect(readdirSync(new URL('../../tools/demo/', import.meta.url))).toContain('extend-homework-ai.js');
   });

@@ -1,17 +1,25 @@
-/* Demo extension: homework drafted from lesson photos, and answer keys
-   (api/_lib/homework-draft.js, supabase/migrations/20261026120000_homework_drafts.sql).
-   Loaded by the local demo build right after demo-supabase.js.
+/* Demo extension: homework drafted from a lesson's materials, and answer keys
+   (api/_lib/homework-draft.js, supabase/migrations/20261026120000_homework_drafts.sql,
+   20261027120000_draft_sources.sql). Loaded by the local demo build right
+   after demo-supabase.js.
 
    It adds the two tables with simplified rules:
      task_answer_keys  staff who teach the student (and the admin) read and write
      homework_drafts   the person who asked (and the admin) read; they delete
                        their own; only the "server" (this file) adds or changes rows
-   and answers POST /api/grade { action: 'draft_homework' | 'draft_status' }:
-     by default        a made-up draft after about 8 seconds: factoring
-                       trinomials, as many problems as asked, with an answer key
+   and the draft-sources bucket, in this page's memory
+   (window.portalDemo.draftSources: path -> { blob, type, size }): uploads
+   report progress, and the files of a draft are deleted when it is done,
+   as the server does. It answers POST /api/grade { action: 'draft_homework' |
+   'draft_status' }:
+     by default        a made-up draft after about 8 seconds ("Reading your
+                       files…" for the first 2): factoring trinomials, as
+                       many problems as asked, with an answer key
      ?ai=live          both actions go to the real network on this origin, so
-                       tools/demo/serve-ai.mjs answers them with the real model;
-                       the drafts it makes are mirrored into the table above so
+                       tools/demo/serve-ai.mjs answers them with the model;
+                       the uploaded files go with the request as
+                       inline_sources (base64), which only serve-ai takes; the
+                       drafts it makes are mirrored into the table above so
                        Recent drafts lists them
    Grading requests (submission_id) still go to the demo client as before.
 
@@ -23,7 +31,7 @@
 
    Try it
      ?as=tutor   Calendar: Maya's last Algebra lesson > Make homework from this lesson
-                 or New assignment > Draft with AI from lesson photos
+                 or New assignment > Draft with AI from lesson materials
                  Open "Factoring trinomials, set 1": the answer key, collapsed, with Edit
      ?as=student the same assignment shows no answer key and no AI wording */
 (function () {
@@ -138,6 +146,47 @@
   // ---------------------------------------------------------------------------
   // Tables and sample rows
 
+  // ---------------------------------------------------------------------------
+  // The draft-sources bucket: '<person id>/<draft key>/<n>-<name>', own folder only
+
+  const BUCKET = 'draft-sources';
+  const draftSources = new Map();
+  window.portalDemo.draftSources = draftSources;
+  const SOURCE_TYPES = new Set([
+    'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.oasis.opendocument.text', 'application/vnd.oasis.opendocument.presentation', 'application/vnd.oasis.opendocument.spreadsheet',
+    'text/plain', 'text/markdown', 'text/csv', 'text/html', 'application/rtf', 'text/rtf',
+  ]);
+  const ownSource = (path) => typeof path === 'string' && Boolean(h.meId) && path.split('/')[0] === h.meId && /^[^/]+\/[A-Za-z0-9_-]{8,64}\/[0-9]{1,2}-[A-Za-z0-9._-]{1,100}$/.test(path);
+  const sourceBucket = {
+    upload: async (path, body, opts = {}) => {
+      if (!h.isStaff() || !ownSource(path)) return { data: null, error: { message: 'new row violates row-level security policy', statusCode: '403' } };
+      if (draftSources.has(path)) return { data: null, error: { message: 'The resource already exists', statusCode: '409' } };
+      const type = opts.contentType ?? body?.type ?? '';
+      if (!SOURCE_TYPES.has(type)) return { data: null, error: { message: `mime type ${type} is not supported`, statusCode: '415' } };
+      if ((body?.size ?? 0) > 25 * 1024 * 1024) return { data: null, error: { message: 'The object exceeded the maximum allowed size', statusCode: '413' } };
+      for (let step = 1; step <= 5; step += 1) {
+        await sleep(90);
+        opts.onProgress?.(step / 5);
+      }
+      draftSources.set(path, { blob: body, type, size: body?.size ?? 0 });
+      return { data: { path }, error: null };
+    },
+    remove: async (paths) => {
+      const gone = (paths ?? []).filter((p) => ownSource(p) && draftSources.delete(p));
+      return { data: gone.map((name) => ({ name })), error: null };
+    },
+    createSignedUrl: async () => ({ data: null, error: { message: 'Object not found', statusCode: '404' } }),
+  };
+  const client = window.supabase.createClient();
+  const bucketFrom = client.storage.from;
+  client.storage.from = (bucket) => (bucket === BUCKET ? sourceBucket : bucketFrom(bucket));
+  // The "server" deletes a draft's files when it is done, ready or failed
+  const dropSources = (paths) => { for (const p of paths ?? []) draftSources.delete(p); };
+
   window.portalDemo.extend({
     tables: {
       task_answer_keys: {
@@ -241,6 +290,7 @@
     }
     return {
       id: row.id, status, student_id: row.student_id, options: row.options, created_at: row.created_at, finished_at: row.finished_at,
+      ...(status === 'drafting' ? { stage: row.stage ?? 'drafting' } : {}),
       ...(status === 'ready' ? { result: row.result } : {}),
       ...(status === 'failed' ? { error } : {}),
     };
@@ -248,33 +298,51 @@
   const optionsOf = (b) => ({
     count: b.count ?? 5, difficulty: b.difficulty ?? 'same', hints: Boolean(b.hints), challenge: b.challenge !== false, notes: b.notes ?? null,
     subject: b.subject ?? null, grade: b.grade ?? null, photos: Array.isArray(b.images) ? b.images.length : 0,
+    files: Array.isArray(b.sources) ? b.sources.length : 0, pasted_notes: Boolean(b.notes_text),
   });
+  const pathsOf = (b) => (Array.isArray(b.sources) ? b.sources.map((x) => x?.path).filter(ownSource) : []);
 
   function cannedStart(b) {
     if (!h.meId) return reply(401, { error: 'Sign in again.' });
     if (!h.isStaff()) return reply(403, { error: 'Only tutors and admins can draft homework.' });
+    const paths = pathsOf(b);
+    const refuse = (status, error) => { dropSources(paths); return reply(status, { error }); };
+    if (b.inline_sources) return refuse(400, 'Upload the files first, then send their paths.');
     const images = Array.isArray(b.images) ? b.images : [];
-    if (images.length < 1 || images.length > 6) return reply(400, { error: 'Add 1 to 6 photos of the lesson.' });
-    if (!images.every((x) => typeof x === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(x))) return reply(400, { error: 'Each photo must be a JPG, PNG or WebP image.' });
-    if (images.reduce((t, x) => t + x.length - x.indexOf(',') - 1, 0) > MAX_CHARS) return reply(400, { error: 'These photos are too large together. Remove one or use smaller photos.' });
-    if (!Number.isInteger(b.count) || b.count < 1 || b.count > 15) return reply(400, { error: 'Choose 1 to 15 problems.' });
-    if (b.student_id && !h.canTeach(b.student_id)) return reply(403, { error: 'You can draft homework only for your own students.' });
+    const sources = Array.isArray(b.sources) ? b.sources : [];
+    const pasted = typeof b.notes_text === 'string' ? b.notes_text.trim() : '';
+    if (b.images !== undefined) {
+      if (images.length < 1 || images.length > 6) return reply(400, { error: 'Add 1 to 6 photos of the lesson.' });
+      if (!images.every((x) => typeof x === 'string' && /^data:image\/(jpeg|png|webp);base64,/.test(x))) return reply(400, { error: 'Each photo must be a JPG, PNG or WebP image.' });
+      if (images.reduce((t, x) => t + x.length - x.indexOf(',') - 1, 0) > MAX_CHARS) return reply(400, { error: 'These photos are too large together. Remove one or use smaller photos.' });
+    } else {
+      if (!sources.length && !pasted) return refuse(400, 'Add lesson photos or files, or paste lesson notes.');
+      if (sources.length > 10) return refuse(400, 'Add at most 10 files to one draft.');
+      if (paths.length !== sources.length) return reply(403, { error: 'These files are not yours. Add them again.' });
+      if (!paths.every((p) => draftSources.has(p))) return refuse(400, 'A file of this draft is not valid. Add it again.');
+      if (pasted.length > 10000) return refuse(400, 'Keep the pasted lesson notes under 10,000 characters.');
+    }
+    if (!Number.isInteger(b.count) || b.count < 1 || b.count > 15) return refuse(400, 'Choose 1 to 15 problems.');
+    if (b.student_id && !h.canTeach(b.student_id)) return refuse(403, 'You can draft homework only for your own students.');
     const day = Date.now() - 86_400_000;
     if (db.homework_drafts.filter((r) => r.created_by === h.meId && Date.parse(r.created_at) >= day).length >= 30) {
-      return reply(429, { error: 'You have made 30 drafts in the last day. Try again tomorrow.' });
+      return refuse(429, 'You have made 30 drafts in the last day. Try again tomorrow.');
     }
+    const stage = paths.length || pasted ? 'reading' : 'drafting';
     const row = {
-      id: h.id(), created_by: h.meId, student_id: b.student_id ?? null, status: 'drafting', options: optionsOf(b),
+      id: h.id(), created_by: h.meId, student_id: b.student_id ?? null, status: 'drafting', stage, options: optionsOf(b),
       result: null, error: null, created_at: new Date().toISOString(), finished_at: null,
     };
     db.homework_drafts.push(row);
+    setTimeout(() => { if (row.status === 'drafting') row.stage = 'drafting'; }, 2000);
     setTimeout(() => {
+      dropSources(paths);
       if (row.status !== 'drafting') return;
-      Object.assign(row, { status: 'ready', result: cannedDraft(row.options), finished_at: new Date().toISOString() });
+      Object.assign(row, { status: 'ready', stage: null, result: cannedDraft(row.options), finished_at: new Date().toISOString() });
       notify();
     }, DRAFT_DELAY_MS);
     notify();
-    return reply(202, { id: row.id, status: 'drafting', created_at: row.created_at });
+    return reply(202, { id: row.id, status: 'drafting', stage, created_at: row.created_at });
   }
 
   function cannedStatus(b) {
@@ -297,20 +365,46 @@
     });
   }
 
+  const toBase64 = (blob) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).slice(String(reader.result).indexOf(',') + 1));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+
+  // The uploaded files go to serve-ai in the body (it has no storage); only it takes inline_sources
+  async function liveBody(b) {
+    const paths = pathsOf(b);
+    if (!paths.length) return b;
+    const inline = [];
+    for (const [i, p] of paths.entries()) {
+      const file = draftSources.get(p);
+      if (!file) continue;
+      inline.push({ name: b.sources[i]?.name ?? p.split('/').pop(), type: b.sources[i]?.type ?? '', data: await toBase64(file.blob) });
+    }
+    const { sources, ...rest } = b;
+    return { ...rest, inline_sources: inline };
+  }
+
+  const livePaths = new Map();   // draft id -> its uploaded paths, deleted when it is done
+
   // Keeps Recent drafts (read from the demo table) in step with the live server
-  async function mirror(b, res) {
+  async function mirror(b, res, paths) {
     let data = null;
-    try { data = await res.clone().json(); } catch (e) { return; }
-    if (b.action === 'draft_homework' && res.status === 202 && data?.id) {
+    try { data = await res.clone().json(); } catch (e) { dropSources(paths); return; }
+    if (b.action === 'draft_homework') {
+      if (res.status !== 202 || !data?.id) { dropSources(paths); return; }
+      livePaths.set(data.id, paths);
       db.homework_drafts = db.homework_drafts.filter((r) => r.id !== data.id);
       db.homework_drafts.push({
-        id: data.id, created_by: h.meId, student_id: b.student_id ?? null, status: 'drafting', options: optionsOf(b),
+        id: data.id, created_by: h.meId, student_id: b.student_id ?? null, status: 'drafting', stage: data.stage ?? null, options: optionsOf(b),
         result: null, error: null, created_at: data.created_at ?? new Date().toISOString(), finished_at: null,
       });
     }
     if (b.action === 'draft_status' && res.status === 200 && data?.id) {
       const row = db.homework_drafts.find((r) => r.id === data.id);
-      if (row) Object.assign(row, { status: data.status, result: data.result ?? null, error: data.error ?? null, finished_at: data.finished_at ?? null });
+      if (row) Object.assign(row, { status: data.status, stage: data.stage ?? null, result: data.result ?? null, error: data.error ?? null, finished_at: data.finished_at ?? null });
+      if (data.status !== 'drafting') { dropSources(livePaths.get(data.id)); livePaths.delete(data.id); }
     }
   }
 
@@ -324,8 +418,10 @@
     try { b = JSON.parse(init.body ?? '{}'); } catch (e) { b = {}; }
     if (b.action !== 'draft_homework' && b.action !== 'draft_status') return demoFetch(input, init);
     if (LIVE) {
-      const res = await network(url.href, init);
-      await mirror(b, res);
+      const paths = b.action === 'draft_homework' ? pathsOf(b) : [];
+      const body = b.action === 'draft_homework' ? JSON.stringify(await liveBody(b)) : init.body;
+      const res = await network(url.href, { ...init, body });
+      await mirror(b, res, paths);
       return res;
     }
     await sleep(150);

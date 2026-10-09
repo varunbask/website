@@ -22,11 +22,11 @@
 // number of times; every copy is created at once with its own due date, and
 // attached files go on each copy.
 //
-// Creating also offers "Draft with AI from lesson photos" (homework-draft.js):
+// Creating also offers "Draft with AI from lesson materials" (homework-draft.js):
 // a panel that drafts the title, the instructions and an answer key from
-// photos of the lesson. A draft only fills the form; Create saves it as
+// the lesson's photos, PDFs, documents or notes. A draft only fills the form; Create saves it as
 // usual, then adds the answer key (task_answer_keys, staff only) and, when
-// ticked, the photos as attachments. `draft` opens the panel at once (the
+// ticked, the lesson files as attachments. `draft` opens the panel at once (the
 // session drawer's "Make homework from this lesson").
 //
 // Staff only: item-drawer.js imports this module with import() on staff
@@ -337,7 +337,7 @@ export function itemForm(dctx, {
       const problems = [];
       for (const file of files) {
         if (pendingFiles.length + (drafted?.attachCount() ?? 0) >= MAX_ATTACHMENTS) {
-          problems.push(`Attach at most ${MAX_ATTACHMENTS} files here, lesson photos included. Add more from the assignment after you create it.`);
+          problems.push(`Attach at most ${MAX_ATTACHMENTS} files here, lesson files included. Add more from the assignment after you create it.`);
           break;
         }
         const message = validateMaterialFile(file);
@@ -360,7 +360,7 @@ export function itemForm(dctx, {
     renderAttachments();
   }
 
-  // Draft from lesson photos (creating): fills the title, instructions and answer key
+  // Draft from lesson materials (creating): fills the title, instructions and answer key
   const formStudent = () => (lesson ? lesson.student_id : (studentSelect ? studentSelect.value || null : dctx.scope?.student?.id ?? null));
   let drafted = null;
   const before = [];   // what the fields held before each draft filled them (Discard puts it back)
@@ -412,7 +412,7 @@ export function itemForm(dctx, {
         studentSelect.disabled = on;
         studentLock.hidden = !on;
       },
-      // How many lesson photos may still be attached next to the files chosen
+      // How many lesson files may still be attached next to the files chosen
       attachRoom: () => MAX_ATTACHMENTS - pendingFiles.length,
       // Preview worksheet: the document the form makes now, in the full-screen viewer
       onPreview: () => openDocViewer({
@@ -623,7 +623,7 @@ export function itemForm(dctx, {
       errorSlot.append(dangerCallout('Choose a student first.', 'Pick a student from the switcher, then try again.'));
       return;
     }
-    // Files and ticked lesson photos together stay within MAX_ATTACHMENTS
+    // Files and ticked lesson files together stay within MAX_ATTACHMENTS
     const tooMany = editing ? '' : attachmentsProblem(pendingFiles.length, drafted?.attachCount() ?? 0);
     if (tooMany) {
       errorSlot.append(dangerCallout('Too many attachments.', tooMany));

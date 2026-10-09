@@ -16,7 +16,7 @@
 // renderItemDrawer(dctx)
 //   dctx.taskId 'new'  the create form (staff only; params kind and due, session
 //                      for homework set in a lesson, draft=1 to open the panel
-//                      that drafts it from lesson photos)
+//                      that drafts it from lesson materials)
 //   dctx.taskId <id>   the item. Staff whose scope does not hold the task (Today,
 //                      the all-students calendar) find its student in the
 //                      workspace and load that student's data.
