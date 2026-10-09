@@ -683,7 +683,7 @@ export function yearRows(ctx, year) {
 //
 // Only what makes a number impossible to work out, each with its fix:
 //   unpriced       a session with no family rate (Add rate): holds that family's
-//                  month back from Mark paid, Record payment and Release
+//                  month back from Mark paid and Release
 //   no_tutor_rate  a tutor with no pay rate (Set it on Rates): marks their pay
 //                  period Check first
 //   overlap        one tutor, two students at the same time (Mark as group so the
@@ -778,7 +778,7 @@ function group(items) {
   return { items, byKind };
 }
 
-// Whether Mark paid, Record payment and Release may be used for a family's
+// Whether Mark paid and Release may be used for a family's
 // month: { ok, items }. Only a session with no family rate holds it back.
 // `attention` is needsAttention(ctx, month, monthEnd(month), { sessionsOnly: true }),
 // passed in when many families are checked in one go so it is worked out once.

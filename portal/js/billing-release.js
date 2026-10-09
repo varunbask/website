@@ -9,7 +9,7 @@
 
 import {
   familyRows, familyBlockers, familyBalanceBefore, needsAttention, studentsWithoutPayer,
-  monthEnd, monthName, billDate, dayText, shortDate,
+  monthEnd, monthName, billDate, shortDate,
 } from './billing-model.js';
 import { sendAction } from './billing-text.js';
 
@@ -42,10 +42,10 @@ const nothingOwed = (f, previousCents) => f.owedCents === 0 && previousCents <= 
 //            changed says the month moved since (that is Release again, one
 //            family at a time, because the parent sees the new version)
 //   held     what stays back, with the reason: a session with no family rate (the
-//            same gate as Mark paid and Record payment), nothing owed, or a
+//            same gate as Mark paid), nothing owed, or a
 //            student with no paying parent
-//   monthEnded  false while the month is still running (releasing is allowed,
-//            with a warning)
+//   monthEnded  false while the month is still running: nothing can be released
+//            until it ends (a family pays one bill for the whole month)
 // noLogin is a Set of parent ids who have no login yet; their statement is
 // released like the others and reaches them as copied text or a printout.
 export function releasePlan(b, month, today, { families = null, noLogin = new Set() } = {}) {
@@ -77,6 +77,11 @@ export function releasePlan(b, month, today, { families = null, noLogin = new Se
     already: already.sort(byName),
     held: held.sort(byName),
   };
+}
+
+// "October 2026 bills can be released from Sun, Nov 1, once the month is over."
+export function releaseOpensText(plan) {
+  return `${monthName(plan.month)} bills can be released from ${shortDate(billDate(plan.month))}, once the month is over.`;
 }
 
 // The numbers the page and the dialog quote
@@ -120,10 +125,10 @@ export function releaseHeadline(plan) {
     c.heldFamilies ? `${c.heldFamilies} held back.` : null,
     c.changed ? `${c.changed} changed since release.` : null,
     orphans,
-    // a month still running says when it is usually released; a finished one, that nothing is out yet
+    // a month still running says when it can be released; a finished one, that nothing is out yet
     plan.monthEnded
       ? (c.already ? null : 'Parents see nothing until you release.')
-      : `${month} has not ended yet (usually released ${shortDate(billDate(plan.month))}).`,
+      : `${releaseOpensText(plan)} Parents see nothing until you release.`,
   ].filter(Boolean);
   return { title: state.charAt(0).toUpperCase() + state.slice(1), meta: parts.join(' '), tone: plan.monthEnded ? 'ready' : 'waiting' };
 }
@@ -145,10 +150,8 @@ export function releaseCopy(plan) {
   if (c.already) {
     lines.push(`${familiesText(c.already)} ${plural(c.already, 'is', 'are')} already released and will not be touched.${c.changed ? ` ${c.changed} of them ${plural(c.changed, 'has', 'have')} changed since: use Release again on ${plural(c.changed, 'its row', 'their rows')}.` : ''}`);
   }
-  const warning = plan.monthEnded ? null : {
-    title: `${month} has not ended yet`,
-    text: `Bills released now count only what has happened so far. A family whose month changes afterwards will need Release again. They are usually released on ${dayText(billDate(plan.month))}.`,
-  };
+  // The button is off until the month ends; should the dialog open anyway, it releases nothing
+  const warning = plan.monthEnded ? null : { title: `${month} has not ended yet`, text: releaseOpensText(plan) };
   return {
     title: c.ready ? `Release ${month} bills?` : `Nothing to release for ${month}`,
     runningTitle: `Releasing ${month} bills`,
@@ -156,7 +159,7 @@ export function releaseCopy(plan) {
     heldTitle: `Held back (${c.held})`,
     held: plan.held.map((x) => `${x.name}: ${x.detail}`),
     warning,
-    confirmLabel: c.ready ? `Release ${c.ready} ${plural(c.ready, 'bill', 'bills')}` : null,
+    confirmLabel: c.ready && plan.monthEnded ? `Release ${c.ready} ${plural(c.ready, 'bill', 'bills')}` : null,
   };
 }
 

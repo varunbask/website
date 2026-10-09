@@ -149,8 +149,8 @@ export function statementStudents(ctx, f) {
 //                    forward changed since (a payment recorded later is no change:
 //                    the parent's status follows payments by itself)
 //            null    nothing to do
-//   blocked  a session in the month has no family rate, the same gate as Mark paid and
-//            Record payment; the buttons stay off until a rate is added so a parent
+//   blocked  a session in the month has no family rate, the same gate as Mark paid;
+//            the buttons stay off until a rate is added so a parent
 //            never sees $0.00 lines
 //   sentOn   the day that goes into the snapshot: a statement sent before
 //            snapshots keeps the day it really went out (its due date must not
