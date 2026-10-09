@@ -10,7 +10,8 @@ import { fileSets, setItems, setKeys, splitItem, meaningfulRest, testNumber, boo
 import { stripComments } from './tex.mjs';
 import { LatexConverter, inlineText, isCaption, docText, DOC_VERSION } from './latex-doc.mjs';
 import { mcAnswer, sprAnswer, sprKey, enterable, sameNumber, approximates } from './keys.mjs';
-import { Figures, figurePreamble } from './figures.mjs';
+import { Figures, figurePreamble, yearTicks } from './figures.mjs';
+import { rewriteExplanation } from './dashes.mjs';
 import { buildLessons } from './lessons.mjs';
 import { scanQuestionBank, questionBankFiles, officialFiles, bookFiles, measure } from './files.mjs';
 import { guideFromMarkdown } from './markdown.mjs';
@@ -18,7 +19,8 @@ import { loadOverrides } from './overrides.mjs';
 import { repeatedWordSuspect } from './checks.mjs';
 import { matchTopics, classifyRw } from './classify.mjs';
 
-// opts: { sat, qb, out, extra, plan, figures = true, lessons = true, jobs = 4, dashes = 'all', log }
+// opts: { sat, qb, out, extra, plan, figures = true, lessons = true, jobs = 4, dashes = 'all',
+//         keepExplanationDashes = false, log }
 export async function buildBundle(opts) {
   const SAT = resolve(opts.sat);
   const QB = opts.qb ? resolve(opts.qb) : null;
@@ -27,7 +29,7 @@ export async function buildBundle(opts) {
   const PLAN = opts.plan ? resolve(opts.plan) : null;
   const JOBS = Math.max(1, Number(opts.jobs) || 4);
   const log = opts.log ?? (() => {});
-  const args = { figures: opts.figures !== false, lessons: opts.lessons !== false, dashes: opts.dashes ?? 'all' };
+  const args = { figures: opts.figures !== false, lessons: opts.lessons !== false, dashes: opts.dashes ?? 'all', explanationDashes: !opts.keepExplanationDashes };
 
   mkdirSync(join(OUT, 'lessons'), { recursive: true });
   rmSync(join(OUT, 'figures'), { recursive: true, force: true });
@@ -49,6 +51,12 @@ export async function buildBundle(opts) {
     taxonomy: { source: null, notes: [] },
     overrides: { files: 0, entries: 0, applied: 0, repaired: [], recalibrated: 0, unmatched: [], errors: [] },
     repeated_word_suspects: [],
+    figure_year_ticks: 0,
+    figure_year_tick_figures: [],
+    lesson_year_tick_axes: 0,
+    dash_changes: 0,
+    dashes_kept_in_explanations: 0,
+    dash_samples: [],
     guides: { count: 0, errors: [] },
     vp_sets: [],
     notes: [],
@@ -146,6 +154,7 @@ export async function buildBundle(opts) {
   const unknownAll = new Map(); // macro -> { count, items: Set }
   const figures = new Figures({ outDir: OUT, cacheDir: join(CACHE, 'figures'), jobs: JOBS, log });
   const allFigureImgs = [];
+  const dashPool = [];
 
   function noteUnknown(map, itemId) {
     for (const [name, count] of map) {
@@ -208,7 +217,13 @@ export async function buildBundle(opts) {
         if (!args.figures) return false;
         figN++;
         const figId = figN === 1 ? id : `${id}-${figN}`;
-        figures.add({ id: figId, source: sourceTex, preamble, where: { ...where, item: id }, img });
+        // years on an axis print without the thousands comma
+        const fixed = yearTicks(sourceTex);
+        if (fixed.touched) {
+          report.figure_year_ticks++;
+          report.figure_year_tick_figures.push(figId);
+        }
+        figures.add({ id: figId, source: fixed.source, preamble, where: { ...where, item: id }, img });
         imgs.push(img);
         return true;
       },
@@ -269,7 +284,15 @@ export async function buildBundle(opts) {
       }
     }
     // the bare "Student-produced response." label says nothing the item does not
-    const explanation = doc(conv.blocks(keyBody.replace(/^\s*(?:\\(?:textbf|emph|textit)\s*\{\s*Student-produced response\.?\s*\}|Student-produced response\.)\s*/, '')));
+    let explanation = doc(conv.blocks(keyBody.replace(/^\s*(?:\\(?:textbf|emph|textit)\s*\{\s*Student-produced response\.?\s*\}|Student-produced response\.)\s*/, '')));
+    // no em or en dashes in explanations (passages, stems and choices keep theirs)
+    if (args.explanationDashes) {
+      const r = rewriteExplanation(explanation);
+      explanation = r.doc;
+      report.dash_changes += r.changed;
+      report.dashes_kept_in_explanations += r.kept;
+      for (const sample of r.samples) dashPool.push({ item: id, ...sample });
+    }
     noteUnknown(unknown, id);
     allFigureImgs.push(...imgs.map((img) => ({ img, item: id })));
 
@@ -404,12 +427,15 @@ export async function buildBundle(opts) {
     const overrideFile = EXTRA ? join(EXTRA, 'lesson-overrides', `${book.dir}__${chapterDir}.tex`) : null;
     const useOverride = overrideFile && existsSync(overrideFile);
     if (useOverride) report.notes.push(`lesson ${setId} built from ${basename(overrideFile)}`);
+    // year axes in the lesson's graphs lose the thousands comma too
+    const years = yearTicks(useOverride ? lessonPart(read(overrideFile)) : lessonPart(raw));
+    report.lesson_year_tick_axes += years.touched;
     return {
       id: setId,
       bookDir: book.path,
       title: book.title,
       chapter: chapterN,
-      body: useOverride ? lessonPart(read(overrideFile)) : lessonPart(raw),
+      body: years.source,
       out: join(OUT, 'lessons', `${setId}.pdf`),
       file: {
         id: `lesson-${setId}`,
@@ -614,6 +640,8 @@ export async function buildBundle(opts) {
   const unusedOverrides = overrides.unused();
   report.overrides.unmatched = unusedOverrides;
   report.overrides.applied = report.overrides.entries - unusedOverrides.length;
+  // 25 dash rewrites for review, picked the same way every build
+  report.dash_samples = pick(dashPool, 25, 2552);
   report.unknown_macros = [...unknownAll.entries()].sort((a, b) => b[1].count - a[1].count)
     .map(([macro, v]) => ({ macro, count: v.count, items: v.items.size, examples: [...v.items].slice(0, 8) }));
 
@@ -653,6 +681,23 @@ export async function buildBundle(opts) {
 
 }
 
+// n items from a list, picked by a seeded shuffle (the same each build)
+function pick(list, n, seed) {
+  let x = seed >>> 0;
+  const rand = () => {
+    x = (x + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(x ^ (x >>> 15), 1 | x);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const copy = [...list];
+  for (let k = copy.length - 1; k > 0; k--) {
+    const j = Math.floor(rand() * (k + 1));
+    [copy[k], copy[j]] = [copy[j], copy[k]];
+  }
+  return copy.slice(0, n);
+}
+
 // A short printed summary of a build
 export function printSummary({ report, content }, log = console.log) {
   const counts = report.counts;
@@ -678,6 +723,8 @@ export function printSummary({ report, content }, log = console.log) {
   line('difficulty missing', report.difficulty_missing.length);
   line('spr notes', `${report.key_checks.spr_dropped_forms.length} dropped forms, ${report.key_checks.spr_conflicts.length} conflicts, ${report.key_checks.spr_not_enterable.length} not enterable`);
   line('repeated-word suspects', report.repeated_word_suspects.length);
+  line('explanation dashes', `${report.dash_changes} rewritten, ${report.dashes_kept_in_explanations} kept (quotes, italics, sentences about dashes)`);
+  line('year axes', `${report.figure_year_ticks} figures and ${report.lesson_year_tick_axes} lesson graphs without the thousands comma on year ticks`);
   line('full-test domains', Object.entries(report.full_test_classification.by_domain).map(([k, v]) => `${k} ${v}`).join(', '));
   line('report', join(OUT, 'report.json'));
 }

@@ -199,3 +199,69 @@ export class Figures {
     return { total: this.queue.length, failed: this.failed };
   }
 }
+
+// Years on a pgfplots axis print as "2,016" (pgfplots' thousands comma).
+// For each axis whose x or y ticks (else limits, else plotted x/y values)
+// are all whole numbers from 1700 to 2100, the tick labels of that
+// direction lose the comma; every other number keeps it (12,000).
+// -> { source, touched } (touched: how many axes were changed)
+const YEAR_SEP = '/pgf/number format/1000 sep={}';
+const isYear = (v) => Number.isInteger(v) && v >= 1700 && v <= 2100;
+
+function optionValue(opts, key) {
+  const m = new RegExp(`(?:^|[,\\s])${key}\\s*=\\s*`).exec(opts);
+  if (!m) return null;
+  const at = m.index + m[0].length;
+  if (opts[at] === '{') return readGroup(opts, at)?.content ?? null;
+  return /^[^,\]]*/.exec(opts.slice(at))[0].trim();
+}
+const numbers = (text) => (text ?? '').split(',').map((t) => t.trim()).filter((t) => t && t !== '...' && t !== '\\ldots').map(Number);
+
+function axisValues(opts, body, dir) {
+  const ticks = optionValue(opts, `${dir}tick`);
+  if (ticks && !/^(data|\\empty|\{\})$/.test(ticks)) return numbers(ticks);
+  if (optionValue(opts, `symbolic ${dir} coords`)) return [];
+  const limits = [optionValue(opts, `${dir}min`), optionValue(opts, `${dir}max`)].filter((v) => v !== null);
+  if (limits.length) return limits.map(Number);
+  const values = [];
+  for (const m of body.matchAll(/coordinates\s*\{([^}]*)\}/g)) {
+    for (const p of m[1].matchAll(/\(\s*([^,()]+)\s*,\s*([^,()]+)\s*\)/g)) values.push(Number(dir === 'x' ? p[1] : p[2]));
+  }
+  return values;
+}
+
+export function yearTicks(source) {
+  let touched = 0;
+  let out = '';
+  let at = 0;
+  const re = /\\begin\{(axis|semilogxaxis|semilogyaxis|loglogaxis)\}\s*\[/g;
+  for (const m of source.matchAll(re)) {
+    const open = m.index + m[0].length - 1;
+    // the option list, brackets inside braces not counted
+    let depth = 0;
+    let close = -1;
+    for (let k = open + 1; k < source.length; k++) {
+      const ch = source[k];
+      if (ch === '{') depth++;
+      else if (ch === '}') depth--;
+      else if (ch === ']' && depth === 0) {
+        close = k;
+        break;
+      }
+    }
+    if (close < 0) continue;
+    const opts = source.slice(open + 1, close);
+    const end = source.indexOf(`\\end{${m[1]}}`, close);
+    const body = source.slice(close + 1, end < 0 ? source.length : end);
+    const add = [];
+    for (const dir of ['x', 'y']) {
+      const values = axisValues(opts, body, dir);
+      if (values.length && values.every(isYear)) add.push(`${dir}ticklabel style={${YEAR_SEP}}`);
+    }
+    if (!add.length) continue;
+    touched++;
+    out += source.slice(at, close) + `${opts.trim().endsWith(',') ? '' : ','} ${add.join(', ')}`;
+    at = close;
+  }
+  return { source: out + source.slice(at), touched };
+}

@@ -10,6 +10,7 @@ import { ids, slugify, trimSlug, titleCase, cleanName, classifyTopic } from '../
 import { classifyRw, matchTopics } from '../../tools/sat/lib/classify.mjs';
 import { repeatedWordSuspect } from '../../tools/sat/lib/checks.mjs';
 import { qbDifficulty } from '../../tools/sat/lib/files.mjs';
+import { yearTicks } from '../../tools/sat/lib/figures.mjs';
 import { buildBundle } from '../../tools/sat/lib/build.mjs';
 
 // All LaTeX here is made up for the tests (never the books' own questions)
@@ -247,6 +248,19 @@ describe('domains and skills of mixed-test questions', () => {
   });
 });
 
+describe('figures', () => {
+  test('year ticks lose the thousands comma; other numbers keep it', () => {
+    const years = yearTicks(String.raw`\begin{axis}[bioaxis, xtick={2016,2018,2020}, ymin=0, ymax=12000]\addplot coordinates {(2016,9000)};\end{axis}`);
+    expect(years.touched).toBe(1);
+    expect(years.source).toContain('xticklabel style={/pgf/number format/1000 sep={}}]');
+    expect(years.source).not.toContain('yticklabel style');
+    const fromData = yearTicks(String.raw`\begin{axis}[ylabel=y]\addplot coordinates {(1990,5) (2000,7)};\end{axis}`);
+    expect(fromData.touched).toBe(1);
+    expect(yearTicks(String.raw`\begin{axis}[symbolic x coords={2019,2020}, xtick=data]\addplot coordinates {(2019,1)};\end{axis}`).touched).toBe(0);
+    expect(yearTicks(String.raw`\begin{axis}[xmin=0, xmax=12000]\end{axis}`).touched).toBe(0);
+  });
+});
+
 describe('checks', () => {
   test('a word next to the blank that every choice repeats is a suspect', () => {
     const item = {
@@ -276,7 +290,7 @@ Which choice completes the text with the most logical and precise word?
 \answerkeyheader
 \begin{solutions}
 \sol{Question 1}
-\textbf{Answer: (A).} Lanterns are bright.
+\textbf{Answer: (A).} Lanterns are bright --- the text says so.
 \sol{Question 2}
 \textbf{Answer: (D).} No mark between subject and verb.
 \end{solutions}`;
@@ -442,6 +456,13 @@ describe('buildBundle on a made-up tree', () => {
     expect(planned.content.items.find((i) => i.id === 'cs-ch1-01').skill).toBe('words-in-context');
     expect(planned.content.files[0].skill).toBe('words-in-context');
     expect(planned.report.taxonomy.source).toBe('plan');
+  });
+
+  test('explanations lose their em dashes; stems keep theirs', () => {
+    const keys = new Map(first.content.keys.map((k) => [k.item, k]));
+    expect(keys.get('cs-ch1-01').explanation.blocks[0].c.map((n) => n.x).join('')).toBe('Answer: (A). Lanterns are bright: the text says so.');
+    expect(first.report.dash_changes).toBe(1);
+    expect(first.report.dash_samples).toEqual([{ item: 'cs-ch1-01', before: 'Answer: (A). Lanterns are bright \u2014 the text says so.', after: 'Answer: (A). Lanterns are bright: the text says so.' }]);
   });
 
   test('the report: no failures, and a rebuild gives the same ids', () => {
