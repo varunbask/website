@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   newInviteToken, inviteLink, inviteMessage, namesText, readToken, joinCopy, joinProblem, joinError, inviteState,
-  parseFamilyLines, planFamilies, signupMatches,
+  parseFamilyLines, planFamilies, signupMatches, signupChoices, bareName, confirmWordFor, confirmMatches, familyText,
 } from '../../portal/js/invites-model.js';
 
 describe('invite links', () => {
@@ -139,5 +139,59 @@ describe('a sign-up that may be someone added without a login', () => {
     expect(ids({ id: 'x', full_name: 'Sunny', requested_role: 'tutor' })).toEqual([]);
     expect(ids({ id: 'x', full_name: 'Leo Park', requested_role: 'student' })).toEqual([]);
     expect(ids({ id: 'x', full_name: '', requested_role: 'student' })).toEqual([]);
+  });
+});
+
+describe('two parents with one name (the Grace case)', () => {
+  // Camila's mom and Gordon's mom were both added without a login; Gordon's mom signs up as Grace Young
+  const people = [
+    { id: 'camila-mom', full_name: 'Grace', role: 'parent', no_login: true },
+    { id: 'gordon-mom', full_name: 'Grace (Gordon’s Mom)', role: 'parent', no_login: true },
+    { id: 'kim', full_name: 'Mrs. Kim', role: 'parent', no_login: true },
+    { id: 'gordon', full_name: 'Gordon', role: 'student', no_login: true },
+  ];
+  const signup = { id: 'x', full_name: 'Grace Young', email: 'grace@example.com', requested_role: 'parent' };
+
+  test('notes in brackets are not part of a name', () => {
+    expect(bareName('Grace (Gordon’s Mom)')).toBe('grace');
+    expect(bareName('  Mason  (Sunny)  Lee ')).toBe('mason lee');
+    expect(bareName(null)).toBe('');
+  });
+
+  test('both Graces are offered, neither is picked as certain', () => {
+    const found = signupMatches(signup, people);
+    expect(found.map((m) => m.person.id)).toEqual(['camila-mom', 'gordon-mom']);
+    expect(found.every((m) => m.reason === 'first' && !m.exact)).toBe(true);
+  });
+
+  test('a link already emailed to the sign-up address is the strongest match, whatever the name', () => {
+    const invites = [{ profile_id: 'kim', emailed_to: 'GRACE@example.com' }, { profile_id: 'camila-mom', emailed_to: 'other@example.com' }];
+    const found = signupMatches(signup, people, { invites });
+    expect(found[0]).toMatchObject({ person: { id: 'kim' }, reason: 'email', exact: true });
+    expect(found.map((m) => m.person.id)).toEqual(['kim', 'camila-mom', 'gordon-mom']);
+  });
+
+  test('any account of the role they asked for can be picked by hand', () => {
+    expect(signupChoices(signup, people).map((p) => p.id)).toEqual(['camila-mom', 'gordon-mom', 'kim']);
+    expect(signupChoices({ ...signup, requested_role: null }, people).map((p) => p.id)).toEqual(['gordon', 'camila-mom', 'gordon-mom', 'kim']);
+    expect(signupChoices({ ...signup, requested_role: 'tutor' }, people)).toEqual([]);
+  });
+
+  test('confirming types the child\u2019s first name for a parent, else their own', () => {
+    expect(confirmWordFor(people[1], ['Gordon Wu'])).toEqual({ word: 'Gordon', what: 'the child’s first name' });
+    expect(confirmWordFor(people[1], [])).toEqual({ word: 'Grace', what: 'their first name' });
+    expect(confirmWordFor(people[3], ['Gordon'])).toEqual({ word: 'Gordon', what: 'their first name' });
+    expect(confirmMatches(' gordon ', 'Gordon')).toBe(true);
+    expect(confirmMatches('Camila', 'Gordon')).toBe(false);
+    expect(confirmMatches('', '')).toBe(false);
+  });
+
+  test('each account is described by its family', () => {
+    expect(familyText({ role: 'parent', children: ['Gordon'], paying: ['Gordon'] })).toBe('Parent of Gordon; pays for Gordon');
+    expect(familyText({ role: 'parent', children: ['Camila', 'Leo', 'Ava'] })).toBe('Parent of Camila, Leo and Ava');
+    expect(familyText({ role: 'parent' })).toBe('No children linked yet');
+    expect(familyText({ role: 'student', parents: ['Grace Young'] })).toBe('Student; parent Grace Young');
+    expect(familyText({ role: 'student', parents: ['Ann', 'Bo'] })).toBe('Student; parents Ann and Bo');
+    expect(familyText({ role: 'student' })).toBe('Student; no parent linked yet');
   });
 });

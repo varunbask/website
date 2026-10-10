@@ -65,8 +65,9 @@ describe('stylesheets', () => {
       expect(new Set(byPage.values()).size, `${name}: ${JSON.stringify([...byPage])}`).toBe(1);
     }
     expect(versions.get('app.css').size).toBe(pages.length);
-    expect([...versions.get('app.css').values()][0]).toBe('10');
-    expect([...versions.get('people.css').values()][0]).toBe('16');
+    // at least the versions this change set (later changes bump them further)
+    expect(Number([...versions.get('app.css').values()][0])).toBeGreaterThanOrEqual(10);
+    expect(Number([...versions.get('people.css').values()][0])).toBeGreaterThanOrEqual(16);
   });
 
   test('the confirm dialog styles for the typed name and the list exist', () => {

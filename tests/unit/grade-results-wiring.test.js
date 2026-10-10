@@ -86,7 +86,12 @@ describe('stylesheets', () => {
         versions.get(name).add(v);
       }
     }
-    for (const [name, v] of Object.entries(TOUCHED)) expect([...versions.get(name)], name).toEqual([v]);
+    // one version per sheet, at least the one this change set (later changes bump them further)
+    for (const [name, v] of Object.entries(TOUCHED)) {
+      const seen = [...versions.get(name)];
+      expect(seen, name).toHaveLength(1);
+      expect(Number(seen[0]), name).toBeGreaterThanOrEqual(Number(v));
+    }
   });
 
   test('the result and Extend styles exist', () => {
