@@ -51,6 +51,7 @@ const PAGE_WORDS = {
   help: 'support questions contact faq',
   profile: 'me photo picture avatar about grade school hobbies interests bio subjects',
   files: 'materials pdf documents links attachments handouts',
+  sat: 'test prep practice tests college board digital exam reading writing math',
 };
 
 // Admin pages inside People and Account (the top ones come from the nav model)

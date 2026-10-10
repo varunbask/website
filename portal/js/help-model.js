@@ -1,7 +1,8 @@
 // Pure content for the Help view (#/help): who to contact and short, practical
 // answers per role. No DOM here; views/help.js turns these sections into markup.
 //
-// helpSections(role) -> [{ id, title, blocks }]
+// helpSections(role, { sat }) -> [{ id, title, blocks }]
+//   sat: add the SAT section (staff always; a student once SAT is turned on)
 //   blocks, in reading order:
 //     { type: 'p', parts }          a paragraph
 //     { type: 'steps', items }      a numbered list, one parts array per step
@@ -190,6 +191,31 @@ function profile(role) {
   return { id: 'profile', title: 'Your profile', blocks: [{ type: 'list', items }] };
 }
 
+// The SAT tab: students who have it, and staff
+function satHelp(role) {
+  const staff = isStaffRole(role);
+  const items = staff
+    ? [
+      ['Open a student, then ', link('SAT', '#/sat'), '. You see their progress by section, domain and skill, their practice runs and timed tests, and each review with the answers.'],
+      role === 'admin'
+        ? 'Only you turn SAT on or off for a student, with the SAT access switch on that page. Tutors see whether it is on.'
+        : 'Only the admin turns SAT on for a student. You can see whether it is on.',
+      'Practice sets marked Skill Builder are our own sets; Guide practice is the practice from the study guides.',
+      'Learn has a study guide for each official skill, with its practice sets, lesson PDF and Question Bank PDFs.',
+      'Starting a set or a test yourself is a preview: it is saved as your own attempt and never changes the student’s progress.',
+      ...(role === 'admin' ? ['Questions held back are hidden from students until you release them, with their answer if it needs fixing.'] : []),
+    ]
+    : [
+      ['Open ', link('SAT', '#/sat'), '. Start with Learn: a study guide for each skill, with practice, a lesson PDF and Question Bank PDFs.'],
+      'Practice: answer one question at a time and choose Check. You see right away whether you were right, the correct answer and an explanation.',
+      'Tests are timed like the digital SAT. Answers save as you go, so you can reload the page and carry on. Mark for review flags a question to come back to. When time runs out, the module is submitted for you.',
+      'After a test you see your score and can review every question with the correct answer and an explanation.',
+      'Library has lesson PDFs, the Question Bank and official practice tests.',
+      'On a computer, press A, B, C or D to choose an answer, and Enter to check it or go to the next question.',
+    ];
+  return { id: 'sat', title: 'SAT', blocks: [{ type: 'list', items }] };
+}
+
 const keyboard = {
   id: 'keyboard',
   title: 'Keyboard tips',
@@ -236,17 +262,19 @@ const privacy = {
   ],
 };
 
-// The sections for a role, in reading order
-export function helpSections(role) {
+// The sections for a role, in reading order. sat: add the SAT section (staff,
+// and a student once it is turned on for them; never a parent)
+export function helpSections(role, { sat = false } = {}) {
   if (isStaffRole(role)) {
     return [
-      contact(role), notes, grading, drafts, googleSync, profile(role), keyboard,
+      contact(role), notes, grading, drafts, googleSync, profile(role), ...(sat ? [satHelp(role)] : []), keyboard,
       ...(role === 'admin' ? [adminTips] : []),
       install, privacy,
     ];
   }
   const family = role === PARENT ? PARENT : STUDENT;
-  return [contact(family), homework(family), schedule(family), profile(family), install, privacy];
+  const withSat = sat && family === STUDENT ? [satHelp(STUDENT)] : [];
+  return [contact(family), homework(family), schedule(family), ...withSat, profile(family), install, privacy];
 }
 
 // The lede under the Help title

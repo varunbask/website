@@ -16,6 +16,8 @@ const SPEC_NAMES = [
   'currency-dollar', 'receipt', 'printer', 'copy', 'lock-simple',
   // Profiles and photos
   'user',
+  // SAT
+  'exam', 'bookmark-simple',
 ];
 
 test('ICON_NAMES lists exactly the icons in the spec', () => {

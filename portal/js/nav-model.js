@@ -16,9 +16,11 @@
 // counts: { todo, todoOverdue, inReview, tasksOpen, reviewQueue, pending }
 // fresh:  { graded, updates, schedule } booleans for "New" (students and parents only)
 // profileDue: true while the profile is not finished (profile-model.js)
+// SAT (#/sat) is one more student item: on staff.html for every student, on
+// student.html only when the admin turned it on (scope.sat), never for parents.
 
 const STAFF_ROLES = new Set(['tutor', 'admin']);
-const STUDENT_VIEWS = new Set(['overview', 'assignments', 'tasks', 'files', 'calendar', 'updates', 'report']);
+const STUDENT_VIEWS = new Set(['overview', 'assignments', 'tasks', 'files', 'calendar', 'updates', 'report', 'sat']);
 const SUBS = [['todo', 'To do'], ['in-review', 'In review'], ['graded', 'Graded'], ['archived', 'Archived']];
 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -48,8 +50,9 @@ function item(key, label, icon, href, { current = false, badge: b = null, isNew 
   return { key, label, icon, href, current, ancestor, badge: isNew ? null : b, railBadge, isNew, children };
 }
 
-// Overview, Assignments (four subs), Tasks, Files, Calendar, Updates, Report for one student
-function studentItems({ route, counts, fresh, family, staff }) {
+// Overview, Assignments (four subs), Tasks, Files, Calendar, Updates, Report
+// (and SAT, when sat) for one student
+function studentItems({ route, counts, fresh, family, staff, sat = false }) {
   const view = route?.view;
   const sub = route?.sub ?? 'todo';
   const todoBadge = badge(
@@ -85,6 +88,7 @@ function studentItems({ route, counts, fresh, family, staff }) {
       isNew: family && Boolean(fresh.updates),
     }),
     item('report', 'Report', 'file-text', '#/report', { current: view === 'report' }),
+    ...(sat ? [item('sat', 'SAT', 'exam', '#/sat', { current: view === 'sat' })] : []),
   ];
 }
 
@@ -162,7 +166,7 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
     // Students and parents. A parent with no linked child sees Overview only.
     const family = role === 'student' || role === 'parent';
     const noChild = role === 'parent' && !scope?.student;
-    const all = studentItems({ route, counts: c, fresh, family, staff: false });
+    const all = studentItems({ route, counts: c, fresh, family, staff: false, sat: role === 'student' && scope?.sat === true });
     // Bills go to the parent, whichever child is shown (and with no child linked)
     const bills = role === 'parent' ? item('billing', 'Billing', 'receipt', '#/billing', { current: route?.view === 'billing' }) : null;
     const items = [...(noChild ? all.slice(0, 1) : all), ...(bills ? [bills] : [])];
@@ -173,7 +177,7 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
     let tabs = [k.overview];
     let more = bills ? [bills] : [];
     if (!noChild && role === 'parent') { tabs = [k.overview, k.assignments, k.calendar, k.updates]; more = [k.tasks, k.files, k.report, bills]; }
-    else if (!noChild) { tabs = [k.overview, k.assignments, k.tasks, k.calendar]; more = [k.files, k.updates, k.report]; }
+    else if (!noChild) { tabs = [k.overview, k.assignments, k.tasks, k.calendar]; more = [k.files, k.updates, k.report, ...(k.sat ? [k.sat] : [])]; }
     more = [...more, ...(profile ? [profile] : []), help];
     const groups = [{ key: 'main', label: null, switcher: false, items }];
     if (profile) groups.push({ key: 'you', label: null, switcher: false, items: [profile] });
@@ -190,7 +194,7 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
   const onAdminPage = ADMIN_PAGES.has(page);
   const isAdmin = role === 'admin';
   const work = workspaceItems({ route, counts: c, page });
-  const student = !onAdminPage && scope?.student ? studentItems({ route, counts: c, fresh, family: false, staff: true }) : [];
+  const student = !onAdminPage && scope?.student ? studentItems({ route, counts: c, fresh, family: false, staff: true, sat: true }) : [];
   const people = isAdmin ? peopleItem({ counts: c, page }) : null;
   const account = isAdmin ? accountItem({ page }) : null;
   const groups = [{ key: 'workspace', label: 'Workspace', switcher: false, items: work }];
@@ -208,7 +212,7 @@ export function navModel({ role, page, scope = null, route = null, counts = {}, 
   if (mode === 'student') {
     const s = byKey(student);
     tabs = [s.overview, s.assignments, s.tasks, s.calendar];
-    more = [s.files, s.updates, s.report, w.today, w.review, w.students, ...(people ? [people, account] : [])];
+    more = [s.files, s.updates, s.report, s.sat, w.today, w.review, w.students, ...(people ? [people, account] : [])];
   } else if (isAdmin) {
     tabs = [w.today, w.review, w.students, people];
     more = [w['calendar-all'], account];

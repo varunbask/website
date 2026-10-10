@@ -122,7 +122,8 @@ export function startApp(config) {
   // -------------------------------------------------------------------------
   // Scope
 
-  const scopeCtx = () => (scope?.student ? { student: scope.student } : null);
+  // sat: the student page's own SAT access (student.js), for the nav and the SAT view
+  const scopeCtx = () => (scope?.student ? { student: scope.student, ...(scope.sat === undefined ? {} : { sat: scope.sat }) } : null);
   const scopeName = () => (page === 'parent' || page === 'staff') && scope?.student ? displayName(scope.student) : null;
   const namedScope = (entry, r) => (isNamed(entry, r) ? scopeName() : null);
   // The live pending count (admin) wins over the one read at scope load, so

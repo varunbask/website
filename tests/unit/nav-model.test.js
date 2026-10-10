@@ -138,13 +138,13 @@ describe('tutor', () => {
   test('student items once a student is chosen; staff never see New', () => {
     const m = navModel({ role: 'tutor', page: 'staff', scope: MAYA, route: route('assignments', 'in-review'), counts: COUNTS, fresh: { graded: true, updates: true } });
     expect(m.mode).toBe('student');
-    expect(keys(m.groups[1].items)).toEqual(['overview', 'assignments', 'tasks', 'files', 'calendar', 'updates', 'report']);
+    expect(keys(m.groups[1].items)).toEqual(['overview', 'assignments', 'tasks', 'files', 'calendar', 'updates', 'report', 'sat']);
     expect(find(m, 'overview').icon).toBe('chart-line-up');
     expect(find(m, 'graded').isNew).toBe(false);
     expect(find(m, 'updates').isNew).toBe(false);
     expect(current(m)).toEqual(['in-review']);
     expect(keys(m.tabbar)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'more']);
-    expect(keys(m.more)).toEqual(['files', 'updates', 'report', 'today', 'review', 'students', 'profile', 'help']);
+    expect(keys(m.more)).toEqual(['files', 'updates', 'report', 'sat', 'today', 'review', 'students', 'profile', 'help']);
   });
 
   test('Report is a Student item: current in student mode, and student mode stays on', () => {
@@ -193,7 +193,7 @@ describe('admin', () => {
   test('student mode adds People and Account to More', () => {
     const m = navModel({ role: 'admin', page: 'staff', scope: MAYA, route: route('overview'), counts: COUNTS });
     expect(keys(m.tabbar)).toEqual(['overview', 'assignments', 'tasks', 'calendar', 'more']);
-    expect(keys(m.more)).toEqual(['files', 'updates', 'report', 'today', 'review', 'students', 'people', 'account', 'profile', 'help']);
+    expect(keys(m.more)).toEqual(['files', 'updates', 'report', 'sat', 'today', 'review', 'students', 'people', 'account', 'profile', 'help']);
   });
 
   test('on account.html: no Student group, Account is current, links go back to the staff page', () => {

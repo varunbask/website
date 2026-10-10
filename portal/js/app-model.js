@@ -7,6 +7,8 @@
 //   label(route) -> string      short name for the breadcrumb and phone top bar
 //                               (defaults to title)
 //   subs, defaultSub            allowed second segments ('#/assignments/todo')
+//   optionalSub: true           the view also stands without a sub ('#/sat')
+//   subIds: [sub]               subs whose third segment is an id ('#/sat/practice/alg-ch1')
 //   id: true                    the second segment is an id ('#/review/481')
 //   scoped: bool | fn(route)    needs a student scope (?student / ?child)
 //   named: bool | fn(route)     titles and crumbs carry the student's name
@@ -54,9 +56,12 @@ export function normalizeRoute(route, { table, hasScope = false, audience = 'fam
   if (!entry) return defaultHash;
 
   if (entry.subs) {
-    if (!route.sub) return buildHash({ ...route, sub: entry.defaultSub ?? entry.subs[0], id: null });
-    if (!entry.subs.includes(route.sub)) return defaultHash;
-    if (!blank(route.id)) return buildHash({ ...route, id: null });
+    if (!route.sub) {
+      if (!entry.optionalSub) return buildHash({ ...route, sub: entry.defaultSub ?? entry.subs[0], id: null });
+    } else if (!entry.subs.includes(route.sub)) {
+      return defaultHash;
+    }
+    if (!blank(route.id) && !(route.sub && (entry.subIds ?? []).includes(route.sub))) return buildHash({ ...route, id: null });
   } else if (!entry.id && (!blank(route.sub) || !blank(route.id))) {
     return buildHash({ view: route.view, params: route.params });
   }

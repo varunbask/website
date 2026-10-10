@@ -25,9 +25,9 @@ import {
 // after the title; PDFs and images open in the tab
 const PREVIEWABLE = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 
-async function sign(material) {
+async function sign(material, bucket = MATERIALS_BUCKET) {
   const options = PREVIEWABLE.has(material.file_type) ? undefined : { download: downloadName(material) };
-  const { data, error } = await sb.storage.from(MATERIALS_BUCKET).createSignedUrl(material.storage_path, SIGN_SECONDS, options);
+  const { data, error } = await sb.storage.from(bucket).createSignedUrl(material.storage_path, SIGN_SECONDS, options);
   if (error) throw error;
   return data.signedUrl;
 }
@@ -61,14 +61,15 @@ function whenNearScreen(el, work) {
 //   onError  called when the file cannot be opened
 //   lazy     sign when the element comes near the screen instead of at once
 //            (a long list); hovering or focusing it signs it too
-export function wireFileOpen(el, material, { onError, lazy = false } = {}) {
+//   bucket   the storage bucket (materials by default; the SAT library uses sat-files)
+export function wireFileOpen(el, material, { onError, lazy = false, bucket = MATERIALS_BUCKET } = {}) {
   const isAnchor = el.tagName === 'A';
   let url = '';
   let signedAt = 0;
   let inFlight = null;
   const stale = () => !signedAt || Date.now() - signedAt >= RESIGN_AFTER_MS;
   const refresh = () => {
-    inFlight ??= sign(material).then((signed) => {
+    inFlight ??= sign(material, bucket).then((signed) => {
       url = signed;
       if (isAnchor) el.href = signed;
       signedAt = Date.now();
