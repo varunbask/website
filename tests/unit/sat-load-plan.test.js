@@ -72,7 +72,7 @@ describe('other rows and uploads', () => {
     files: [{ id: 'f1', collection: 'lesson', domain: 'algebra', skill: null, difficulty: null, title: 'L', local: '/tmp/l.pdf', path: 'lessons/alg-ch1.pdf', bytes: 10, pages: 2, staff_only: false, position: 1 }],
     guides: [{ skill: 'alg-x', domain: 'algebra', title: 'G', position: 1, body: { v: 1, blocks: [{ t: 'img', src: 'figures/g.png', w: 1, h: 1, alt: '' }] } }],
     items: [item('a', { stem: { v: 1, blocks: [{ t: 'passage', label: null, blocks: [{ t: 'img', src: 'figures/a.png', w: 1, h: 1, alt: '' }] }] } })],
-    keys: [{ item: 'a', answer: 'A', accept: [], explanation: { v: 1, blocks: [{ t: 'img', src: 'figures/a.png', w: 1, h: 1, alt: '' }] } }],
+    keys: [{ item: 'a', answer: 'A', accept: [], explanation: { v: 1, blocks: [{ t: 'img', src: 'figures/a.png', w: 1, h: 1, alt: '' }, { t: 'img', src: 'keys/figures/a-1.png', w: 1, h: 1, alt: '' }] } }],
   };
 
   test('rows carry the spec columns', () => {
@@ -85,6 +85,7 @@ describe('other rows and uploads', () => {
     expect(uploads(content, '/out', join)).toEqual([
       { local: '/tmp/l.pdf', path: 'lessons/alg-ch1.pdf', type: 'application/pdf' },
       { local: '/out/figures/a.png', path: 'figures/a.png', type: 'image/png' },
+      { local: '/out/keys/figures/a-1.png', path: 'keys/figures/a-1.png', type: 'image/png' },
       { local: '/out/figures/g.png', path: 'figures/g.png', type: 'image/png' },
     ]);
   });

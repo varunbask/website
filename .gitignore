@@ -12,3 +12,6 @@ node_modules/
 
 # Local demo build (npm run demo)
 .demo/
+
+# SAT content bundle (never commit the books' content)
+sat-build/

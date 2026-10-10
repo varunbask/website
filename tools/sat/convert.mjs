@@ -25,5 +25,11 @@ if (!opts.sat || !opts.out) {
   console.error('Usage: node tools/sat/convert.mjs --sat <SAT dir> --qb <Question Bank dir> --out <OUT> [--extra <dir>] [--plan <plan.json>]');
   process.exit(2);
 }
-const result = await buildBundle({ ...opts, log: console.log });
+let result;
+try {
+  result = await buildBundle({ ...opts, log: console.log });
+} catch (e) {
+  console.error(e.message);
+  process.exit(1);
+}
 printSummary(result, console.log);

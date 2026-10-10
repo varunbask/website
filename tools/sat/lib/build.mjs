@@ -4,7 +4,8 @@
 // report.json, and returns { content, report }. convert.mjs is its command line.
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, rmSync } from 'node:fs';
-import { join, relative, basename, resolve } from 'node:path';
+import { join, relative, basename, resolve, dirname } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { DOMAINS, domainByN, domainBySlug, FULL_MODULES, MODULES, ids, slugify, trimSlug, titleCase, cleanName, matchName, nameKey, classifyTopic, qbSkills, pad2 } from './catalog.mjs';
 import { fileSets, setItems, setKeys, splitItem, meaningfulRest, testNumber, bookTitle, chapterTitle, lessonPart, fullTestIndex } from './source.mjs';
 import { stripComments } from './tex.mjs';
@@ -19,6 +20,21 @@ import { loadOverrides } from './overrides.mjs';
 import { repeatedWordSuspect } from './checks.mjs';
 import { matchTopics, classifyRw } from './classify.mjs';
 
+// Where a figure goes: question figures under figures/ (students may read
+// them), explanation figures under keys/figures/ (staff only, so a key's
+// drawing never shows before the answer)
+export function figurePath(itemId, n, { explanation = false } = {}) {
+  return explanation ? `keys/figures/${itemId}-${n}.png` : `figures/${n === 1 ? itemId : `${itemId}-${n}`}.png`;
+}
+
+// The git checkout holding a path (the path itself need not exist yet), or null
+export function gitCheckoutOf(path) {
+  let dir = resolve(path);
+  while (!existsSync(dir)) dir = dirname(dir);
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd: dir, encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : null;
+}
+
 // opts: { sat, qb, out, extra, plan, figures = true, lessons = true, jobs = 4, dashes = 'all',
 //         keepExplanationDashes = false, log }
 export async function buildBundle(opts) {
@@ -29,10 +45,14 @@ export async function buildBundle(opts) {
   const PLAN = opts.plan ? resolve(opts.plan) : null;
   const JOBS = Math.max(1, Number(opts.jobs) || 4);
   const log = opts.log ?? (() => {});
+  // the bundle holds the books' content: it must never land in a git checkout
+  const checkout = gitCheckoutOf(OUT);
+  if (checkout) throw new Error(`--out ${OUT} is inside the git checkout ${checkout}; build the bundle outside the repo`);
   const args = { figures: opts.figures !== false, lessons: opts.lessons !== false, dashes: opts.dashes ?? 'all', explanationDashes: !opts.keepExplanationDashes };
 
   mkdirSync(join(OUT, 'lessons'), { recursive: true });
   rmSync(join(OUT, 'figures'), { recursive: true, force: true });
+  rmSync(join(OUT, 'keys'), { recursive: true, force: true });
   mkdirSync(join(OUT, 'figures'), { recursive: true });
   const CACHE = join(OUT, '.cache');
 
@@ -211,21 +231,24 @@ export async function buildBundle(opts) {
     const split = splitItem(itemTex);
     const unknown = new Map();
     let figN = 0;
+    let keyFigN = 0;
+    let inKey = false;
     const imgs = [];
     const conv = new LatexConverter({
       unknown,
       dashes: args.dashes,
       figure: (sourceTex, img) => {
         if (!args.figures) return false;
-        figN++;
-        const figId = figN === 1 ? id : `${id}-${figN}`;
+        const n = inKey ? ++keyFigN : ++figN;
+        const path = figurePath(id, n, { explanation: inKey });
+        const figId = path.replace(/^.*\//, '').replace(/\.png$/, '');
         // years on an axis print without the thousands comma
         const fixed = yearTicks(sourceTex);
         if (fixed.touched) {
           report.figure_year_ticks++;
           report.figure_year_tick_figures.push(figId);
         }
-        figures.add({ id: figId, source: fixed.source, preamble, where: { ...where, item: id }, img });
+        figures.add({ id: `${inKey ? 'key-' : ''}${figId}`, source: fixed.source, preamble, where: { ...where, item: id }, img, path });
         imgs.push(img);
         return true;
       },
@@ -298,6 +321,7 @@ export async function buildBundle(opts) {
       }
     }
     // the answer label the explanation opens with repeats the portal's verdict line
+    inKey = true;
     let explanation = doc(conv.blocks(stripAnswerLead(keyBody, kind === 'spr' ? { answer, accept } : {})));
     // no em or en dashes in explanations (passages, stems and choices keep theirs)
     if (args.explanationDashes) {
@@ -570,10 +594,10 @@ export async function buildBundle(opts) {
   if (args.figures) {
     const result = await figures.run();
     report.figure_failures = result.failed;
-    const failedIds = new Set(result.failed.map((f) => f.id));
+    const failedSrcs = new Set(result.failed.map((f) => f.src));
     // a picture that could not be drawn leaves its question without it: hold-worthy, so report it
-    const dropFailed = (blocks) => blocks.filter((b) => !(b.t === 'img' && failedIds.has(b.src.replace(/^figures\/|\.png$/g, '')))).map((b) => (b.t === 'passage' ? { ...b, blocks: dropFailed(b.blocks) } : b));
-    if (failedIds.size) {
+    const dropFailed = (blocks) => blocks.filter((b) => !(b.t === 'img' && failedSrcs.has(b.src))).map((b) => (b.t === 'passage' ? { ...b, blocks: dropFailed(b.blocks) } : b));
+    if (failedSrcs.size) {
       for (const it of items) {
         for (const part of ['passage', 'stem']) if (it[part]) it[part].blocks = dropFailed(it[part].blocks);
         if (it.choices) for (const c of it.choices) c.blocks = dropFailed(c.blocks);
@@ -687,6 +711,7 @@ export async function buildBundle(opts) {
   }
   for (const s of sets) counts.sets[s.kind] = (counts.sets[s.kind] ?? 0) + 1;
   counts.figures = existsSync(join(OUT, 'figures')) ? readdirSync(join(OUT, 'figures')).filter((f) => f.endsWith('.png')).length : 0;
+  counts.key_figures = existsSync(join(OUT, 'keys', 'figures')) ? readdirSync(join(OUT, 'keys', 'figures')).filter((f) => f.endsWith('.png')).length : 0;
   for (const f of files) counts.files[f.collection] = (counts.files[f.collection] ?? 0) + 1;
   counts.file_bytes = files.reduce((n, f) => n + (f.bytes ?? 0), 0);
   report.counts = counts;
@@ -739,7 +764,7 @@ export function printSummary({ report, content }, log = console.log) {
   }
   line('sets', Object.entries(counts.sets).map(([k, v]) => `${k} ${v}`).join(', '));
   line('skills', `${content.skills.length} (${report.taxonomy.source})`);
-  line('figures', `${counts.figures} drawn, ${report.figure_failures.length} failed`);
+  line('figures', `${counts.figures} drawn (${counts.key_figures} more in explanations, staff only), ${report.figure_failures.length} failed`);
   line('lessons', `${counts.lessons} built, ${report.lesson_failures.length} with problems`);
   line('files', Object.entries(counts.files).map(([k, v]) => `${k} ${v}`).join(', ') + ` (${(counts.file_bytes / 1e6).toFixed(1)} MB)`);
   line('guides', `${content.guides.length}${report.guides.errors.length ? `, ${report.guides.errors.length} with problems` : ''}`);

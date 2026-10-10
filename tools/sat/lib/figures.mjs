@@ -110,13 +110,15 @@ export class Figures {
     this.queue = [];
     this.failed = [];
     mkdirSync(join(outDir, 'figures'), { recursive: true });
+    mkdirSync(join(outDir, 'keys', 'figures'), { recursive: true });
     mkdirSync(cacheDir, { recursive: true });
   }
 
   // Queues a picture; img (the doc block) gets src now and w, h once drawn
-  add({ id, source, preamble, where, img }) {
+  // path: where the PNG goes in the bundle (and the bucket), figures/... or keys/figures/...
+  add({ id, source, preamble, where, img, path = `figures/${id}.png` }) {
     const hash = createHash('sha1').update(preamble).update('\0').update(source).digest('hex').slice(0, 20);
-    img.src = `figures/${id}.png`;
+    img.src = path;
     this.queue.push({ id, source, preamble, hash, img, where });
   }
 
@@ -187,13 +189,13 @@ export class Figures {
     const retry = (await pool(batches.map((b) => () => this.compile(b)), this.jobs)).flat();
     const again = (await pool(retry.map((j) => () => this.compile([j])), this.jobs)).flat();
     const last = (await pool(again.map((j) => () => this.compile([j], 'xelatex')), this.jobs)).flat();
-    for (const j of last) this.failed.push({ id: j.id, where: j.where, error: j.error });
+    for (const j of last) this.failed.push({ id: j.id, src: j.img.src, where: j.where, error: j.error });
     // copies of a picture drawn once
     for (const list of byHash.values()) {
       const first = list[0];
       for (const j of list.slice(1)) {
         if (first.done) this.place(j, join(this.cacheDir, `${first.hash}.png`), first.img.w * 2, first.img.h * 2);
-        else this.failed.push({ id: j.id, where: j.where, error: first.error });
+        else this.failed.push({ id: j.id, src: j.img.src, where: j.where, error: first.error });
       }
     }
     return { total: this.queue.length, failed: this.failed };

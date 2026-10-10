@@ -7,15 +7,16 @@
 // --dry-run    print what would be written and uploaded; reads no env file and
 //              makes no network call
 // --prune      also remove content rows the bundle no longer has. Attempts and
-//              responses are never deleted: a question someone answered is
-//              held instead, and a set someone attempted is kept.
+//              responses are never deleted: prune refuses, listing them, when
+//              a dropped question was answered or a dropped set attempted.
 // --rehold     hold again questions the admin released, and overwrite answers
 //              the admin set (normally both are left as the admin left them)
 //
 // Reads only SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY from the env file and
 // never prints them. Tables: sat_skills, sat_sets, sat_items, sat_keys,
 // sat_files, sat_guides (upserts in batches of 200). Storage: every PDF and
-// figure goes to the private bucket sat-files (upsert), skipping files that
+// figure goes to the private bucket sat-files (upsert; explanation figures
+// under keys/figures/, which students cannot read), skipping files that
 // are unchanged since the last load (OUT/.loaded.json).
 
 import { readFileSync, writeFileSync, existsSync, statSync } from 'node:fs';
@@ -166,38 +167,28 @@ async function main() {
 
 async function prune() {
   log('pruning');
-  const itemIds = content.items.map((i) => i.id);
-  const oldItems = stale((await selectAll('sat_items', 'id')).map((r) => r.id), itemIds);
-  const answered = new Set();
-  for (const batch of chunks(oldItems)) {
-    const { data, error } = await admin.from('sat_responses').select('item_id').in('item_id', batch);
-    if (error) throw new Error(`Reading sat_responses failed: ${error.message}`);
-    for (const r of data) answered.add(r.item_id);
-  }
-  const keepHeld = oldItems.filter((id) => answered.has(id));
-  for (const batch of chunks(keepHeld)) {
-    const { error } = await admin.from('sat_items').update({ held: true, hold_reason: 'No longer in the content bundle' }).in('id', batch);
-    if (error) throw new Error(`Holding removed items failed: ${error.message}`);
-  }
-  await removeRows('sat_items', 'id', oldItems.filter((id) => !answered.has(id)));
-  log(`  sat_items: ${oldItems.length - keepHeld.length} removed, ${keepHeld.length} held (they have answers)`);
-
+  // Removing an item or set someone answered would take their answers with
+  // it, so prune refuses outright when any candidate has any. Each id is
+  // counted on its own (an .in() list read is capped at 1000 rows).
+  const used = async (table, column, ids) => {
+    const out = [];
+    for (const id of ids) {
+      const { count, error } = await admin.from(table).select(column, { count: 'exact', head: true }).eq(column, id);
+      if (error) throw new Error(`Counting ${table} failed: ${error.message}`);
+      if (count) out.push(`${id} (${count})`);
+    }
+    return out;
+  };
+  const oldItems = stale((await selectAll('sat_items', 'id')).map((r) => r.id), content.items.map((i) => i.id));
   const oldSets = stale((await selectAll('sat_sets', 'id')).map((r) => r.id), content.sets.map((s) => s.id));
-  const attempted = new Set();
-  for (const batch of chunks(oldSets)) {
-    const { data, error } = await admin.from('sat_attempts').select('set_id').in('set_id', batch);
-    if (error) throw new Error(`Reading sat_attempts failed: ${error.message}`);
-    for (const r of data) attempted.add(r.set_id);
+  const answered = await used('sat_responses', 'item_id', oldItems);
+  const attempted = await used('sat_attempts', 'set_id', oldSets);
+  if (answered.length || attempted.length) {
+    throw new Error(`Prune refused: content the bundle dropped still has student work.${answered.length ? `\n  answered items: ${answered.join(', ')}` : ''}${attempted.length ? `\n  attempted sets: ${attempted.join(', ')}` : ''}\nPut them back in the bundle (or hold them) and prune again.`);
   }
-  // a set with attempts keeps its row (and its answered questions); others go
-  const removable = [];
-  for (const id of oldSets.filter((s) => !attempted.has(s))) {
-    const { count, error } = await admin.from('sat_items').select('id', { count: 'exact', head: true }).eq('set_id', id);
-    if (error) throw new Error(`Counting items failed: ${error.message}`);
-    if (!count) removable.push(id);
-  }
-  await removeRows('sat_sets', 'id', removable);
-  log(`  sat_sets: ${removable.length} removed, ${oldSets.length - removable.length} kept (attempted or still holding answered questions)`);
+  await removeRows('sat_items', 'id', oldItems);
+  await removeRows('sat_sets', 'id', oldSets);
+  log(`  removed ${oldItems.length} items and ${oldSets.length} sets`);
 
   const oldSkills = stale((await selectAll('sat_skills', 'slug')).map((r) => r.slug), content.skills.map((s) => s.slug));
   await removeRows('sat_skills', 'slug', oldSkills);
@@ -210,11 +201,13 @@ async function prune() {
   await removeRows('sat_files', 'id', oldFiles.map((f) => f.id));
   const gone = oldFiles.map((f) => f.storage_path).filter((p) => !keepPaths.has(p));
   // figures nobody points at any more
-  for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await admin.storage.from(BUCKET).list('figures', { limit: PAGE, offset });
-    if (error) throw new Error(`Listing figures failed: ${error.message}`);
-    for (const o of data) if (o.id && !keepPaths.has(`figures/${o.name}`)) gone.push(`figures/${o.name}`);
-    if (data.length < PAGE) break;
+  for (const prefix of ['figures', 'keys/figures']) {
+    for (let offset = 0; ; offset += PAGE) {
+      const { data, error } = await admin.storage.from(BUCKET).list(prefix, { limit: PAGE, offset });
+      if (error) throw new Error(`Listing ${prefix} failed: ${error.message}`);
+      for (const o of data) if (o.id && !keepPaths.has(`${prefix}/${o.name}`)) gone.push(`${prefix}/${o.name}`);
+      if (data.length < PAGE) break;
+    }
   }
   for (const batch of chunks(gone, 100)) {
     const { error } = await admin.storage.from(BUCKET).remove(batch);

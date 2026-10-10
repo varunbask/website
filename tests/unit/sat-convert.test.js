@@ -11,7 +11,8 @@ import { classifyRw, matchTopics } from '../../tools/sat/lib/classify.mjs';
 import { repeatedWordSuspect } from '../../tools/sat/lib/checks.mjs';
 import { qbDifficulty } from '../../tools/sat/lib/files.mjs';
 import { yearTicks } from '../../tools/sat/lib/figures.mjs';
-import { buildBundle } from '../../tools/sat/lib/build.mjs';
+import { buildBundle, figurePath, gitCheckoutOf } from '../../tools/sat/lib/build.mjs';
+import { spawnSync } from 'node:child_process';
 
 // All LaTeX here is made up for the tests (never the books' own questions)
 const doc = (tex, ctx) => toDoc(tex, ctx).blocks;
@@ -481,5 +482,24 @@ describe('buildBundle on a made-up tree', () => {
     expect(second.content.items.map((i) => i.id)).toEqual(first.content.items.map((i) => i.id));
     expect(second.content.sets.map((s) => s.id)).toEqual(first.content.sets.map((s) => s.id));
     expect(JSON.parse(readFileSync(join(root, 'out', 'content.json'), 'utf8')).items).toHaveLength(first.content.items.length);
+  });
+});
+
+describe('safety', () => {
+  test('explanation figures go under keys/, which students cannot read', () => {
+    expect(figurePath('alg-ch1-03', 1)).toBe('figures/alg-ch1-03.png');
+    expect(figurePath('alg-ch1-03', 2)).toBe('figures/alg-ch1-03-2.png');
+    expect(figurePath('alg-ch1-03', 1, { explanation: true })).toBe('keys/figures/alg-ch1-03-1.png');
+  });
+
+  test('the bundle is never built inside a git checkout', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'sat-repo-'));
+    spawnSync('git', ['init', '-q'], { cwd: root });
+    expect(gitCheckoutOf(join(root, 'sat-build', 'deeper'))).toBeTruthy();
+    await expect(buildBundle({ sat: root, out: join(root, 'sat-build'), figures: false, lessons: false })).rejects.toThrow(/inside the git checkout/);
+    const outside = mkdtempSync(join(tmpdir(), 'sat-out-'));
+    expect(gitCheckoutOf(join(outside, 'sat-build'))).toBeNull();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
   });
 });
