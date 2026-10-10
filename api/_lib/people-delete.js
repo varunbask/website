@@ -137,6 +137,33 @@ export function failureCode(error) {
 }
 
 // ---------------------------------------------------------------------------
+// A separate sign-in that may be merged into an account added without a login
+// (/api/people merge_signin): only when it holds nothing that matters
+// elsewhere (lessons, homework, links, bills, files, a Google connection). Its
+// own photo and profile answers go with it. -> { empty, held: ['3 lessons', ...], avatars }
+
+export async function signinHoldings(repo, id) {
+  const [sessions, counts, refs, files, google] = await Promise.all([
+    repo.sessionsOf(id), repo.countsOf(id), repo.billingRefs(id), repo.filesOf(id, []), repo.googleCount(id),
+  ]);
+  const held = [];
+  const add = (n, one, many) => { if (n > 0) held.push(`${n} ${n === 1 ? one : many}`); };
+  add(sessions.length, 'lesson', 'lessons');
+  add(counts.tasks, 'assignment or task', 'assignments and tasks');
+  add(counts.submissions, 'submission', 'submissions');
+  add(counts.drafts, 'answer draft', 'answer drafts');
+  add(counts.updates + counts.notes, 'update or note', 'updates and notes');
+  add(counts.series, 'repeating series', 'repeating series');
+  add(counts.family_rates + counts.tutor_rates, 'rate', 'rates');
+  add(counts.tutor_links + counts.parent_links, 'tutor or family link', 'tutor or family links');
+  add(counts.statements, 'bill', 'bills');
+  add(refs.payments + refs.payouts + refs.adjustments, 'payment record', 'payment records');
+  add(files.homework.length + files.materials.length, 'file', 'files');
+  add(google, 'Google Calendar connection', 'Google Calendar connections');
+  return { empty: held.length === 0, held, avatars: files.avatars ?? [] };
+}
+
+// ---------------------------------------------------------------------------
 // What a person has, before anything is deleted
 
 async function gather(repo, person, nowMs) {
@@ -366,6 +393,10 @@ export function createDeleteRepo(db) {
         assignments, tasks, submissions, drafts, updates, notes, series, family_rates: familyRates, tutor_rates: tutorRates,
         tutor_links: tutorLinks, parent_links: parentLinks, invites, statements,
       };
+    },
+
+    async googleCount(id) {
+      return count('google_connections', (q) => q.eq('user_id', id));
     },
 
     // Money rows that restrict the delete, voided ones included

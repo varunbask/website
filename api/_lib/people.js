@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { hashToken } from './testimonials.js';
 import { sendMail, escapeHtml, siteOf, DEFAULT_TO } from './referral-mail.js';
-import { handleDelete, createDeleteRepo } from './people-delete.js';
+import { handleDelete, createDeleteRepo, signinHoldings, AVATARS_BUCKET } from './people-delete.js';
 
 // People without a sign-in, and the personal links that let them claim their
 // account (supabase/migrations/20261012120000_portal_invites.sql).
@@ -21,6 +21,12 @@ import { handleDelete, createDeleteRepo } from './people-delete.js';
 //                                                (signupMayBe) and be the only account that does, or be
 //                                                picked by hand after a typed confirm: chosen true with
 //                                                confirm_name, the account's name as People showed it
+//   { action: 'merge_signin', from_id, into_id, confirm_name }
+//                                                admin: someone signed in under a second account (approved
+//                                                by mistake) who was already added without a login. The
+//                                                second account must hold nothing that matters; it is
+//                                                removed and its email gets a link to the first one
+//                                                -> { ok, to, link } (the link is shown once, to copy)
 //   { action: 'delete_preview', id }             admin: what deleting a person would remove, and what
 //                                                refuses it (api/_lib/people-delete.js)
 //   { action: 'delete_person', id, confirm_name } admin: delete them for good, with everything of theirs
@@ -268,6 +274,51 @@ export async function handlePeople(request, {
       warn?.('[people] dropOpenInvites', error?.message ?? error);
     }
     return json(200, { ok: true, to });
+  }
+
+  if (data.action === 'merge_signin') {
+    const caller = await verifyAdmin(request);
+    if (!caller) return json(401, { error: 'unauthorized' });
+    if (!env.RESEND_API_KEY) return json(503, { error: 'email_not_configured' });
+    if (!data.from_id || !data.into_id || data.from_id === data.into_id) return json(400, { error: 'invalid' });
+    const [from, into] = await Promise.all([repo.getProfile(data.from_id), repo.getProfile(data.into_id)]);
+    // The second account: a student or parent who signs in (never staff, never one added without a login)
+    if (!from || from.no_login || !ROLES.includes(from.role)) return json(409, { error: 'not_signin' });
+    if (!into || !into.no_login || into.role !== from.role) return json(409, { error: 'not_no_login' });
+    // The account named exactly as People showed it, so a stale page cannot merge into anyone else
+    if (!signupChosen({ requested_role: from.role }, into, data.confirm_name)) return json(409, { error: 'no_match' });
+    const holdings = await signinHoldings(repo, from.id);
+    if (!holdings.empty) return json(409, { error: 'has_data', held: holdings.held });
+    const found = await auth.getUserById(from.id);
+    const to = normalizeEmail(found.data?.user?.email);
+    if (found.error || !to || isPlaceholder(to)) return json(409, { error: 'no_email' });
+    // Unchanged right before it goes: same role, still signing in, still nothing linked
+    const again = await repo.getProfile(from.id);
+    if (!again || again.no_login || again.role !== from.role || await repo.hasLinks(from.id)) return json(409, { error: 'changed' });
+    // It holds their address; remove it first so the link can move the first account to it
+    const removed = await auth.deleteUser(from.id);
+    if (removed?.error) throw new Error(`deleteUser: ${removed.error.message ?? 'failed'}`);
+    if (holdings.avatars.length) {
+      await repo.removeFiles(AVATARS_BUCKET, holdings.avatars).catch((error) => warn?.('[people] merge photos', error?.message ?? error));
+    }
+    const token = randomBytes(32).toString('base64url');
+    const link = inviteLink(token, env);
+    const invite = await repo.createInvite(into.id, hashToken(token), caller.id);
+    const children = into.role === 'parent' ? await repo.childrenOf(into.id) : [];
+    const mail = buildInviteEmail({ name: into.full_name, role: into.role, children, link, to });
+    try {
+      if ((await send(mail, { env, fetchImpl })) === 'skipped') throw new Error('skipped');
+    } catch {
+      return json(502, { error: 'email_failed', to, link });
+    }
+    await repo.markEmailed(invite.id, to, new Date(now()).toISOString());
+    try {
+      await repo.dropOpenInvites(into.id, invite.id);
+    } catch (error) {
+      warn?.('[people] dropOpenInvites', error?.message ?? error);
+    }
+    log?.(`[people] merge_signin role=${into.role}`);
+    return json(200, { ok: true, to, link });
   }
 
   if (data.action === 'delete_preview' || data.action === 'delete_person') {
