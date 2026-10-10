@@ -736,7 +736,12 @@
       const target = db.profiles.find((p) => p.id === body.profile_id);
       if (!signup || signup.role !== 'pending') return reply(409, { error: 'not_pending' });
       if (!target || !target.no_login || !['student', 'parent'].includes(target.role)) return reply(409, { error: 'not_no_login' });
+      // A pick by hand names the account as it is now (the real server checks the same)
+      const named = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+      if (body.chosen === true && named(body.confirm_name) !== named(target.full_name)) return reply(409, { error: 'no_match' });
       db.profiles = db.profiles.filter((p) => p !== signup);
+      // Only the link just emailed opens the account
+      db.portal_invites = db.portal_invites.filter((i) => i.profile_id !== target.id || i.used_at);
       db.portal_invites.push(create('portal_invites', { profile_id: target.id, token_hash: 'f'.repeat(64), emailed_to: signup.email, emailed_at: new Date().toISOString() }));
       return reply(200, { ok: true, to: signup.email });
     }

@@ -40,7 +40,10 @@
 import { sb } from '../supabase.js';
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
-import { newInviteToken, inviteLink, inviteMessage, INVITE_DAYS, parseFamilyLines, planFamilies, signupMatches } from '../invites-model.js';
+import {
+  newInviteToken, inviteLink, inviteMessage, INVITE_DAYS, parseFamilyLines, planFamilies, signupMatches, signupChoices,
+  confirmWordFor, confirmMatches, familyText,
+} from '../invites-model.js';
 import {
   INVITE_FILTERS, INVITE_FILTER_LABELS, inviteStatuses, inviteCounts, hasNoLoginPeople, filterByInvite,
   inviteSummary, inviteEmptyText,
@@ -497,70 +500,165 @@ export function mount(ctx) {
         approve));
   }
 
+  // An account added without a login, by its family, so two people with one
+  // name ("Grace" and "Grace (Gordon's Mom)") can be told apart
+  // -> { names (the children, or the student), text }
+  function familyOf(p) {
+    if (p.role === 'parent') {
+      const children = studentsOf(p.id, data.parentLinks, 'parent_id', data.byId).map(displayName);
+      const paying = data.parentLinks.filter((l) => l.parent_id === p.id && l.bills)
+        .map((l) => data.byId.get(l.student_id)).filter(Boolean).sort(byName).map(displayName);
+      return { names: children, text: familyText({ role: 'parent', children, paying }) };
+    }
+    const parents = linkedTo(p.id, data.parentLinks, 'parent_id', data.byId).map(displayName);
+    return { names: [displayName(p)], text: familyText({ role: 'student', parents }) };
+  }
+
   // A sign-up that may be someone already added without a login: approving it
   // would make a second, empty account (their lessons and bills are on the
-  // first, and the sign-up holds their email). "Use X's account" removes the
-  // sign-up and emails them a link to set a password on the first one.
+  // first, and the sign-up holds their email). "Use this account" removes the
+  // sign-up and emails them a link to set a password on that account. Every
+  // possible account shows its family; when more than one could be them, or
+  // the admin picks one by hand, nothing is preselected and the admin types
+  // the child's first name to confirm, so a sign-up never lands on the wrong
+  // family's account.
   function duplicateWarning(signup, name) {
-    const matches = signupMatches(signup, data.people);
-    if (!matches.length) return null;
-    const label = (p) => `${displayName(p)} (${roleWord(p.role)})`;
-    const [top] = matches;
-    const title = matches.length > 1
-      ? `This may be ${matches.map(({ person }) => label(person)).join(' or ')}, added without a login`
-      : top.exact
-        ? `${label(top.person)} is already in the portal, added without a login`
-        : `This may be ${label(top.person)}, added without a login`;
+    const matches = signupMatches(signup, data.people, { invites: data.invites });
+    const choices = signupChoices(signup, data.people).filter((p) => !matches.some((m) => m.person.id === p.id));
+    if (!matches.length && !choices.length) return null;
     const to = signup.email ?? 'their email';
-    const warnIcon = icon('warning-circle', { size: 20 });
-    warnIcon.classList.add('callout-icon');
-    const actions = matches.map(({ person: p, exact }) => {
+    const label = (p) => `${displayName(p)} (${roleWord(p.role)})`;
+    // Sure: the one account a link was emailed to at this address, or the only one with the same full name
+    const sure = matches.length === 1 && matches[0].reason !== 'first';
+    const why = { email: `A link to this account was emailed to ${to}`, name: 'Same name', first: 'Same first name' };
+
+    const useButton = (p, { check, primary = false }) => {
       const pname = displayName(p);
       const use = button({
-        label: `Use ${pname}’s account`,
+        label: 'Use this account',
         size: 'sm',
-        variant: exact && matches.length === 1 ? 'primary' : 'secondary',
+        variant: primary ? 'primary' : 'secondary',
         icon: 'envelope-simple',
         focusKey: `use-${signup.id}-${p.id}`,
-        onClick: async () => {
-          const same = pname.toLowerCase() === name.toLowerCase();
-          const ok = await ctx.confirm({
-            title: same ? `Use the account you set up for ${name}?` : `Use ${pname}’s account for ${name}?`,
-            body: `This sign-up will be removed, and ${to} gets an email with a link to set a password on ${same ? 'the account you set up' : `${pname}’s account`}, where their lessons and bills already are.`,
-            confirmLabel: 'Remove sign-up and email the link',
-          });
-          if (!ok || !ctx.alive()) return;
-          const li = use.closest('li');
-          const near = li?.nextElementSibling ?? li?.previousElementSibling;
-          const focus = { key: `invite-${p.id}`, fallback: near?.querySelector('button[data-focus-key^="approve-"]')?.dataset.focusKey ?? null };
-          await busy(use, 'Sending…', async () => {
-            const { status, body } = await peopleApi({ action: 'use_signup', signup_id: signup.id, profile_id: p.id });
-            if (!ctx.alive()) return;
-            if (status === 200) {
-              say(`Removed ${name}’s sign-up and emailed ${body.to ?? to} a link to ${pname}’s account. Once they choose a password, they sign in there.`, 'success');
-            } else if (status === 502) {
-              say(`Removed ${name}’s sign-up, but the email didn’t send. Use Invite on ${pname}’s row under Everyone to send a new link.`, 'error');
-            } else {
-              const why = status === 409 ? 'this changed since the page loaded. Refresh and try again.'
-                : status === 503 ? 'email is not set up, so nothing was changed.'
-                  : status === 401 ? 'sign in again as an admin.' : 'please try again.';
-              say(`That didn’t work: ${why}`, 'error');
-              return;
-            }
-            await render(focus);
-            syncCounts();
-          });
-        },
+        onClick: () => useAccount(signup, name, p, { check, trigger: use }),
       });
       use.setAttribute('aria-label', `Use ${pname}’s account for ${name}`);
       return use;
-    });
+    };
+
+    const options = matches.map(({ person: p, reason }) => h('li', { class: 'ppl-dupe-option' },
+      h('div', { class: 'ppl-dupe-who' },
+        h('span', { class: 'ppl-dupe-name' }, label(p)),
+        h('span', { class: 'ppl-dupe-family' }, familyOf(p).text),
+        h('span', { class: 'ppl-dupe-why' }, why[reason])),
+      useButton(p, { check: !sure, primary: sure })));
+
+    // Not among them: any account of the role they asked for, picked by hand
+    let picker = null;
+    if (choices.length) {
+      const wrap = select({
+        label: `Another account for ${name}`,
+        options: [
+          { value: '', label: 'Choose an account', disabled: true },
+          ...choices.map((p) => ({ value: p.id, label: `${displayName(p)}: ${familyOf(p).text}` })),
+        ],
+        value: '',
+        size: 'sm',
+      });
+      const sel = wrap.querySelector('select');
+      const use = button({
+        label: 'Use this account',
+        size: 'sm',
+        variant: 'secondary',
+        icon: 'envelope-simple',
+        focusKey: `use-${signup.id}-other`,
+        onClick: () => {
+          const p = choices.find((c) => c.id === sel.value);
+          if (!p) {
+            sel.focus();
+            return;
+          }
+          useAccount(signup, name, p, { check: true, trigger: use });
+        },
+      });
+      use.setAttribute('aria-label', `Use the chosen account for ${name}`);
+      picker = h('div', { class: 'ppl-dupe-pick' },
+        h('p', { class: 'ppl-dupe-pick-label' }, matches.length ? 'Not one of these? Pick their account:' : 'Pick their account:'),
+        h('div', { class: 'ppl-dupe-pick-row' }, wrap, use));
+    }
+
+    // No account looks like them: only a quiet way to pick one by hand
+    if (!matches.length) {
+      return h('details', { class: 'ppl-dupe-more' },
+        h('summary', {}, 'Already added without a login? Use their account'),
+        h('p', { class: 'ppl-dupe-more-text' }, `Their lessons and bills stay on that account. This sign-up is removed and ${to} gets a link to set a password on it.`),
+        picker);
+    }
+
+    const title = matches.length > 1
+      ? `This may be one of ${matches.length} people added without a login`
+      : sure ? `${label(matches[0].person)} is already in the portal, added without a login`
+        : `This may be ${label(matches[0].person)}, added without a login`;
+    const text = matches.length > 1
+      ? `Check each family and use the right account: their lessons and bills are on it, so approving this sign-up would give them a second, empty one. This sign-up is removed and ${to} gets a link to set a password on that account. If it’s none of them, approve as usual.`
+      : `Their lessons and bills are on that account, so approving this sign-up would give them a second, empty one. Use their account instead: this sign-up is removed and ${to} gets a link to set a password on it. If it’s someone else, approve as usual.`;
+    const warnIcon = icon('warning-circle', { size: 20 });
+    warnIcon.classList.add('callout-icon');
     return h('div', { class: 'callout tone-warning ppl-dupe', role: 'note' },
       warnIcon,
       h('div', { class: 'callout-body' },
         h('p', { class: 'callout-title' }, title),
-        h('p', { class: 'callout-text' }, `Their lessons and bills are on that account, so approving this sign-up would give them a second, empty one. Use their account instead: this sign-up is removed and ${to} gets a link to set a password on it. If it’s someone else, approve as usual.`),
-        h('div', { class: 'callout-actions' }, ...actions)));
+        h('p', { class: 'callout-text' }, text),
+        h('ul', { class: 'ppl-dupe-options' }, options),
+        picker));
+  }
+
+  // Confirms the account (naming its family) and asks the server to use it.
+  // check: the admin types the child's first name first (not a certain match).
+  async function useAccount(signup, name, p, { check, trigger }) {
+    const pname = displayName(p);
+    const fam = familyOf(p);
+    const to = signup.email ?? 'their email';
+    const list = (names) => (names.length <= 1 ? names[0] ?? '' : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`);
+    const sees = p.role === 'parent' && fam.names.length
+      ? `${name} will see ${list(fam.names)}’s lessons, homework and bills.`
+      : `${name} will sign in to ${pname}’s lessons and homework.`;
+    const word = check ? confirmWordFor(p, fam.names) : null;
+    const ok = await ctx.confirm({
+      title: `Use ${pname}’s account for ${name}?`,
+      body: 'Make sure this is their family before you go on.',
+      details: [
+        `${pname}: ${fam.text}.`,
+        sees,
+        `This sign-up is removed, and ${to} gets an email with a link to set a password on ${pname}’s account.`,
+      ],
+      requireText: word ? { label: `Type ${word.what}, ${word.word}, to confirm`, match: (t) => confirmMatches(t, word.word) } : null,
+      confirmLabel: 'Remove sign-up and email the link',
+    });
+    if (!ok || !ctx.alive()) return;
+    const li = trigger.closest('li.ppl-card') ?? trigger.closest('li');
+    const near = li?.nextElementSibling ?? li?.previousElementSibling;
+    const focus = { key: `invite-${p.id}`, fallback: near?.querySelector('button[data-focus-key^="approve-"]')?.dataset.focusKey ?? null };
+    await busy(trigger, 'Sending…', async () => {
+      // The account's name exactly as shown: the server refuses a pair that changed since
+      const { status, body } = await peopleApi({
+        action: 'use_signup', signup_id: signup.id, profile_id: p.id, chosen: true, confirm_name: p.full_name ?? '',
+      });
+      if (!ctx.alive()) return;
+      if (status === 200) {
+        say(`Removed ${name}’s sign-up and emailed ${body.to ?? to} a link to ${pname}’s account. Once they choose a password, they sign in there.`, 'success');
+      } else if (status === 502) {
+        say(`Removed ${name}’s sign-up, but the email didn’t send. Use Invite on ${pname}’s row under Everyone to send a new link.`, 'error');
+      } else {
+        const why = status === 409 ? 'this changed since the page loaded. Refresh and try again.'
+          : status === 503 ? 'email is not set up, so nothing was changed.'
+            : status === 401 ? 'sign in again as an admin.' : 'please try again.';
+        say(`That didn’t work: ${why}`, 'error');
+        return;
+      }
+      await render(focus);
+      syncCounts();
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -846,7 +944,20 @@ export function mount(ctx) {
       out);
   }
 
-  // The latest invite of a person without a sign-in, and making a new one
+  // Removes a person's unused links (keepId: the one just made stays).
+  // A removed link no longer opens anything. -> true when it worked
+  async function dropOpenLinks(person, keepId = null) {
+    let q = sb.from('portal_invites').delete().eq('profile_id', person.id).is('used_at', null);
+    if (keepId !== null) q = q.neq('id', keepId);
+    const { error } = await q;
+    if (error) return false;
+    data.invites = data.invites.filter((i) => i.profile_id !== person.id || i.used_at || i.id === keepId);
+    return true;
+  }
+
+  // The latest invite of a person without a sign-in, making a new one (which
+  // cancels any older unused link, so only the newest ever works) and
+  // cancelling an open one (a link sent to the wrong person)
   function inviteControls(person) {
     const first = statuses.get(person.id);
     if (!first) return null;
@@ -873,6 +984,10 @@ export function mount(ctx) {
         say('That didn’t save: the invite could not be made. Refresh the page and try again.', 'error');
         return null;
       }
+      // Older unused links to this account stop working: only the newest one opens it
+      const dropped = await dropOpenLinks(person, rows[0].id);
+      if (!ctx.alive()) return null;
+      if (!dropped) say(`The new link works, but ${name}’s older links could not be cancelled. Use Cancel link, then make a new one.`, 'error');
       // The chips and the sentence count this link now, though the list is not redrawn while its link is open
       const at = Date.now();
       data.invites.push({
@@ -897,7 +1012,41 @@ export function mount(ctx) {
         if (made) paint(made);
       },
     });
+    // A link sent to the wrong person (or no longer wanted) stops working
+    const cancel = button({
+      label: 'Cancel link',
+      size: 'sm',
+      variant: 'ghost',
+      icon: 'x',
+      focusKey: `invite-cancel-${person.id}`,
+      onClick: async () => {
+        const ok = await ctx.confirm({
+          title: `Cancel ${name}’s invite link?`,
+          body: 'The link stops working at once, for anyone who has it. Their account, lessons and bills stay as they are, and you can make a new link any time.',
+          confirmLabel: 'Cancel the link',
+          cancelLabel: 'Keep it',
+        });
+        if (!ok || !ctx.alive()) return;
+        let done = false;
+        await busy(cancel, 'Cancelling…', async () => { done = await dropOpenLinks(person); });
+        if (!ctx.alive()) return;
+        if (!done) {
+          say('That didn’t work: the link could not be cancelled. Refresh the page and try again.', 'error');
+          return;
+        }
+        statuses = inviteStatuses(data.people, data.invites, Date.now());
+        updateInviteBar();
+        panel.hidden = true;
+        panel.replaceChildren();
+        say(`${name}’s invite link is cancelled. It no longer opens their account.`, 'success');
+        const now = statuses.get(person.id);
+        if (now) paint(now);
+        make.focus();
+      },
+    });
+    cancel.setAttribute('aria-label', `Cancel ${name}’s invite link`);
     function paint(s) {
+      cancel.hidden = s.key !== 'invited';
       note.textContent = noteOf(s);
       note.hidden = !note.textContent;
       make.querySelector('.btn-label').textContent = labelOf(s);
@@ -907,7 +1056,7 @@ export function mount(ctx) {
     }
     paint(first);
     return h('div', { class: 'ppl-invite' },
-      h('div', { class: 'ppl-invite-row' }, pill({ label: 'No sign-in yet', tone: 'warning', icon: 'clock' }), note, make),
+      h('div', { class: 'ppl-invite-row' }, pill({ label: 'No sign-in yet', tone: 'warning', icon: 'clock' }), note, make, cancel),
       panel);
   }
 

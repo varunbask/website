@@ -936,3 +936,30 @@
 .ppl-links.is-parent { grid-template-columns: minmax(0, 1fr); }
 /* A sign-up that may be someone already added without a login */
 .ppl-dupe { align-self: stretch; }
+/* Each account the sign-up could be, with its family, so two people with one name are told apart */
+.ppl-dupe-options { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-3) 0 0; padding: 0; list-style: none; }
+.ppl-dupe-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2) var(--s-3);
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background-color: var(--surface);
+}
+.ppl-dupe-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ppl-dupe-name { font: 600 14px/20px var(--font-ui); color: var(--text); overflow-wrap: anywhere; }
+.ppl-dupe-family { font: 400 13px/18px var(--font-ui); color: var(--text); overflow-wrap: anywhere; }
+.ppl-dupe-why { font: 400 12px/16px var(--font-ui); color: var(--text-3); }
+.ppl-dupe-pick { display: flex; flex-direction: column; gap: var(--s-1); margin-top: var(--s-3); }
+.ppl-dupe-pick-label { margin: 0; font: 500 13px/18px var(--font-ui); color: var(--text-2); }
+.ppl-dupe-pick-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.ppl-dupe-pick-row > .select { flex: 1 1 240px; min-width: 0; max-width: 100%; }
+.ppl-dupe-pick-row > .select > select { width: 100%; text-overflow: ellipsis; }
+/* No account looks like them: a quiet way to pick one by hand */
+.ppl-dupe-more { align-self: stretch; }
+.ppl-dupe-more > summary { cursor: pointer; font: 500 13px/20px var(--font-ui); color: var(--text-2); }
+.ppl-dupe-more > summary:hover { color: var(--text); }
+.ppl-dupe-more-text { margin: var(--s-2) 0 0; font: var(--t-meta); color: var(--text-2); }
