@@ -763,7 +763,7 @@
 
   const blobUrls = new Map();
   async function fileBlob(path) {
-    if (path.startsWith('figures/')) return figurePng();
+    if (path.startsWith('figures/') || path.startsWith('keys/figures/')) return figurePng();
     const f = db.sat_files.find((x) => x.storage_path === path);
     return pdf(f?.title ?? 'SAT file', local
       ? ['This PDF was not copied into the local demo.', 'Only lesson PDFs and figures are.']
@@ -775,7 +775,14 @@
     if (!m) return null;
     return db.sat_items.find((i) => i.id === m[1]) ?? db.sat_items.find((i) => i.id === m[1].replace(/-\d+$/, '')) ?? null;
   };
-  const canRead = (path) => hp.isStaff() || (allowed(hp.meId) && !path.startsWith('keys/') && !path.includes('..')
+  // An explanation's figure: once that practice question is answered, or its test module submitted
+  const keyFigureOpen = (path) => {
+    const it = figureItem(path.replace(/^keys\//, ''));
+    if (!path.startsWith('keys/figures/') || !it || it.held) return false;
+    return db.sat_attempts.some((a) => a.student_id === hp.meId && a.set_id === it.set_id && (a.module == null || it.module == null || a.module === it.module)
+      && (a.mode === 'practice' ? db.sat_responses.some((r) => r.attempt_id === a.id && r.item_id === it.id && r.response) : Boolean(a.submitted_at)));
+  };
+  const canRead = (path) => hp.isStaff() || (allowed(hp.meId) && keyFigureOpen(path)) || (allowed(hp.meId) && !path.startsWith('keys/') && !path.includes('..')
     && (/^guides\/[A-Za-z0-9._/-]{1,200}$/.test(path)
       || ((it) => Boolean(it) && !it.held && itemOpen(it))(figureItem(path))
       || db.sat_files.some((f) => f.storage_path === path && !f.staff_only)));
@@ -784,6 +791,7 @@
   function localUrl(path) {
     if (!local) return null;
     if (path.startsWith('figures/')) return `${local.figures}${path.slice('figures/'.length)}`;
+    if (path.startsWith('keys/figures/')) return `${local.keyFigures}${path.slice('keys/figures/'.length)}`;
     const f = db.sat_files.find((x) => x.storage_path === path);
     if (f?.collection === 'lesson' && path.startsWith('lessons/')) return `${local.lessons}${path.slice('lessons/'.length)}`;
     return null;

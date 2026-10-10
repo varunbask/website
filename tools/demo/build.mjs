@@ -72,10 +72,13 @@ if (satDir) {
   cpSync(join(satDir, 'content.json'), join(local, 'content.json'));
   const holds = existsSync(join(satDir, 'holds.json'));
   if (holds) cpSync(join(satDir, 'holds.json'), join(local, 'holds.json'));
-  for (const sub of ['figures', 'lessons']) {
+  for (const sub of ['figures', 'lessons', 'keys/figures']) {
     if (existsSync(join(satDir, sub))) cpSync(join(satDir, sub), join(local, sub), { recursive: true });
   }
-  const config = { content: '/sat-local/content.json', holds: holds ? '/sat-local/holds.json' : null, figures: '/sat-local/figures/', lessons: '/sat-local/lessons/' };
+  const config = {
+    content: '/sat-local/content.json', holds: holds ? '/sat-local/holds.json' : null,
+    figures: '/sat-local/figures/', keyFigures: '/sat-local/keys/figures/', lessons: '/sat-local/lessons/',
+  };
   writeFileSync(join(local, 'sat-local.js'), `window.portalDemoSatLocal = ${JSON.stringify(config)};\n`);
   satTag = '<script src="/sat-local/sat-local.js"></script>';
 }

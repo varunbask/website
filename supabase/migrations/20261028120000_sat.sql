@@ -22,7 +22,8 @@
 --     Private PDFs and PNG figures. Staff read every file; a student with
 --     access reads a file listed in sat_files that is not staff only, the
 --     figures of questions they may read (figures/<item id>[-n].png) and
---     guides/; keys/ is staff only. Nobody signed in writes to it.
+--     guides/; keys/ is staff only except an explanation's figure once its
+--     question is answered (practice) or its module submitted. Nobody signed in writes to it.
 -- RPCs (security definer, the caller is auth.uid())
 --     sat_start, sat_answer, sat_submit, sat_review, sat_release_item (admin),
 --     sat_held_items (admin).
@@ -287,16 +288,42 @@ on conflict (id) do update
 --     they may read (not held; a test question once its module is started)
 --   guides/...  pictures in study guides and lessons
 --   a file listed in sat_files that is not staff only
--- keys/ (explanation figures, answer keys) is staff only.
+--   keys/figures/<item id>[-n].png  an explanation's figure, once they have
+--     answered that practice question in one of their attempts, or submitted
+--     the test module that holds it
+-- Anything else under keys/ (answer keys) is staff only.
+create function private.sat_key_figure_open(p_name text)
+returns boolean
+language sql stable security definer set search_path = ''
+as $$
+  select p_name ~ '^keys/figures/[a-z0-9-]{1,80}\.png$' and exists (
+    select 1 from public.sat_items i
+      join public.sat_sets s on s.id = i.set_id
+     where (i.id = substring(p_name from '^keys/figures/([a-z0-9-]+)\.png$')
+            or i.id = regexp_replace(substring(p_name from '^keys/figures/([a-z0-9-]+)\.png$'), '-[0-9]+$', ''))
+       and not i.held
+       and exists (
+         select 1 from public.sat_attempts a
+          where a.student_id = auth.uid() and a.set_id = i.set_id
+            and (a.module is null or i.module is null or a.module = i.module)
+            and case when a.mode = 'practice'
+                     then exists (select 1 from public.sat_responses r
+                                   where r.attempt_id = a.id and r.item_id = i.id and r.response is not null)
+                     else a.submitted_at is not null end))
+$$;
+revoke execute on function private.sat_key_figure_open(text) from public;
+grant execute on function private.sat_key_figure_open(text) to authenticated;
+
 create function private.sat_can_read_file(p_name text)
 returns boolean
 language sql stable security definer set search_path = ''
 as $$
   select private.is_staff()
       or (private.sat_allowed(auth.uid())
-          and p_name !~ '^keys/'
           and p_name !~ '\.\.'
+          and (p_name !~ '^keys/' or private.sat_key_figure_open(p_name))
           and (
+            private.sat_key_figure_open(p_name) or
             (p_name ~ '^guides/[A-Za-z0-9._/-]{1,200}$')
             or exists (
               select 1 from public.sat_items i
