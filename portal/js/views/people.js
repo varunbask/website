@@ -64,6 +64,12 @@ import {
 } from '../delete-person-model.js';
 import { announceDataChanged } from '../data-sync.js';
 
+// The result of the last merge (with its one-time link), kept outside the view
+// so a redraw (this page's own refresh, or a live update) cannot lose it; the
+// merged person's row shows it until it is dismissed.
+//   { intoId, intoName, dupName, to, link, emailed, focus }
+let mergeNotice = null;
+
 // ---------------------------------------------------------------------------
 // Pure logic
 
@@ -1129,6 +1135,8 @@ export function mount(ctx) {
             const { status, body } = await peopleApi({ action: 'merge_signin', from_id: dup.id, into_id: person.id, confirm_name: person.full_name ?? '' });
             const merged = status === 200 || (status === 502 && body?.link);
             if (merged) {
+              // Kept outside the view first, so any redraw from here on shows it on the row
+              mergeNotice = { intoId: person.id, intoName: name, dupName, to: body.to ?? null, link: body.link ?? '', emailed: status === 200, focus: true };
               // This page's caches, then every other tab's
               ctx.store.invalidateAll();
               announceDataChanged();
@@ -1138,7 +1146,7 @@ export function mount(ctx) {
               ctx.toast({
                 text: status === 200
                   ? `Merged ${dupName} into ${name}. ${body.to ?? 'Their email'} got a link to set a password there.`
-                  : merged ? `Merged ${dupName} into ${name}, but the email didn’t send. Use New invite link on ${name}’s row to send a link.`
+                  : merged ? `Merged ${dupName} into ${name}, but the email didn’t send. Copy the link shown on ${name}’s row and send it to them.`
                     : `The merge of ${dupName} into ${name} may not have finished. Check People before trying again.`,
               });
               return;
@@ -1146,42 +1154,9 @@ export function mount(ctx) {
             if (merged) {
               say(status === 200
                 ? `Merged. ${body.to ?? dupName} got a link to set a password on ${name}’s account; once they do, they sign in there.`
-                : `Merged, but the email didn’t send. Copy the link below and send it to ${body.to ?? 'them'}.`, status === 200 ? 'success' : 'error');
-              const field = h('input', { class: 'input ppl-invite-link', type: 'text', readonly: true, value: body.link ?? '', 'aria-label': `Link for ${name}` });
-              field.addEventListener('focus', () => field.select());
-              const copy = button({
-                label: 'Copy link', size: 'sm', icon: 'copy',
-                onClick: async () => {
-                  try {
-                    await navigator.clipboard.writeText(body.link ?? '');
-                    say('Link copied.', 'success');
-                  } catch {
-                    say('Your browser blocked copying. Select the link and copy it yourself.', 'error');
-                  }
-                },
-              });
-              out.replaceChildren(
-                h('p', { class: 'ppl-invite-help' }, `${name}’s new personal link (works once, for 30 days, shown only now). It was emailed${status === 502 ? ' but did not send' : ''} to ${body.to ?? 'them'}.`),
-                field,
-                h('div', { class: 'ppl-invite-actions' }, copy));
-              // The second account is gone: its row leaves the list (the link stays on screen here)
-              data.people = data.people.filter((p) => p.id !== dup.id);
-              data.byId.delete(dup.id);
-              root.querySelector(`[data-focus-key="delete-${dup.id}"]`)?.closest('li.ppl-person')?.remove();
-              wrap.querySelectorAll('.ppl-merge-option').forEach((el) => el.remove());
-              wrap.querySelector('.callout-title').textContent = `${dupName} is merged into ${name}`;
-              wrap.querySelector('.callout-text').textContent = `Once they choose a password from the link, they sign in to ${name}’s account, with its lessons and bills.`;
-              // The row's invite line counts the link just sent
-              const at = Date.now();
-              data.invites.push({
-                id: Number.MAX_SAFE_INTEGER, profile_id: person.id, created_at: new Date(at).toISOString(),
-                expires_at: new Date(at + INVITE_DAYS * 86400000).toISOString(), used_at: null,
-                emailed_to: status === 200 ? body.to ?? null : null, emailed_at: status === 200 ? new Date(at).toISOString() : null,
-              });
-              statuses = inviteStatuses(data.people, data.invites, at);
-              updateInviteBar();
-              wrap.closest('li.ppl-person')?.querySelector('.ppl-invite')?.replaceWith(inviteControls(person));
-              field.focus();
+                : `Merged, but the email didn’t send. Copy the link on ${name}’s row and send it to ${body.to ?? 'them'}.`, status === 200 ? 'success' : 'error');
+              // Fresh data shows the second account gone and the new link; the notice survives the redraw
+              await render({ key: `merge-link-${person.id}` });
               syncCounts();
               return;
             }
@@ -1214,6 +1189,52 @@ export function mount(ctx) {
         h('p', { class: 'callout-text' }, `If it’s the same person, merge it in: their sign-in moves here, where ${name}’s lessons and bills are, and the empty second account is removed.`),
         ...rows,
         out));
+    return wrap;
+  }
+
+  // The last merge into this person: its one-time link, until dismissed
+  function mergeNoticeFor(person) {
+    const n = mergeNotice;
+    if (!n || n.intoId !== person.id) return null;
+    const field = h('input', {
+      class: 'input ppl-invite-link', type: 'text', readonly: true, value: n.link,
+      'aria-label': `Link for ${n.intoName}`, dataset: { focusKey: `merge-link-${person.id}` },
+    });
+    field.addEventListener('focus', () => field.select());
+    const copy = button({
+      label: 'Copy link', size: 'sm', icon: 'copy',
+      onClick: async () => {
+        try {
+          await navigator.clipboard.writeText(n.link);
+          say('Link copied.', 'success');
+        } catch {
+          say('Your browser blocked copying. Select the link and copy it yourself.', 'error');
+        }
+      },
+    });
+    const wrap = h('div', { class: `callout ${n.emailed ? 'tone-success' : 'tone-warning'} ppl-merge`, role: 'status' });
+    const dismiss = button({
+      label: 'Done', size: 'sm', variant: 'ghost',
+      onClick: () => {
+        mergeNotice = null;
+        const next = wrap.closest('li.ppl-person')?.querySelector('[data-focus-key^="invite-"]');
+        wrap.remove();
+        next?.focus();
+      },
+    });
+    const icn = icon(n.emailed ? 'check-circle' : 'warning-circle', { size: 20 });
+    icn.classList.add('callout-icon');
+    wrap.append(icn, h('div', { class: 'callout-body' },
+      h('p', { class: 'callout-title' }, `${n.dupName} is merged into ${n.intoName}`),
+      h('p', { class: 'callout-text' }, n.emailed
+        ? `${n.to ?? 'Their email'} got a link to set a password on ${n.intoName}’s account, with its lessons and bills. You can also copy it here (it works once, for 30 days, and is shown only until you press Done).`
+        : `The email to ${n.to ?? 'them'} didn’t send. Copy this link and send it to them (it works once, for 30 days, and is shown only until you press Done).`),
+      field,
+      h('div', { class: 'ppl-invite-actions' }, copy, dismiss)));
+    if (n.focus) {
+      n.focus = false;
+      queueMicrotask(() => { if (field.isConnected) field.focus(); });
+    }
     return wrap;
   }
 
@@ -1890,6 +1911,7 @@ export function mount(ctx) {
           staffColor),
         h('div', { class: 'ppl-controls' }, workspace, roleSelect(person), remove)),
       inviteControls(person),
+      mergeNoticeFor(person),
       mergeOffer(person),
       isStudent
         ? h('div', { class: 'ppl-links' },
