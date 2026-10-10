@@ -80,7 +80,8 @@ function practiceRow(ctx, set, data) {
       h('span', { class: 'sat-set-main' },
         h('span', { class: 'sat-set-title' }, set.title),
         h('span', { class: 'sat-set-meta' },
-          h('span', { class: ['sat-purpose', isHardSet(set) ? 'is-hard' : null].filter(Boolean).join(' ') }, setPurpose(set)),
+          // a check set's title already says what it is for
+          set.origin === 'vp' ? h('span', { class: ['sat-purpose', isHardSet(set) ? 'is-hard' : null].filter(Boolean).join(' ') }, setPurpose(set)) : null,
           h('span', {}, total ? `${total} ${total === 1 ? 'question' : 'questions'}${countsText(c) ? `: ${countsText(c)}` : ''}` : 'No questions yet'))),
       h('span', { class: ['sat-set-status', status.tone ? `tone-${status.tone}` : null].filter(Boolean).join(' ') }, status.text),
       h('span', { class: 'sat-set-go' }, status.action, icon('caret-right'))));

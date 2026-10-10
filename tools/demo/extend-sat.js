@@ -8,8 +8,12 @@
 
    Try it
      student.html?as=student#/sat                   Maya: SAT is on, with some history
-     student.html?as=student#/sat/learn/alg-linear-equations-one-variable
-     student.html?as=student#/sat/practice/alg-ch1  practice: mc, grid-in, a table, a held question
+     student.html?as=student#/sat/learn/alg-linear-equations-one-variable   guide, lesson, Check your understanding
+     student.html?as=student#/sat/problems          the Question Bank PDFs by domain and skill
+     student.html?as=student#/sat/practice          hard set, then practice set, per skill
+     student.html?as=student#/sat/practice/alg-ch1  Check your understanding: mc, grid-in, a table, a held question
+     student.html?as=student#/sat/practice/hard-alg-linear-equations-one-variable   a hard set
+     student.html?as=student#/sat/tests             skill and full tests, then the official tests (PDF)
      student.html?as=student#/sat/practice/geo-area-ch1   a figure
      student.html?as=student#/sat/test/alg-t1       a 3 question skill test, 2 minutes
      student.html?as=student#/sat/test/full-01      a tiny full test: four 2 minute modules
@@ -64,12 +68,14 @@
   ].map(([slug, domain, name, position]) => ({ slug, domain, name, position }));
 
   const sets = [
-    { id: 'rw-words-ch1', kind: 'practice', domain: 'craft-and-structure', skill: 'words-in-context', title: 'Words in Context', position: 1, modules: [], origin: 'matthew' },
-    { id: 'rw-words-sb1', kind: 'practice', domain: 'craft-and-structure', skill: 'words-in-context', title: 'Words in Context: Skill Builder', position: 2, modules: [], origin: 'vp' },
-    { id: 'sec-boundaries-ch1', kind: 'practice', domain: 'standard-english-conventions', skill: 'boundaries', title: 'Boundaries', position: 1, modules: [], origin: 'matthew' },
-    { id: 'alg-ch1', kind: 'practice', domain: 'algebra', skill: 'alg-linear-equations-one-variable', title: 'Linear Equations in One Variable', position: 1, modules: [], origin: 'matthew' },
-    { id: 'alg-sb1', kind: 'practice', domain: 'algebra', skill: 'alg-linear-equations-one-variable', title: 'Linear Equations: Skill Builder', position: 2, modules: [], origin: 'vp' },
-    { id: 'geo-area-ch1', kind: 'practice', domain: 'geometry-and-trigonometry', skill: 'area-and-volume', title: 'Area and Volume', position: 1, modules: [], origin: 'matthew' },
+    { id: 'rw-words-ch1', kind: 'practice', domain: 'craft-and-structure', skill: 'words-in-context', title: 'Check your understanding: Words in Context', position: 1, modules: [], origin: 'matthew' },
+    { id: 'practice-words-in-context', kind: 'practice', domain: 'craft-and-structure', skill: 'words-in-context', title: 'Words in Context: practice set', position: 2, modules: [], origin: 'vp' },
+    { id: 'hard-words-in-context', kind: 'practice', domain: 'craft-and-structure', skill: 'words-in-context', title: 'Words in Context: hard set', position: 1, modules: [], origin: 'vp' },
+    { id: 'sec-boundaries-ch1', kind: 'practice', domain: 'standard-english-conventions', skill: 'boundaries', title: 'Check your understanding: Boundaries', position: 1, modules: [], origin: 'matthew' },
+    { id: 'alg-ch1', kind: 'practice', domain: 'algebra', skill: 'alg-linear-equations-one-variable', title: 'Check your understanding: Linear Equations in One Variable', position: 1, modules: [], origin: 'matthew' },
+    { id: 'practice-alg-linear-equations-one-variable', kind: 'practice', domain: 'algebra', skill: 'alg-linear-equations-one-variable', title: 'Linear Equations in One Variable: practice set', position: 2, modules: [], origin: 'vp' },
+    { id: 'hard-alg-linear-equations-one-variable', kind: 'practice', domain: 'algebra', skill: 'alg-linear-equations-one-variable', title: 'Linear Equations in One Variable: hard set', position: 1, modules: [], origin: 'vp' },
+    { id: 'geo-area-ch1', kind: 'practice', domain: 'geometry-and-trigonometry', skill: 'area-and-volume', title: 'Check your understanding: Area and Volume', position: 1, modules: [], origin: 'matthew' },
     { id: 'alg-t1', kind: 'skill_test', domain: 'algebra', skill: null, title: 'Algebra Test 1', position: 1, modules: [{ key: 'm', title: 'Algebra', minutes: 2 }], origin: 'matthew' },
     {
       id: 'full-01', kind: 'full_test', domain: null, skill: null, title: 'Full Practice Test 1', position: 1, origin: 'matthew',
@@ -95,7 +101,7 @@
   const CHOOSE_WORD = para(t('Which choice completes the text with the most logical and precise word or phrase?'));
   const CONVENTIONS = para(t('Which choice completes the text so that it conforms to the conventions of Standard English?'));
 
-  // Words in Context (guide practice)
+  // Words in Context (check your understanding)
   const wic = { domain: 'craft-and-structure', skill: 'words-in-context' };
   item('rw-words-ch1', null, 1, {
     ...wic, difficulty: 'easy',
@@ -129,8 +135,8 @@
     answer: 'B',
     explanation: para(t('Text 2 shows the manager chose tiles and a clock tower to impress travelers, so the station was not '), t('purely', 'i'), t(' practical. It does not deny that freight moved through it.')),
   });
-  // Words in Context (Skill Builder)
-  item('rw-words-sb1', null, 1, {
+  // Words in Context (practice set)
+  item('practice-words-in-context', null, 1, {
     ...wic, difficulty: 'easy',
     passage: para(t('After weeks of rain, the hikers were '), blank, t(' to see the sun again, and several of them cheered when it finally appeared over the ridge.')),
     stem: CHOOSE_WORD,
@@ -138,7 +144,7 @@
     answer: 'B',
     explanation: para(t('Cheering at the sun after weeks of rain shows the hikers were '), t('relieved', 'i'), t('.')),
   });
-  item('rw-words-sb1', null, 2, {
+  item('practice-words-in-context', null, 2, {
     ...wic, difficulty: 'medium',
     passage: para(t('The chef’s new menu was intentionally '), blank, t(': each dish used only three or four ingredients, so diners could taste every one of them.')),
     stem: CHOOSE_WORD,
@@ -207,26 +213,51 @@
     held: { hold_reason: 'Choices B and C are the same number.', review_note: 'Change C to 16.' },
   });
 
-  // Linear equations (Skill Builder)
-  item('alg-sb1', null, 1, {
+  // Linear equations (practice set)
+  item('practice-alg-linear-equations-one-variable', null, 1, {
     ...lin, difficulty: 'easy',
     stem: para(t('What is the solution to '), tex('\\frac{x}{4} = 3'), t('?')),
     choices: [para(tex('\\frac{3}{4}')), para(t('7')), para(t('12')), para(t('16'))],
     answer: 'C',
     explanation: para(t('Multiply both sides by 4: '), tex('x = 12'), t('.')),
   });
-  item('alg-sb1', null, 2, {
+  item('practice-alg-linear-equations-one-variable', null, 2, {
     ...lin, difficulty: 'medium', kind: 'spr',
     stem: para(t('If '), tex('5 - 2x = -9'), t(', what is the value of '), tex('x'), t('?')),
     answer: '7',
     explanation: para(t('Subtract 5: '), tex('-2x = -14'), t('. Divide by '), tex('-2'), t(': '), tex('x = 7'), t('.')),
   });
-  item('alg-sb1', null, 3, {
+  item('practice-alg-linear-equations-one-variable', null, 3, {
     ...lin, difficulty: 'medium',
     stem: para(t('What value of '), tex('x'), t(' satisfies '), tex('4(x + 3) = 2x + 20'), t('?')),
     choices: choices('2', '4', '8', '16'),
     answer: 'B',
     explanation: para(t('Distribute: '), tex('4x + 12 = 2x + 20'), t('. Then '), tex('2x = 8'), t(', so '), tex('x = 4'), t('.')),
+  });
+
+  // Linear equations (hard set)
+  item('hard-alg-linear-equations-one-variable', null, 1, {
+    ...lin, difficulty: 'hard',
+    stem: para(t('If '), tex('\\frac{2x + 1}{3} - \\frac{x - 4}{2} = 2'), t(', what is the value of '), tex('x'), t('?')),
+    choices: choices('-2', '2', '4', '10'),
+    answer: 'A',
+    explanation: para(t('Multiply both sides by 6: '), tex('2(2x + 1) - 3(x - 4) = 12'), t('. That is '), tex('x + 14 = 12'), t(', so '), tex('x = -2'), t('.')),
+  });
+  item('hard-alg-linear-equations-one-variable', null, 2, {
+    ...lin, difficulty: 'hard', kind: 'spr',
+    stem: para(t('For what value of '), tex('k'), t(' does '), tex('3(x - 2) = 3x + k'), t(' have no solution? Enter a value for '), tex('k'), t(' other than the one that gives infinitely many solutions.')),
+    answer: '-5',
+    explanation: para(t('Expanding gives '), tex('3x - 6 = 3x + k'), t('. Any '), tex('k'), t(' other than '), tex('-6'), t(' leaves no solution, for example '), tex('-5'), t('.')),
+  });
+
+  // Words in Context (hard set)
+  item('hard-words-in-context', null, 1, {
+    ...wic, difficulty: 'hard',
+    passage: para(t('The critic’s review was anything but '), blank, t(': it praised the film’s score, its editing and its lead performance, and it found nothing at all to fault.')),
+    stem: CHOOSE_WORD,
+    choices: choices('grudging', 'glowing', 'hasty', 'contradictory'),
+    answer: 'A',
+    explanation: para(t('A review that praises everything was not '), t('grudging', 'i'), t(', which describes reluctant or limited praise.')),
   });
 
   // Area and volume: a figure
@@ -369,7 +400,10 @@
     { id: 'qb-alg-linear-medium', collection: 'question_bank', domain: 'algebra', skill: 'alg-linear-equations-one-variable', difficulty: 'medium', title: 'Linear Equations in One Variable, Medium', storage_path: 'question-bank/algebra/linear-medium.pdf', pages: 1, staff_only: false, position: 2 },
     { id: 'qb-alg-linear-hard', collection: 'question_bank', domain: 'algebra', skill: 'alg-linear-equations-one-variable', difficulty: 'hard', title: 'Linear Equations in One Variable, Hard', storage_path: 'question-bank/algebra/linear-hard.pdf', pages: 1, staff_only: false, position: 3 },
     { id: 'qb-wic-easy', collection: 'question_bank', domain: 'craft-and-structure', skill: 'words-in-context', difficulty: 'easy', title: 'Words in Context, Easy', storage_path: 'question-bank/craft/words-easy.pdf', pages: 1, staff_only: false, position: 1 },
+    { id: 'qb-wic-medium', collection: 'question_bank', domain: 'craft-and-structure', skill: 'words-in-context', difficulty: 'medium', title: 'Words in Context, Medium', storage_path: 'question-bank/craft/words-medium.pdf', pages: 1, staff_only: false, position: 2 },
+    { id: 'qb-wic-hard', collection: 'question_bank', domain: 'craft-and-structure', skill: 'words-in-context', difficulty: 'hard', title: 'Words in Context, Hard', storage_path: 'question-bank/craft/words-hard.pdf', pages: 1, staff_only: false, position: 3 },
     { id: 'official-practice-5', collection: 'official_test', domain: null, skill: null, difficulty: null, title: 'Official Practice Test 5', storage_path: 'official/practice-5.pdf', pages: 1, staff_only: false, position: 1 },
+    { id: 'official-practice-6', collection: 'official_test', domain: null, skill: null, difficulty: null, title: 'Official Practice Test 6', storage_path: 'official/practice-6.pdf', pages: 1, staff_only: false, position: 2 },
     { id: 'test-pdf-1', collection: 'test_pdf', domain: null, skill: null, difficulty: null, title: 'Test 1, printable', storage_path: 'tests/test-1.pdf', pages: 1, staff_only: true, position: 1 },
     { id: 'answer-key-1', collection: 'answer_key', domain: null, skill: null, difficulty: null, title: 'Test 1 Answer Key', storage_path: 'keys/test-1-key.pdf', pages: 1, staff_only: true, position: 2 },
   ].map((f) => ({ bytes: 900, ...f }));
