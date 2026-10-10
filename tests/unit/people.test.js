@@ -44,6 +44,9 @@ function fakes({ invite = undefined, children = ['Maya Lin'], updateError = null
     hasLinks: vi.fn(async () => links),
     createInvite: vi.fn(async (profileId, tokenHash, createdBy) => { state.created = { profileId, tokenHash, createdBy }; return { id: 99 }; }),
     dropOpenInvites: vi.fn(async (profileId, keepId) => { state.dropped = { profileId, keepId }; }),
+    noLoginPeople: vi.fn(async (role) => Object.values(profiles ?? {
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace', role: 'parent', no_login: true },
+    }).filter((p) => p.no_login && p.role === role)),
     finishJoin: vi.fn(async (id, email) => { state.profiles[id] = { ...(state.profiles[id] ?? {}), email, no_login: false }; }),
   };
   const auth = {
@@ -308,6 +311,36 @@ describe('use_signup: someone signed up who was already added without a login', 
     expect(picked.state.created.profileId).toBe(NOLOGIN);
   });
 
+  test('a name match is refused when another account has that name too: only a confirmed hand pick chooses', async () => {
+    const OTHER = '33333333-3333-4333-8333-333333333333';
+    const profiles = {
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Young', role: 'pending', requested_role: 'parent', no_login: false },
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace (Gordon’s Mom)', role: 'parent', no_login: true },
+      [OTHER]: { id: OTHER, full_name: 'Grace', role: 'parent', no_login: true },
+    };
+    const byName = fakes({ profiles });
+    expect(await (await handlePeople(post(body), byName.deps)).json()).toEqual({ error: 'ambiguous' });
+    expect(byName.auth.deleteUser).not.toHaveBeenCalled();
+    const picked = fakes({ profiles });
+    expect((await handlePeople(post({ ...body, chosen: true, confirm_name: 'Grace (Gordon’s Mom)' }), picked.deps)).status).toBe(200);
+    expect(picked.state.created.profileId).toBe(NOLOGIN);
+  });
+
+  test('older links are cancelled only after the new one is emailed, and a failure there costs nothing', async () => {
+    const f = fakes();
+    expect((await handlePeople(post(body), f.deps)).status).toBe(200);
+    expect(f.repo.dropOpenInvites.mock.invocationCallOrder[0]).toBeGreaterThan(f.repo.markEmailed.mock.invocationCallOrder[0]);
+    const failing = fakes();
+    failing.repo.dropOpenInvites.mockRejectedValueOnce(new Error('db down'));
+    const res = await handlePeople(post(body), { ...failing.deps, warn: vi.fn() });
+    expect(res.status).toBe(200);
+    expect(failing.state.emailed).toMatchObject({ id: 99 });
+    const unsent = fakes();
+    unsent.deps.send = vi.fn(async () => { throw new Error('resend 500'); });
+    expect((await handlePeople(post(body), unsent.deps)).status).toBe(502);
+    expect(unsent.repo.dropOpenInvites).not.toHaveBeenCalled();
+  });
+
   test('a hand pick still needs the role they asked for', () => {
     expect(signupChosen({ requested_role: 'student' }, { role: 'parent', full_name: 'Grace' }, 'Grace')).toBe(false);
     expect(signupChosen({ requested_role: null }, { role: 'parent', full_name: 'Grace' }, 'grace')).toBe(true);
@@ -409,6 +442,18 @@ describe('use_signup: someone signed up who was already added without a login', 
 });
 
 describe('the repo', () => {
+  test('cancels only unused links older than the new one (a newer one from another tab stays)', async () => {
+    const calls = [];
+    const chain = {
+      delete() { calls.push(['delete']); return chain; },
+      eq(c, v) { calls.push(['eq', c, v]); return chain; },
+      is(c, v) { calls.push(['is', c, v]); return chain; },
+      lt(c, v) { calls.push(['lt', c, v]); return Promise.resolve({ data: null, error: null }); },
+    };
+    await createPeopleRepo({ from: () => chain }).dropOpenInvites('p1', 42);
+    expect(calls).toEqual([['delete'], ['eq', 'profile_id', 'p1'], ['is', 'used_at', null], ['lt', 'id', 42]]);
+  });
+
   test('embeds the invited person by profile_id, not created_by (two foreign keys to profiles)', async () => {
     let selected = null;
     const chain = {

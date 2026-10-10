@@ -18,7 +18,8 @@ import { handleDelete, createDeleteRepo } from './people-delete.js';
 //                                                admin: someone signed up who was already added without
 //                                                a login; remove the sign-up and email them a link to
 //                                                that account instead. The pair must match by name
-//                                                (signupMayBe), or be picked by hand: chosen true with
+//                                                (signupMayBe) and be the only account that does, or be
+//                                                picked by hand after a typed confirm: chosen true with
 //                                                confirm_name, the account's name as People showed it
 //   { action: 'delete_preview', id }             admin: what deleting a person would remove, and what
 //                                                refuses it (api/_lib/people-delete.js)
@@ -231,8 +232,14 @@ export async function handlePeople(request, {
     if (!signup || signup.role !== 'pending') return json(409, { error: 'not_pending' });
     if (!person || !person.no_login || !ROLES.includes(person.role)) return json(409, { error: 'not_no_login' });
     // The pair is checked here too, so a stale or edited request cannot pair anyone else
-    const paired = data.chosen === true ? signupChosen(signup, person, data.confirm_name) : signupMayBe(signup, person);
-    if (!paired) return json(409, { error: 'no_match' });
+    if (data.chosen === true) {
+      if (!signupChosen(signup, person, data.confirm_name)) return json(409, { error: 'no_match' });
+    } else {
+      if (!signupMayBe(signup, person)) return json(409, { error: 'no_match' });
+      // Two people with one name ("Grace" twice): only a confirmed pick by hand may choose
+      const others = (await repo.noLoginPeople(person.role)).filter((p) => p.id !== person.id && signupMayBe(signup, p));
+      if (others.length) return json(409, { error: 'ambiguous' });
+    }
     // A sign-up still waiting has nothing linked to it; anything linked means it is not a bare sign-up
     if (await repo.hasLinks(signup.id)) return json(409, { error: 'has_links' });
     const found = await auth.getUserById(signup.id);
@@ -245,8 +252,6 @@ export async function handlePeople(request, {
     if (removed?.error) throw new Error(`deleteUser: ${removed.error.message ?? 'failed'}`);
     const token = randomBytes(32).toString('base64url');
     const invite = await repo.createInvite(person.id, hashToken(token), caller.id);
-    // Only the link just emailed works now: older unused links to this account stop
-    await repo.dropOpenInvites(person.id, invite.id);
     const children = person.role === 'parent' ? await repo.childrenOf(person.id) : [];
     const mail = buildInviteEmail({ name: person.full_name, role: person.role, children, link: inviteLink(token, env), to });
     try {
@@ -255,6 +260,13 @@ export async function handlePeople(request, {
       return json(502, { error: 'email_failed' });
     }
     await repo.markEmailed(invite.id, to, new Date(now()).toISOString());
+    // Only the link just emailed opens the account now: older unused links stop.
+    // After the send, so a failure here never costs them the new link.
+    try {
+      await repo.dropOpenInvites(person.id, invite.id);
+    } catch (error) {
+      warn?.('[people] dropOpenInvites', error?.message ?? error);
+    }
     return json(200, { ok: true, to });
   }
 
@@ -351,10 +363,16 @@ export function createPeopleRepo(db) {
       ]);
       return counts.some((n) => n > 0);
     },
-    // Removes a person's unused links except `keepId` (a removed link no longer opens)
+    // Removes a person's unused links older than `keepId` (a removed link no
+    // longer opens); a newer one made meanwhile in another tab stays
     async dropOpenInvites(profileId, keepId) {
       check(await db.from('portal_invites').delete().eq('profile_id', profileId).is('used_at', null)
-        .neq('id', keepId), 'dropOpenInvites');
+        .lt('id', keepId), 'dropOpenInvites');
+    },
+    // Everyone of a role added without a login, for telling same-name accounts apart
+    async noLoginPeople(role) {
+      return check(await db.from('profiles').select('id, full_name, role, no_login')
+        .eq('no_login', true).eq('role', role), 'noLoginPeople') ?? [];
     },
     async createInvite(profileId, tokenHash, createdBy) {
       return check(await db.from('portal_invites').insert({ profile_id: profileId, token_hash: tokenHash, created_by: createdBy })

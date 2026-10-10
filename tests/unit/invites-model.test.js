@@ -186,6 +186,22 @@ describe('two parents with one name (the Grace case)', () => {
     expect(confirmMatches('', '')).toBe(false);
   });
 
+  test('typing to confirm ignores accents and the kind of apostrophe', () => {
+    expect(confirmMatches('zoe', 'Zoë')).toBe(true);
+    expect(confirmMatches("d'angelo", 'D’Angelo')).toBe(true);
+    expect(confirmMatches('Zoey', 'Zoë')).toBe(false);
+  });
+
+  test('a pasted list never links a child to a look-alike parent', () => {
+    const two = planFamilies(parseFamilyLines('Lily Young (Grace)').rows, { people });
+    expect(two.problems).toEqual([{ line: 'Lily Young (Grace)', reason: 'There are 2 parents named like Grace in the portal (Grace or Grace (Gordon’s Mom)); link this one by hand on People' }]);
+    const one = planFamilies(parseFamilyLines('Amy (Grace)').rows, { people: people.filter((p) => p.id !== 'camila-mom') });
+    expect(one.problems[0].reason).toBe('Is this Grace (Gordon’s Mom)? Link them by hand on People to use that account');
+    const exact = planFamilies(parseFamilyLines('Ann (Mrs. Kim)').rows, { people });
+    expect(exact.problems).toEqual([]);
+    expect(exact.found.map((f) => f.id)).toEqual(['kim']);
+  });
+
   test('each account is described by its family', () => {
     expect(familyText({ role: 'parent', children: ['Gordon'], paying: ['Gordon'] })).toBe('Parent of Gordon; pays for Gordon');
     expect(familyText({ role: 'parent', children: ['Camila', 'Leo', 'Ava'] })).toBe('Parent of Camila, Leo and Ava');
