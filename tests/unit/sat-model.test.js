@@ -559,3 +559,17 @@ describe('attempts after the security review', () => {
     expect([...firstAttemptIds(list)].sort((a, b) => a - b)).toEqual([1, 3, 4, 5, 8]);
   });
 });
+
+describe('retired generated sets', () => {
+  test('an old vp- set kept for its attempts is not listed', async () => {
+    const { generatedSetsFor, isRetiredSet } = await import('../../portal/js/sat-model.js');
+    const sets = [
+      { id: 'vp-inferences', kind: 'practice', origin: 'vp', skill: 'inferences', position: 1 },
+      { id: 'practice-inferences', kind: 'practice', origin: 'vp', skill: 'inferences', position: 1 },
+      { id: 'hard-inferences', kind: 'practice', origin: 'vp', skill: 'inferences', position: 1 },
+    ];
+    expect(generatedSetsFor(sets, 'inferences').map((s) => s.id)).toEqual(['hard-inferences', 'practice-inferences']);
+    expect(isRetiredSet(sets[0])).toBe(true);
+    expect(isRetiredSet(sets[1])).toBe(false);
+  });
+});

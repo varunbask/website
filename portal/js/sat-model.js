@@ -387,10 +387,14 @@ export function checkSetsFor(sets, skill) {
   return (sets ?? []).filter((s) => isCheckSet(s) && s.skill === skill).sort(byPosition);
 }
 
+// A retired generated set (its old vp-<skill> id, kept only because a student
+// has an attempt on it): never listed, but its attempts and reviews still open
+export const isRetiredSet = (set) => /^vp-/.test(String(set?.id ?? ''));
+
 // A skill's generated sets: the hard set first, then the practice set
 export function generatedSetsFor(sets, skill) {
   return (sets ?? [])
-    .filter((s) => isGeneratedSet(s) && s.skill === skill)
+    .filter((s) => isGeneratedSet(s) && !isRetiredSet(s) && s.skill === skill)
     .sort((a, b) => (isHardSet(a) ? 0 : 1) - (isHardSet(b) ? 0 : 1) || byPosition(a, b));
 }
 
