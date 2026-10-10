@@ -47,6 +47,27 @@ export function trimSlug(slug, max = MAX_ID) {
   return (at > 0 ? cut.slice(0, at) : slug.slice(0, max)).replace(/-+$/, '');
 }
 
+// Generated sets are named by purpose, never by who made them. The ids in the
+// content files may still say vp-<x>; the portal's id is practice-<x>. A
+// hard-<x> id is kept as written.
+export function generatedSetId(id) {
+  return String(id ?? '').replace(/^vp-/, 'practice-');
+}
+
+// "Linear Functions: hard set" (hard- ids) or "Linear Functions: practice set"
+export function generatedSetTitle(skillName, id) {
+  const kind = /^hard-/.test(String(id ?? '')) ? 'hard set' : 'practice set';
+  return `${skillName}: ${kind}`;
+}
+
+// A book chapter's practice set: "Check your understanding: <chapter title>"
+export const checkSetTitle = (chapterTitle) => `Check your understanding: ${chapterTitle}`;
+
+// A name without the book series or an author in it: "Ultimate SAT Master Guide" -> "Master Guide"
+export function neutralName(text) {
+  return String(text ?? '').replace(/\bUltimate SAT\b\s*/gi, '').replace(/\s{2,}/g, ' ').trim();
+}
+
 export const pad2 = (n) => String(n).padStart(2, '0');
 
 // Ids (see the spec: stable, readable, at most 60 characters)

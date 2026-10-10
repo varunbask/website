@@ -8,6 +8,7 @@ import { mkdirSync, writeFileSync, existsSync, copyFileSync, rmSync, readFileSyn
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { pool } from './figures.mjs';
+import { neutralName } from './catalog.mjs';
 
 function run(cmd, args, opts) {
   return new Promise((resolve) => {
@@ -23,7 +24,7 @@ function run(cmd, args, opts) {
 // The wrapper document for one chapter's lesson part
 export function lessonDocument({ title, chapter, body }) {
   return [
-    `\\def\\sattitle{${title ?? 'Ultimate SAT Guide'}}`,
+    `\\def\\sattitle{${neutralName(title) || 'SAT Guide'}}`,
     '\\documentclass[11pt,openany,oneside]{book}',
     '\\input{style.tex}',
     '\\begin{document}',

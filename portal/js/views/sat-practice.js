@@ -18,7 +18,7 @@ import { icon } from '../icons.js';
 import { button, emptyState, skeletonRows, busy } from '../ui.js';
 import { firstName, displayName } from '../format.js';
 import {
-  originLabel, pct, reviewHref, satCrumbs, domainName, LETTERS, sprValid, answerText,
+  setPurpose, currentSetId, practiceHref, pct, reviewHref, satCrumbs, domainName, LETTERS, sprValid, answerText,
 } from '../sat-model.js';
 import { getContent, getItems, start, answer, submit, review, dropProgress, errorCode } from '../sat-data.js';
 import {
@@ -55,6 +55,11 @@ export async function mount(ctx, where) {
   const { host } = ctx;
   const staff = isStaff(ctx);
   const setId = where.id;
+  // Old links used vp-<skill>; those sets are practice-<skill> now
+  if (currentSetId(setId) !== setId) {
+    ctx.go(practiceHref(currentSetId(setId)), { replace: true });
+    return;
+  }
   const key = `${ctx.me.id}|${setId}`;
   ctx.setHeader({ title: 'Practice', crumbs: satCrumbs(ctx.route, { title: 'Practice' }) });
   const body = h('div', { class: 'sat-view sat-runner is-practice' }, skeletonRows(3));
@@ -77,10 +82,9 @@ export async function mount(ctx, where) {
     ctx.announce('Practice set not found');
     return;
   }
-  const skill = content.skillsBySlug.get(set.skill);
   ctx.setHeader({
     title: set.title,
-    lede: [originLabel(set.origin), skill && skill.name !== set.title ? skill.name : domainName(set.domain)].filter(Boolean).join(', '),
+    lede: [setPurpose(set), domainName(set.domain)].filter(Boolean).join(', '),
     crumbs: satCrumbs(ctx.route, { title: set.title }),
     docTitle: set.title,
   });

@@ -1,11 +1,11 @@
-// The SAT browsing pages (views/sat.js routes here):
-//   learnIndex  #/sat/learn            the eight domains, each skill with a progress meter
-//   skillPage   #/sat/learn/<skill>    the study guide, then Practice this skill,
-//                                      Lesson PDF, Question Bank and the accuracy so far
-//   practiceList #/sat/practice        the practice sets by domain and skill
-//   testsList   #/sat/tests            skill tests by domain, then full tests
-//   library     #/sat/library?tab=     lessons, Question Bank, official tests
-//                                      (and the tutor files, for staff)
+// The SAT browsing pages (views/sat.js routes here). Each section is for one purpose:
+//   learnIndex   #/sat/learn           the eight domains, each skill with a progress meter
+//   skillPage    #/sat/learn/<skill>   the study guide, the lesson, Check your understanding,
+//                                      then on to Solve official questions and Practice
+//   problems     #/sat/problems[?skill=]  the official Question Bank PDFs, by domain and skill
+//   practiceList #/sat/practice[?skill=]  the generated sets: hard set, then practice set, per skill
+//   testsList    #/sat/tests           skill tests, full tests, and the official practice tests (PDF)
+//   teacherFiles                       staff-only card for the home page
 // Progress is the student on screen's (the student themself, or the one staff
 // chose). Staff who open a set or a test try it as themselves (a preview).
 
@@ -15,10 +15,10 @@ import { button, emptyState, skeletonRows } from '../ui.js';
 import { firstName, displayName } from '../format.js';
 import { shortDay } from '../dates.js';
 import {
-  SECTIONS, DOMAINS, domainOf, sectionName, skillsByDomain, practiceSetsFor, testGroups, modulesOf, libraryGroups, skillFiles,
-  progressFrom, attemptCounts, practiceLine, countsText, originLabel, pct, bestAndLast, sittings, sittingNext, fullScore,
+  SECTIONS, DOMAINS, domainOf, sectionName, skillsByDomain, checkSetsFor, generatedSetsFor, testGroups, modulesOf, fileGroups, skillFiles,
+  progressFrom, attemptCounts, practiceLine, countsText, setPurpose, isHardSet, bankSkill, problemsHref, practiceListHref, pct, bestAndLast, sittings, sittingNext, fullScore,
   scoreText, minutesText, practiceHref, testHref, reviewHref, learnHref, satCrumbs, DIFFICULTIES, DIFFICULTY_LABELS,
-  isOpen, firstAttemptIds,
+  isOpen, firstAttemptIds, satPage,
 } from '../sat-model.js';
 import { getContent, getAttempts, getResponses, getGuide } from '../sat-data.js';
 import { satDoc } from '../sat-doc.js';
@@ -60,12 +60,6 @@ function bySet(attempts) {
   return out;
 }
 
-// The origin, for staff: a small pill (students only ever see the label)
-function originPill(ctx, set) {
-  if (!isStaff(ctx)) return null;
-  return h('span', { class: 'sat-origin', title: set.origin === 'vp' ? 'Our own set' : 'From Matthew’s guides' }, set.origin === 'vp' ? 'VP' : 'Matthew');
-}
-
 // ---------------------------------------------------------------------------
 // One practice set as a row: where the student is with it, and a way in
 
@@ -86,8 +80,7 @@ function practiceRow(ctx, set, data) {
       h('span', { class: 'sat-set-main' },
         h('span', { class: 'sat-set-title' }, set.title),
         h('span', { class: 'sat-set-meta' },
-          h('span', { class: `sat-kind is-${set.origin === 'vp' ? 'vp' : 'guide'}` }, originLabel(set.origin)),
-          originPill(ctx, set),
+          h('span', { class: ['sat-purpose', isHardSet(set) ? 'is-hard' : null].filter(Boolean).join(' ') }, setPurpose(set)),
           h('span', {}, total ? `${total} ${total === 1 ? 'question' : 'questions'}${countsText(c) ? `: ${countsText(c)}` : ''}` : 'No questions yet'))),
       h('span', { class: ['sat-set-status', status.tone ? `tone-${status.tone}` : null].filter(Boolean).join(' ') }, status.text),
       h('span', { class: 'sat-set-go' }, status.action, icon('caret-right'))));
@@ -97,7 +90,7 @@ function practiceRow(ctx, set, data) {
 // Learn
 
 export async function learnIndex(ctx) {
-  const body = frame(ctx, { title: 'Learn', lede: 'A study guide for each official SAT skill, with practice sets and PDFs.' });
+  const body = frame(ctx, { title: 'Learn', lede: 'Learn each official SAT skill: read the study guide and the lesson, then check your understanding.' });
   const data = await load(ctx, body, 'Learn');
   if (!data || !ctx.alive()) return;
   const groups = skillsByDomain(data.content.skills);
@@ -151,36 +144,30 @@ export async function skillPage(ctx, slug) {
 
   // The guide loads beside the rest; the page shows without it first
   const guideBox = h('article', { class: 'sat-guide', 'aria-label': `Study guide: ${skill.name}` }, skeletonRows(3));
-  const sets = practiceSetsFor(data.content.sets, skill.slug);
+  const sets = checkSetsFor(data.content.sets, skill.slug);
   data.sets = bySet(data.attempts);
   const files = skillFiles(data.content.files, skill, data.content.sets);
   const st = data.progress.skills[skill.slug];
   const p = st?.answered ? pct(st.correct, st.answered) : null;
 
-  const practiceCard = h('section', { class: 'card sat-aside-card', 'aria-labelledby': 'sat-skill-practice' },
-    h('div', { class: 'card-head' }, h('h2', { class: 'card-title', id: 'sat-skill-practice' }, 'Practice this skill')),
-    sets.length
-      ? h('ul', { class: 'sat-set-list is-compact' }, sets.map((s) => practiceRow(ctx, s, data)))
-      : h('p', { class: 'sat-muted' }, 'No practice sets for this skill yet.'));
-
   const lessonCard = h('section', { class: 'card sat-aside-card', 'aria-labelledby': 'sat-skill-lesson' },
-    h('div', { class: 'card-head' }, h('h2', { class: 'card-title', id: 'sat-skill-lesson' }, 'Lesson PDF')),
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title', id: 'sat-skill-lesson' }, 'Read the lesson')),
     files.lessons.length
       ? h('ul', { class: 'sat-file-list' }, files.lessons.map((f) => h('li', { class: 'sat-file-row' },
         icon('file-pdf', { size: 20 }), h('span', { class: 'sat-file-title' }, f.title), pdfButton(ctx, f))))
-      : h('p', { class: 'sat-muted' }, 'No lesson PDF for this skill yet.'));
+      : h('p', { class: 'sat-muted' }, 'No lesson for this skill yet.'));
 
-  const levels = DIFFICULTIES.filter((d) => files.bank[d]);
-  const bankFor = files.bankLabel ?? skill.name;
-  const bankCard = h('section', { class: 'card sat-aside-card', 'aria-labelledby': 'sat-skill-bank' },
-    h('div', { class: 'card-head' }, h('h2', { class: 'card-title', id: 'sat-skill-bank' }, 'Question Bank')),
-    levels.length
-      ? [files.bankLabel ? h('p', { class: 'sat-bank-label' }, files.bankLabel) : null,
-        h('div', { class: 'sat-bank-levels' }, levels.map((d) => pdfButton(ctx, files.bank[d], {
-          label: DIFFICULTY_LABELS[d], ariaLabel: `Open the ${DIFFICULTY_LABELS[d]} Question Bank PDF for ${bankFor}`, className: `sat-level-btn is-${d}`,
-        }))),
-      h('p', { class: 'sat-note' }, 'Official College Board questions. Answers are not included; check them with your tutor.')]
-      : h('p', { class: 'sat-muted' }, 'No Question Bank PDFs for this skill yet.'));
+  const checkCard = h('section', { class: 'card sat-aside-card', 'aria-labelledby': 'sat-skill-check' },
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title', id: 'sat-skill-check' }, 'Check your understanding')),
+    sets.length
+      ? h('ul', { class: 'sat-set-list is-compact' }, sets.map((s) => practiceRow(ctx, s, data)))
+      : h('p', { class: 'sat-muted' }, 'No questions for this skill yet.'));
+
+  const nextCard = h('section', { class: 'card sat-aside-card', 'aria-labelledby': 'sat-skill-next' },
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title', id: 'sat-skill-next' }, 'Next')),
+    h('div', { class: 'sat-next-list' },
+      button({ label: 'Solve official questions', variant: 'secondary', size: 'sm', href: problemsHref(skill.slug), iconEnd: 'caret-right', focusKey: 'sat-next-problems' }),
+      button({ label: 'Practice', variant: 'secondary', size: 'sm', href: practiceListHref(skill.slug), iconEnd: 'caret-right', focusKey: 'sat-next-practice' })));
 
   const accuracyCard = h('section', { class: 'card sat-aside-card sat-accuracy', 'aria-labelledby': 'sat-skill-accuracy' },
     h('div', { class: 'card-head' }, h('h2', { class: 'card-title', id: 'sat-skill-accuracy' }, `${whose(ctx)} accuracy`)),
@@ -192,14 +179,14 @@ export async function skillPage(ctx, slug) {
 
   body.replaceChildren(h('div', { class: 'sat-skill-layout' },
     guideBox,
-    h('div', { class: 'sat-skill-aside' }, practiceCard, lessonCard, bankCard, accuracyCard)));
+    h('div', { class: 'sat-skill-aside' }, lessonCard, checkCard, nextCard, accuracyCard)));
   ctx.announce(skill.name);
 
   try {
     const guide = await getGuide(skill.slug);
     if (!ctx.alive()) return;
     if (!guide) {
-      guideBox.replaceChildren(emptyState({ icon: 'book-open-text', text: 'The study guide for this skill is on its way. Start with the practice sets and PDFs.' }));
+      guideBox.replaceChildren(emptyState({ icon: 'book-open-text', text: 'The study guide for this skill is on its way. Start with the lesson and the questions.' }));
       return;
     }
     guideBox.replaceChildren(h('h2', { class: 'visually-hidden' }, 'Study guide'), satDoc(guide.body, { figure, className: 'sat-guide-doc read' }));
@@ -214,44 +201,89 @@ export async function skillPage(ctx, slug) {
 // Practice
 
 export async function practiceList(ctx) {
+  const only = satPage(ctx.route).skill;
   const body = frame(ctx, {
     title: 'Practice',
-    lede: 'Practice sets by skill. After each question you see whether you were right, the answer and an explanation.',
+    lede: 'Extra practice for each skill: a hard set, then a mixed practice set. After each question you see whether you were right, the answer and an explanation.',
   });
   const data = await load(ctx, body, 'practice');
   if (!data || !ctx.alive()) return;
   data.sets = bySet(data.attempts);
-  const practice = data.content.sets.filter((s) => s.kind === 'practice');
+  const practice = data.content.sets.filter((s) => s.kind === 'practice' && s.origin === 'vp');
   if (!practice.length) {
     body.replaceChildren(noContent());
     ctx.announce('Practice, nothing yet');
     return;
   }
   const skills = data.content.skills;
+  const pick = only ? skills.find((s) => s.slug === only) ?? null : null;
   const sections = SECTIONS.map((section) => {
     const cards = DOMAINS.filter((d) => d.section === section.key).map((domain) => {
-      const domainSkills = skills.filter((s) => s.domain === domain.slug).sort((a, b) => a.position - b.position);
-      const known = new Set(domainSkills.map((s) => s.slug));
-      // Sets whose skill is not listed still show, under the domain itself
-      const loose = practice.filter((s) => s.domain === domain.slug && !known.has(s.skill)).sort((a, b) => a.position - b.position);
-      const groups = domainSkills.map((skill) => ({ skill, sets: practiceSetsFor(practice, skill.slug) })).filter((g) => g.sets.length);
-      if (!groups.length && !loose.length) return null;
+      const domainSkills = skills.filter((s) => s.domain === domain.slug && (!pick || s.slug === pick.slug)).sort((a, b) => a.position - b.position);
+      const groups = domainSkills.map((skill) => ({ skill, sets: generatedSetsFor(practice, skill.slug) })).filter((g) => g.sets.length);
+      if (!groups.length) return null;
       const ds = data.progress.domains[domain.slug];
       return h('section', { class: 'card sat-domain-card is-list', 'aria-label': domain.name },
         h('div', { class: 'card-head' }, h('h3', { class: 'card-title' }, domain.name), h('span', { class: 'card-meta' }, accuracyText(ds))),
         groups.map((g) => h('div', { class: 'sat-skill-group' },
-          h('h4', { class: 'sat-skill-heading' },
-            h('a', { class: 'link', href: learnHref(g.skill.slug) }, g.skill.name)),
-          h('ul', { class: 'sat-set-list' }, g.sets.map((s) => practiceRow(ctx, s, data))))),
-        loose.length ? h('ul', { class: 'sat-set-list' }, loose.map((s) => practiceRow(ctx, s, data))) : null);
+          h('h4', { class: 'sat-skill-heading' }, g.skill.name),
+          h('ul', { class: 'sat-set-list' }, g.sets.map((s) => practiceRow(ctx, s, data))))));
     }).filter(Boolean);
     if (!cards.length) return null;
     return h('section', { class: 'sat-section', 'aria-labelledby': `sat-sec-${section.key}` },
       h('h2', { class: 'sat-section-title', id: `sat-sec-${section.key}` }, section.name),
       h('div', { class: 'sat-stack' }, cards));
   }).filter(Boolean);
-  body.replaceChildren(...sections);
+  body.replaceChildren(...[filterNote(pick, only, '#/sat/practice', 'practice sets'), ...(sections.length ? sections : [noContent()])].filter(Boolean));
   ctx.announce('Practice');
+}
+
+// "Showing one skill. Show all skills" above a page filtered by ?skill=
+function filterNote(pick, only, allHref, what) {
+  if (!only) return null;
+  return h('p', { class: 'sat-muted sat-filter-note' },
+    pick ? `Showing ${what} for ${pick.name}.` : 'We couldn’t find that skill.',
+    h('a', { class: 'link', href: allHref }, 'Show all skills'));
+}
+
+// ---------------------------------------------------------------------------
+// Problem solving: the official Question Bank
+
+export async function problems(ctx) {
+  const only = satPage(ctx.route).skill;
+  const body = frame(ctx, {
+    title: 'Problem solving',
+    lede: 'Official College Board questions for each skill, as Easy, Medium and Hard PDFs. Work them on paper or on screen.',
+  });
+  let content;
+  try {
+    content = await getContent();
+  } catch (error) {
+    if (!ctx.alive()) return;
+    console.error(error);
+    loadError(ctx, body, 'We couldn’t load the Question Bank.');
+    return;
+  }
+  if (!ctx.alive()) return;
+  const groups = fileGroups(content.files, content.skills).bank;
+  const pick = only ? content.skillsBySlug.get(only) ?? null : null;
+  // Command of Evidence (textual and quantitative) shares one set of PDFs
+  const wanted = pick ? bankSkill(pick).slug : null;
+  const shown = pick
+    ? groups.map((g) => ({ ...g, skills: g.skills.filter((r) => r.skill?.slug === wanted || r.skill?.slug === pick.slug) })).filter((g) => g.skills.length)
+    : groups;
+  const note = h('p', { class: 'sat-note' }, 'Answers are not included; check them with your tutor.');
+  const cards = shown.map((g) => h('section', { class: 'card sat-domain-card is-list', 'aria-label': g.domain.name },
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, g.domain.name)),
+    h('ul', { class: 'sat-bank-list' }, g.skills.map((r) => h('li', { class: 'sat-bank-row' },
+      h('span', { class: 'sat-bank-skill' }, r.label),
+      h('span', { class: 'sat-bank-levels' }, [...DIFFICULTIES, 'other'].filter((d) => r.levels[d]).map((d) => pdfButton(ctx, r.levels[d], {
+        label: DIFFICULTY_LABELS[d] ?? 'Open', ariaLabel: `Open the ${DIFFICULTY_LABELS[d] ?? ''} Question Bank PDF for ${r.label}`, className: `sat-level-btn is-${d}`,
+      }))))))));
+  const note2 = filterNote(pick, only, '#/sat/problems', 'questions');
+  body.replaceChildren(h('div', { class: 'sat-stack' }, note2, groups.length ? note : null,
+    ...(cards.length ? cards : [emptyState({ icon: 'file-pdf', text: groups.length ? 'No Question Bank PDFs for this skill yet.' : 'No Question Bank PDFs yet.' })])));
+  ctx.announce('Problem solving');
 }
 
 // ---------------------------------------------------------------------------
@@ -324,7 +356,8 @@ export async function testsList(ctx) {
   if (!data || !ctx.alive()) return;
   data.sets = bySet(data.attempts);
   const groups = testGroups(data.content.sets);
-  if (!groups.byDomain.length && !groups.full.length) {
+  const official = fileGroups(data.content.files, data.content.skills).official;
+  if (!groups.byDomain.length && !groups.full.length && !official.length) {
     body.replaceChildren(noContent());
     ctx.announce('Tests, nothing yet');
     return;
@@ -344,14 +377,17 @@ export async function testsList(ctx) {
       h('p', { class: 'sat-muted' }, 'Two Reading and Writing modules, a break, then two Math modules. Raw scores only: these tests have no official scaled score.'),
       h('section', { class: 'card is-list' }, h('ul', { class: 'sat-test-list' }, groups.full.map((s) => fullTestRow(ctx, s, data))))));
   }
+  if (official.length) {
+    parts.push(h('section', { class: 'sat-section', 'aria-labelledby': 'sat-sec-official' },
+      h('h2', { class: 'sat-section-title', id: 'sat-sec-official' }, 'Official practice tests (PDF, take on paper or in Bluebook)'),
+      h('section', { class: 'card is-list' }, h('ul', { class: 'sat-file-list' }, official.map((f) => fileRow(ctx, f))))));
+  }
   body.replaceChildren(...parts);
   ctx.announce('Tests');
 }
 
 // ---------------------------------------------------------------------------
-// Library
-
-const TAB_LABELS = { lessons: 'Lessons', bank: 'Question Bank', official: 'Official practice tests', staff: 'Tutor files' };
+// PDFs
 
 function fileRow(ctx, f, meta = null) {
   return h('li', { class: 'sat-file-row' },
@@ -362,55 +398,14 @@ function fileRow(ctx, f, meta = null) {
     pdfButton(ctx, f));
 }
 
-export async function library(ctx, tab) {
-  const staff = isStaff(ctx);
-  const current = tab === 'staff' && !staff ? 'lessons' : tab;
-  const tabs = ['lessons', 'bank', 'official', ...(staff ? ['staff'] : [])].map((key) => ({
-    label: TAB_LABELS[key], href: `#/sat/library?tab=${key}`, current: key === current,
-  }));
-  const body = frame(ctx, { title: 'Library', lede: 'PDFs to read, print or work through on paper.', tabs, tabsLabel: 'Library sections' });
-  let content;
-  try {
-    content = await getContent();
-  } catch (error) {
-    if (!ctx.alive()) return;
-    console.error(error);
-    loadError(ctx, body, 'We couldn’t load the library.');
-    return;
-  }
-  if (!ctx.alive()) return;
-  const groups = libraryGroups(content.files, content.skills, content.sets);
-  const empty = (text) => emptyState({ icon: 'file-pdf', text });
-  let parts;
-  if (current === 'bank') {
-    parts = groups.bank.length
-      ? [h('p', { class: 'sat-note' }, 'Official College Board questions. Answers are not included; check them with your tutor.'),
-        ...groups.bank.map((g) => h('section', { class: 'card sat-domain-card is-list', 'aria-label': g.domain.name },
-          h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, g.domain.name)),
-          h('ul', { class: 'sat-bank-list' }, g.skills.map((s) => h('li', { class: 'sat-bank-row' },
-            h('span', { class: 'sat-bank-skill' }, s.label),
-            h('span', { class: 'sat-bank-levels' }, [...DIFFICULTIES, 'other'].filter((d) => s.levels[d]).map((d) => pdfButton(ctx, s.levels[d], {
-              label: DIFFICULTY_LABELS[d] ?? 'Open', ariaLabel: `Open the ${DIFFICULTY_LABELS[d] ?? ''} Question Bank PDF for ${s.label}`, className: `sat-level-btn is-${d}`,
-            })))))))) ]
-      : [empty('No Question Bank PDFs yet.')];
-  } else if (current === 'official') {
-    parts = groups.official.length
-      ? [h('section', { class: 'card is-list' }, h('ul', { class: 'sat-file-list' }, groups.official.map((f) => fileRow(ctx, f))))]
-      : [empty('No official practice tests yet.')];
-  } else if (current === 'staff') {
-    parts = groups.staff.length
-      ? [h('p', { class: 'sat-note' }, 'Only tutors and the admin see these: printable tests and answer keys.'),
-        h('section', { class: 'card is-list' }, h('ul', { class: 'sat-file-list' }, groups.staff.map((f) => fileRow(ctx, f, f.collection === 'answer_key' ? 'Answer key' : 'Printable test'))))]
-      : [empty('No tutor files yet.')];
-  } else {
-    parts = groups.lessons.length
-      ? groups.lessons.map((g) => h('section', { class: 'card sat-domain-card is-list', 'aria-label': g.domain.name },
-        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, g.domain.name)),
-        h('ul', { class: 'sat-file-list' },
-          g.skills.flatMap((r) => r.files.map((f) => fileRow(ctx, f, r.skill.name))),
-          g.other.map((f) => fileRow(ctx, f)))))
-      : [empty('No lesson PDFs yet.')];
-  }
-  body.replaceChildren(h('div', { class: 'sat-stack' }, parts));
-  ctx.announce(`Library, ${TAB_LABELS[current]}`);
+// Staff only: printable tests and answer keys. Null for anyone else or with none.
+export function teacherFiles(ctx, content) {
+  if (!isStaff(ctx)) return null;
+  const files = fileGroups(content.files, content.skills).staff;
+  if (!files.length) return null;
+  return h('section', { class: 'card sat-teacher', 'aria-labelledby': 'sat-teacher-title' },
+    h('div', { class: 'card-head' },
+      h('h2', { class: 'card-title', id: 'sat-teacher-title' }, 'Teacher files'),
+      h('span', { class: 'card-meta' }, 'Only tutors and the admin see these')),
+    h('ul', { class: 'sat-file-list' }, files.map((f) => fileRow(ctx, f, f.collection === 'answer_key' ? 'Answer key' : 'Printable test'))));
 }
