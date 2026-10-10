@@ -20,8 +20,9 @@
 --     A test response has no correctness until the module is submitted.
 -- storage bucket "sat-files"
 --     Private PDFs and PNG figures. Staff read every file; a student with
---     access reads a file listed in sat_files that is not staff only, and the
---     figures (figures/<id>.png). Nobody signed in writes to it.
+--     access reads a file listed in sat_files that is not staff only, the
+--     figures of questions they may read (figures/<item id>[-n].png) and
+--     guides/; keys/ is staff only. Nobody signed in writes to it.
 -- RPCs (security definer, the caller is auth.uid())
 --     sat_start, sat_answer, sat_submit, sat_review, sat_release_item (admin),
 --     sat_held_items (admin).
@@ -281,14 +282,30 @@ on conflict (id) do update
       file_size_limit = excluded.file_size_limit,
       allowed_mime_types = excluded.allowed_mime_types;
 
+-- Who reads a file in the bucket. Staff: every file. A student with access:
+--   figures/<item id>.png or figures/<item id>-<n>.png of a question whose text
+--     they may read (not held; a test question once its module is started)
+--   guides/...  pictures in study guides and lessons
+--   a file listed in sat_files that is not staff only
+-- keys/ (explanation figures, answer keys) is staff only.
 create function private.sat_can_read_file(p_name text)
 returns boolean
 language sql stable security definer set search_path = ''
 as $$
   select private.is_staff()
       or (private.sat_allowed(auth.uid())
-          and (p_name ~ '^figures/[a-z0-9-]{1,80}\.png$'
-               or exists (select 1 from public.sat_files f where f.storage_path = p_name and not f.staff_only)))
+          and p_name !~ '^keys/'
+          and p_name !~ '\.\.'
+          and (
+            (p_name ~ '^guides/[A-Za-z0-9._/-]{1,200}$')
+            or exists (
+              select 1 from public.sat_items i
+               where p_name ~ '^figures/[a-z0-9-]{1,80}\.png$'
+                 and (i.id = substring(p_name from '^figures/([a-z0-9-]+)\.png$')
+                      or i.id = regexp_replace(substring(p_name from '^figures/([a-z0-9-]+)\.png$'), '-[0-9]+$', ''))
+                 and not i.held
+                 and private.sat_item_open(i.set_id, i.module))
+            or exists (select 1 from public.sat_files f where f.storage_path = p_name and not f.staff_only)))
 $$;
 revoke execute on function private.sat_can_read_file(text) from public;
 grant execute on function private.sat_can_read_file(text) to authenticated;

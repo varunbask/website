@@ -770,8 +770,15 @@
       : ['A made-up file for the local demo.', 'The real PDFs live in the private sat-files bucket.']);
   }
   // The bucket's read policy
-  const canRead = (path) => hp.isStaff() || (allowed(hp.meId)
-    && (/^figures\/[a-z0-9-]{1,80}\.png$/.test(path) || db.sat_files.some((f) => f.storage_path === path && !f.staff_only)));
+  const figureItem = (path) => {
+    const m = path.match(/^figures\/([a-z0-9-]{1,80})\.png$/);
+    if (!m) return null;
+    return db.sat_items.find((i) => i.id === m[1]) ?? db.sat_items.find((i) => i.id === m[1].replace(/-\d+$/, '')) ?? null;
+  };
+  const canRead = (path) => hp.isStaff() || (allowed(hp.meId) && !path.startsWith('keys/') && !path.includes('..')
+    && (/^guides\/[A-Za-z0-9._/-]{1,200}$/.test(path)
+      || ((it) => Boolean(it) && !it.held && itemOpen(it))(figureItem(path))
+      || db.sat_files.some((f) => f.storage_path === path && !f.staff_only)));
 
   // With the real content, figures and lesson PDFs are the copies in sat-local/
   function localUrl(path) {
