@@ -20,7 +20,6 @@ const PAGE_ROWS = 1000;
 const IN_CHUNK = 150;
 
 const ITEM_FIELDS = 'id, set_id, module, position, domain, skill, difficulty, kind, passage, stem, choices, held';
-const INDEX_FIELDS = 'id, set_id, module, position, domain, skill, difficulty, kind, held';
 const SET_FIELDS = 'id, kind, domain, skill, title, position, modules, origin';
 const FILE_FIELDS = 'id, collection, domain, skill, difficulty, title, storage_path, bytes, pages, staff_only, position';
 const ATTEMPT_FIELDS = 'id, student_id, set_id, module, sitting, mode, started_at, deadline_at, submitted_at, correct, total';
@@ -68,7 +67,8 @@ async function loadContent() {
     selectAll(() => sb.from('sat_skills').select('slug, domain, name, position').order('position').order('slug')),
     selectAll(() => sb.from('sat_guides').select('skill, domain, title, position').order('position').order('skill')),
     selectAll(() => sb.from('sat_files').select(FILE_FIELDS).order('position').order('id')),
-    selectAll(() => sb.from('sat_items').select(INDEX_FIELDS).order('set_id').order('position').order('id')),
+    // Labels only: a test's questions are not readable until it is started
+    call('sat_item_index', {}).then((rows) => rows ?? []),
   ]);
   return {
     sets,
@@ -102,8 +102,14 @@ export function getGuide(skill) {
   });
 }
 
-// The items of a set (one module of it, or all): Map id -> item, in order
+// A module key as the content uses them ('rw1', 'm'); anything else is never
+// put into a filter
+export const MODULE_KEY = /^[a-z0-9]{1,8}$/;
+
+// The items of a set (one module of it, or all): Map id -> item, in order.
+// A test's items come back only once the caller has started that module.
 export function getItems(setId, module = null) {
+  if (module && !MODULE_KEY.test(String(module))) return Promise.reject(new Error('bad module'));
   return remember(items, `${setId}|${module ?? ''}`, async () => {
     const rows = await selectAll(() => {
       let q = sb.from('sat_items').select(ITEM_FIELDS).eq('set_id', setId);
@@ -167,11 +173,16 @@ export async function setAccess(studentId, on) {
 const attempts = new Map();
 const responses = new Map();
 
+// A student's attempts, newest first. Modules left open past their time are
+// submitted first (sat_settle), so an abandoned test reads as taken.
 export function getAttempts(studentId) {
-  return remember(attempts, String(studentId), () => selectAll(() => sb.from('sat_attempts').select(ATTEMPT_FIELDS)
-    .eq('student_id', studentId)
-    .order('started_at', { ascending: false })
-    .order('id', { ascending: false })));
+  return remember(attempts, String(studentId), async () => {
+    await call('sat_settle', { p_student: studentId }).catch(() => 0);
+    return selectAll(() => sb.from('sat_attempts').select(ATTEMPT_FIELDS)
+      .eq('student_id', studentId)
+      .order('started_at', { ascending: false })
+      .order('id', { ascending: false }));
+  });
 }
 
 // Every response of the student's attempts
@@ -211,7 +222,13 @@ export function resetSat() {
 // ---------------------------------------------------------------------------
 // RPCs (the caller is the signed-in person)
 
-export const start = (setId, module = null, sitting = null) => call('sat_start', { p_set: setId, p_module: module, p_sitting: sitting });
+// Starting a module makes its questions readable: forget any empty read of them
+export async function start(setId, module = null, sitting = null) {
+  const started = await call('sat_start', { p_set: setId, p_module: module, p_sitting: sitting });
+  items.delete(`${setId}|${started?.module ?? ''}`);
+  items.delete(`${setId}|`);
+  return started;
+}
 export const answer = (attemptId, itemId, response, flagged = null) => call('sat_answer', {
   p_attempt: attemptId, p_item: itemId, p_response: response, p_flagged: flagged,
 });

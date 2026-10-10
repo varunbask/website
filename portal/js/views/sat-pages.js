@@ -18,6 +18,7 @@ import {
   SECTIONS, DOMAINS, domainOf, sectionName, skillsByDomain, practiceSetsFor, testGroups, modulesOf, libraryGroups, skillFiles,
   progressFrom, attemptCounts, practiceLine, countsText, originLabel, pct, bestAndLast, sittings, sittingNext, fullScore,
   scoreText, minutesText, practiceHref, testHref, reviewHref, learnHref, satCrumbs, DIFFICULTIES, DIFFICULTY_LABELS,
+  isOpen, firstAttemptIds,
 } from '../sat-model.js';
 import { getContent, getAttempts, getResponses, getGuide } from '../sat-data.js';
 import { satDoc } from '../sat-doc.js';
@@ -69,7 +70,7 @@ function originPill(ctx, set) {
 // One practice set as a row: where the student is with it, and a way in
 
 function practiceStatus(set, attempts, counts, total) {
-  const open = attempts.find((a) => !a.submitted_at);
+  const open = attempts.find((a) => isOpen(a));
   if (open) return { text: `In progress: ${practiceLine(counts.get(open.id), total)}`, action: 'Continue', tone: 'info' };
   const last = attempts.find((a) => a.submitted_at);
   if (last) return { text: `Done: ${practiceLine(counts.get(last.id), total)}`, action: 'Practice again', tone: 'success', last };
@@ -267,14 +268,18 @@ function skillTestRow(ctx, set, data) {
   const minutes = mods.reduce((t, m) => t + m.minutes, 0);
   const total = data.content.counts.get(set.id)?.total ?? 0;
   const mine = data.sets.get(set.id) ?? [];
-  const open = mine.find((a) => !a.submitted_at);
+  const open = mine.find((a) => isOpen(a));
   const { best, last, attempts } = bestAndLast(mine);
   const staff = isStaff(ctx);
+  // Staff see the first attempt apart: it is the one taken before any answers were seen
+  const firstId = staff ? [...firstAttemptIds(mine)][0] ?? null : null;
+  const first = firstId ? mine.find((a) => a.id === firstId && a.submitted_at) : null;
   const action = open ? 'Continue' : attempts.length ? 'Take again' : 'Start';
   return h('li', { class: 'sat-test-row' },
     h('div', { class: 'sat-test-main' },
       h('h4', { class: 'sat-test-title' }, set.title),
       h('p', { class: 'sat-test-meta' }, `${total} ${total === 1 ? 'question' : 'questions'}, ${minutesText(minutes)}`),
+      first ? h('p', { class: 'sat-test-scores num' }, h('span', { class: 'sat-first' }, 'First attempt'), ` ${scoreText(first.correct, first.total)}`) : null,
       best ? h('p', { class: 'sat-test-scores num' }, `Best ${scoreText(best.correct, best.total)}`, h('span', { class: 'sat-dot', 'aria-hidden': 'true' }), `Last ${scoreText(last.correct, last.total)}`) : null,
       open ? h('p', { class: 'sat-test-open' }, staff ? 'A test is in progress.' : 'You have this test in progress.') : null,
       reviewLinks(attempts, `Reviews of ${set.title}`)),

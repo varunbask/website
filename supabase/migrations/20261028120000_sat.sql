@@ -161,7 +161,8 @@ create table public.sat_files (
 create table public.sat_attempts (
   id           bigint generated always as identity primary key,
   student_id   uuid not null references public.profiles (id) on delete cascade,
-  set_id       text not null references public.sat_sets (id) on delete cascade,
+  -- restrict: content students have taken cannot be deleted from under them
+  set_id       text not null references public.sat_sets (id) on delete restrict,
   module       text,
   sitting      uuid,
   mode         text not null check (mode in ('practice', 'test')),
@@ -172,10 +173,14 @@ create table public.sat_attempts (
   total        int
 );
 create index sat_attempts_student_idx on public.sat_attempts (student_id, set_id, started_at desc);
+-- At most one unfinished run or module per person, set and module (two tabs
+-- or a double click resume the same one; sat_start also locks)
+create unique index sat_attempts_one_open on public.sat_attempts (student_id, set_id, coalesce(module, ''))
+  where submitted_at is null;
 
 create table public.sat_responses (
   attempt_id  bigint references public.sat_attempts (id) on delete cascade,
-  item_id     text references public.sat_items (id) on delete cascade,
+  item_id     text references public.sat_items (id) on delete restrict,
   response    text check (char_length(response) <= 12),
   correct     boolean,
   flagged     boolean not null default false,
@@ -196,6 +201,21 @@ as $$
 $$;
 revoke execute on function private.sat_can_see_attempt(bigint) from public;
 grant execute on function private.sat_can_see_attempt(bigint) to authenticated;
+
+-- Whether the caller may read the questions of a set's module: always for a
+-- practice set; for a test only once they have an attempt at that module
+-- (running, or submitted for review), so nobody reads a test before taking it
+create function private.sat_item_open(p_set text, p_module text)
+returns boolean
+language sql stable security definer set search_path = ''
+as $$
+  select exists (select 1 from public.sat_sets s where s.id = p_set and s.kind = 'practice')
+      or exists (select 1 from public.sat_attempts a
+                  where a.student_id = auth.uid() and a.set_id = p_set
+                    and (a.module is null or p_module is null or a.module = p_module))
+$$;
+revoke execute on function private.sat_item_open(text, text) from public;
+grant execute on function private.sat_item_open(text, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Privileges: start from nothing, grant exactly what the policies need
@@ -237,8 +257,9 @@ create policy "sat_skills: staff and students with access read" on public.sat_sk
   for select to authenticated using (private.sat_reader());
 create policy "sat_guides: staff and students with access read" on public.sat_guides
   for select to authenticated using (private.sat_reader());
-create policy "sat_items: staff read all, students with access the ones not held" on public.sat_items
-  for select to authenticated using (private.is_staff() or (not held and private.sat_allowed(auth.uid())));
+create policy "sat_items: staff read all, students with access the ones not held, tests once started" on public.sat_items
+  for select to authenticated
+  using (private.is_staff() or (not held and private.sat_allowed(auth.uid()) and private.sat_item_open(set_id, module)));
 create policy "sat_keys: staff only" on public.sat_keys
   for select to authenticated using (private.is_staff());
 create policy "sat_files: staff read all, students with access the shared ones" on public.sat_files
@@ -440,14 +461,111 @@ as $$
 $$;
 revoke execute on function private.sat_review_json(bigint, boolean) from public;
 
+-- Scores and closes an attempt (no checks: callers check). A test module is
+-- scored now, an unanswered item counting as wrong; a practice run's score is
+-- over every item in the set. Sets correct and total (items not held).
+create function private.sat_finish(p_attempt bigint)
+returns void
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  a public.sat_attempts;
+  n_total int;
+  n_correct int;
+begin
+  select * into a from public.sat_attempts where id = p_attempt for update;
+  if not found or a.submitted_at is not null then
+    return;
+  end if;
+  if a.mode = 'test' then
+    update public.sat_responses r
+       set correct = private.sat_is_correct(i.kind, r.response, k.answer, k.accept)
+      from public.sat_items i
+      left join public.sat_keys k on k.item_id = i.id
+     where r.attempt_id = a.id and i.id = r.item_id;
+  end if;
+  select count(*), count(*) filter (where r.correct)
+    into n_total, n_correct
+    from public.sat_items i
+    left join public.sat_responses r on r.attempt_id = a.id and r.item_id = i.id
+   where i.set_id = a.set_id
+     and (a.module is null or i.module is null or i.module = a.module)
+     and not i.held;
+  update public.sat_attempts
+     set submitted_at = now(), correct = n_correct, total = n_total
+   where id = a.id;
+end;
+$$;
+revoke execute on function private.sat_finish(bigint) from public;
+
+-- Submits a person's test modules whose time ran out (30 seconds past the
+-- deadline) and were left open: an abandoned test counts as taken
+create function private.sat_close_expired(p_student uuid)
+returns int
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  t bigint;
+  n int := 0;
+begin
+  for t in
+    select id from public.sat_attempts
+     where student_id = p_student and mode = 'test' and submitted_at is null
+       and deadline_at + interval '30 seconds' < now()
+  loop
+    perform private.sat_finish(t);
+    n := n + 1;
+  end loop;
+  return n;
+end;
+$$;
+revoke execute on function private.sat_close_expired(uuid) from public;
+
+-- Closes a student's abandoned test modules before their attempts are read:
+-- the student themself, their tutors, the admin or their parents
+create function public.sat_settle(p_student uuid)
+returns int
+language plpgsql security definer set search_path = ''
+as $$
+begin
+  if p_student is null or not (p_student = auth.uid() or private.can_view_student(p_student)) then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
+  return private.sat_close_expired(p_student);
+end;
+$$;
+revoke execute on function public.sat_settle(uuid) from public, anon;
+grant execute on function public.sat_settle(uuid) to authenticated;
+
+-- Every question's place and labels, never its text: counts and progress
+-- before a test is started. Staff get every item; a student with access the
+-- ones not held. One jsonb array (no row cap on the response):
+-- [{ id, set_id, module, position, domain, skill, difficulty, kind, held }]
+create function public.sat_item_index()
+returns jsonb
+language sql stable security definer set search_path = ''
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'id', i.id, 'set_id', i.set_id, 'module', i.module, 'position', i.position, 'domain', i.domain,
+      'skill', i.skill, 'difficulty', i.difficulty, 'kind', i.kind, 'held', i.held)
+    order by i.set_id, i.position, i.id), '[]'::jsonb)
+    from public.sat_items i
+   where (private.is_staff() or (private.sat_allowed(auth.uid()) and not i.held))
+$$;
+revoke execute on function public.sat_item_index() from public, anon;
+grant execute on function public.sat_item_index() to authenticated;
+
 -- Starts a practice run or a timed module, or picks up the unfinished one:
 --   practice     the unfinished run of the set, else a new one (no deadline)
 --   skill_test   one module (p_module, else the set's first); deadline now()
---                plus its minutes
+--                plus its minutes; p_sitting is ignored
 --   full_test    p_module is required; modules go in the set's order inside a
---                sitting, each once: the first starts a sitting (or resumes
---                its unfinished module), the next ones need p_sitting and the
---                module before them submitted
+--                sitting, each once: the first starts a new sitting, the next
+--                ones need the caller's p_sitting with the module before
+--                them submitted
+-- An unfinished attempt at the same set and module is always resumed, never
+-- duplicated. Modules left open past their time are submitted first (an
+-- abandoned test counts as taken; a retake is a new attempt).
 -- -> { attempt_id, sitting, deadline_at, mode, module, started_at, server_now,
 --      items: [item ids in order, held ones left out] }
 create function public.sat_start(p_set text, p_module text default null, p_sitting uuid default null)
@@ -471,15 +589,10 @@ begin
   if not found then
     raise exception 'no_such_set' using errcode = 'P0002';
   end if;
+  -- a module left open past its time counts as taken
+  perform private.sat_close_expired(me);
 
-  if s.kind = 'practice' then
-    select * into a from public.sat_attempts
-     where student_id = me and set_id = s.id and mode = 'practice' and submitted_at is null
-     order by started_at desc, id desc limit 1;
-    if not found then
-      insert into public.sat_attempts (student_id, set_id, mode) values (me, s.id, 'practice') returning * into a;
-    end if;
-  else
+  if s.kind <> 'practice' then
     mods := case when jsonb_typeof(s.modules) = 'array' then s.modules else '[]'::jsonb end;
     if s.kind = 'full_test' and p_module is null then
       raise exception 'module_required' using errcode = '22023';
@@ -499,33 +612,48 @@ begin
       end if;
     end if;
     minutes := coalesce(minutes, 35);
+  end if;
 
-    if s.kind = 'full_test' and idx > 0 then
-      if p_sitting is null then
-        raise exception 'sitting_required' using errcode = '22023';
-      end if;
-      if not exists (select 1 from public.sat_attempts
-                      where student_id = me and set_id = s.id and sitting = p_sitting
-                        and module = mods -> (idx - 1) ->> 'key' and submitted_at is not null) then
-        raise exception 'previous_module_open' using errcode = '22023';
-      end if;
-    end if;
+  -- one start at a time per person, set and module (two tabs, a double click)
+  perform pg_advisory_xact_lock(hashtextextended(me::text || '|' || s.id || '|' || coalesce(mkey, ''), 0));
 
-    if p_sitting is not null then
-      select * into a from public.sat_attempts
-       where student_id = me and set_id = s.id and module is not distinct from mkey and sitting = p_sitting
-       order by started_at desc, id desc limit 1;
+  -- the unfinished run or module of this set and module, if any, is resumed
+  select * into a from public.sat_attempts
+   where student_id = me and set_id = s.id and module is not distinct from mkey and submitted_at is null
+   order by started_at desc, id desc limit 1;
+
+  if not found then
+    if s.kind = 'practice' then
+      insert into public.sat_attempts (student_id, set_id, mode) values (me, s.id, 'practice') returning * into a;
     else
-      select * into a from public.sat_attempts
-       where student_id = me and set_id = s.id and module is not distinct from mkey and mode = 'test'
-         and submitted_at is null
-       order by started_at desc, id desc limit 1;
-    end if;
-    if found and a.submitted_at is not null then
-      raise exception 'already_taken' using errcode = '22023';
-    end if;
-    if not found then
-      sit := case when s.kind = 'full_test' then coalesce(p_sitting, gen_random_uuid()) else p_sitting end;
+      if s.kind = 'full_test' and idx = 0 then
+        -- a new sitting; a sitting named here must be one of the caller's own,
+        -- and its first module is then already taken
+        if p_sitting is not null then
+          if exists (select 1 from public.sat_attempts where student_id = me and set_id = s.id and sitting = p_sitting) then
+            raise exception 'already_taken' using errcode = '22023';
+          end if;
+          raise exception 'no_such_sitting' using errcode = 'P0002';
+        end if;
+        sit := gen_random_uuid();
+      elsif s.kind = 'full_test' then
+        if p_sitting is null then
+          raise exception 'sitting_required' using errcode = '22023';
+        end if;
+        if not exists (select 1 from public.sat_attempts
+                        where student_id = me and set_id = s.id and sitting = p_sitting
+                          and module = mods -> (idx - 1) ->> 'key' and submitted_at is not null) then
+          raise exception 'previous_module_open' using errcode = '22023';
+        end if;
+        if exists (select 1 from public.sat_attempts
+                    where student_id = me and set_id = s.id and sitting = p_sitting and module = mkey) then
+          raise exception 'already_taken' using errcode = '22023';
+        end if;
+        sit := p_sitting;
+      else
+        -- a skill test has no sittings: any p_sitting is ignored
+        sit := null;
+      end if;
       insert into public.sat_attempts (student_id, set_id, module, sitting, mode, deadline_at)
       values (me, s.id, mkey, sit, 'test', now() + make_interval(mins => minutes))
       returning * into a;
@@ -566,6 +694,9 @@ declare
   resp text := nullif(btrim(p_response), '');
   ok boolean;
 begin
+  if not (private.is_staff() or private.sat_allowed(auth.uid())) then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
   select * into a from public.sat_attempts where id = p_attempt and student_id = auth.uid() for update;
   if not found then
     raise exception 'no_such_attempt' using errcode = 'P0002';
@@ -644,32 +775,15 @@ language plpgsql security definer set search_path = ''
 as $$
 declare
   a public.sat_attempts;
-  n_total int;
-  n_correct int;
 begin
+  if not (private.is_staff() or private.sat_allowed(auth.uid())) then
+    raise exception 'not_allowed' using errcode = '42501';
+  end if;
   select * into a from public.sat_attempts where id = p_attempt and student_id = auth.uid() for update;
   if not found then
     raise exception 'no_such_attempt' using errcode = 'P0002';
   end if;
-  if a.submitted_at is null then
-    if a.mode = 'test' then
-      update public.sat_responses r
-         set correct = private.sat_is_correct(i.kind, r.response, k.answer, k.accept)
-        from public.sat_items i
-        left join public.sat_keys k on k.item_id = i.id
-       where r.attempt_id = a.id and i.id = r.item_id;
-    end if;
-    select count(*), count(*) filter (where r.correct)
-      into n_total, n_correct
-      from public.sat_items i
-      left join public.sat_responses r on r.attempt_id = a.id and r.item_id = i.id
-     where i.set_id = a.set_id
-       and (a.module is null or i.module is null or i.module = a.module)
-       and not i.held;
-    update public.sat_attempts
-       set submitted_at = now(), correct = n_correct, total = n_total
-     where id = a.id;
-  end if;
+  perform private.sat_finish(a.id);
   return private.sat_review_json(a.id, true);
 end;
 $$;
@@ -691,6 +805,9 @@ begin
     raise exception 'no_such_attempt' using errcode = 'P0002';
   end if;
   if a.student_id = auth.uid() then
+    if not (private.is_staff() or private.sat_allowed(auth.uid())) then
+      raise exception 'not_allowed' using errcode = '42501';
+    end if;
     if a.submitted_at is not null then
       return private.sat_review_json(a.id, true);
     end if;

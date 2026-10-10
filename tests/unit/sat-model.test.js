@@ -8,6 +8,7 @@ import {
   bankSkill, SHARED_BANK,
   pct, progressFrom, attemptCounts, practiceLine, scoreText, bestAndLast, continueList, sittings, sittingNext, fullScore,
   domainBreakdown, filterReview, unansweredCount, submitConfirmText, attemptLabel, attemptResult, lastText,
+  isOpen, firstAttemptIds,
 } from '../../portal/js/sat-model.js';
 
 describe('domains and sections', () => {
@@ -152,6 +153,8 @@ describe('grid-in scoring (mirrors private.sat_spr_correct)', () => {
     expect(sprInput('abc1.2')).toBe('1.2');
     expect(sprInput('1234567')).toBe('12345');
     expect(sprInput('-1234567')).toBe('-12345');
+    // a typographic minus or a dash counts as the minus sign
+    for (const dash of ['\u2212', '\u2013', '\u2012', '\u2014']) expect(sprInput(`${dash}3/4`), dash).toBe('-3/4');
   });
 
   test('either kind, and the answers the admin may release with', () => {
@@ -506,5 +509,31 @@ describe('copy', () => {
       // Students never see who wrote a set: only staff code paths may name it
       if (f !== 'views/sat-pages.js') expect(text, f).not.toMatch(/Matthew/);
     }
+  });
+});
+
+describe('attempts after the security review', () => {
+  const NOW = Date.parse('2026-10-14T12:00:00Z');
+  test('a test module is open until 30 seconds past its deadline; a practice run until finished', () => {
+    expect(isOpen({ mode: 'test', deadline_at: '2026-10-14T11:59:40Z' }, NOW)).toBe(true);
+    expect(isOpen({ mode: 'test', deadline_at: '2026-10-14T11:59:20Z' }, NOW)).toBe(false);
+    expect(isOpen({ mode: 'test', deadline_at: '2026-10-14T12:30:00Z', submitted_at: 'x' }, NOW)).toBe(false);
+    expect(isOpen({ mode: 'practice' }, NOW)).toBe(true);
+    expect(continueList([{ id: 1, set_id: 'a', mode: 'test', started_at: '1', deadline_at: '2026-10-14T11:00:00Z' }], NOW)).toEqual([]);
+  });
+
+  test('the first attempt per set and module, and per sitting for a full test', () => {
+    const A = (id, set_id, started_at, extra = {}) => ({ id, student_id: 's1', set_id, module: null, sitting: null, started_at, ...extra });
+    const list = [
+      A(1, 'alg-t1', '2026-10-01', { module: 'm' }),
+      A(2, 'alg-t1', '2026-10-02', { module: 'm' }),
+      A(3, 'alg-ch1', '2026-10-03'),
+      A(4, 'full-01', '2026-10-04', { module: 'rw1', sitting: 'x' }),
+      A(5, 'full-01', '2026-10-05', { module: 'rw2', sitting: 'x' }),
+      A(6, 'full-01', '2026-10-06', { module: 'rw1', sitting: 'y' }),
+      A(7, 'full-01', '2026-10-07', { module: 'm1', sitting: 'y' }),
+      { ...A(8, 'alg-t1', '2026-10-08', { module: 'm' }), student_id: 's2' },
+    ];
+    expect([...firstAttemptIds(list)].sort((a, b) => a - b)).toEqual([1, 3, 4, 5, 8]);
   });
 });

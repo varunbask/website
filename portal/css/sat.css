@@ -213,6 +213,18 @@
 .sat-attempt-date, .sat-attempt-time { color: var(--text-3); font: var(--t-meta); }
 .sat-attempt-title { display: flex; align-items: baseline; gap: var(--s-2); min-width: 0; }
 .sat-attempt-kind { font: var(--t-caption); color: var(--text-3); }
+/* The first try at a set, before any answers were seen (staff) */
+.sat-first {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background-color: var(--info-bg);
+  color: var(--info-text);
+  font: 500 12px/16px var(--font-ui);
+  white-space: nowrap;
+}
 .sat-attempt-score { font: var(--t-meta); }
 .sat-attempt-row > .icon { color: var(--text-4); }
 @media (hover: hover) { .sat-attempt-row:hover { background-color: var(--hover); } }

@@ -475,7 +475,8 @@
       sat_sets: { rows: sets, read: reader, insert: nobody, write: nobody },
       sat_skills: { rows: skills, read: reader, insert: nobody, write: nobody },
       sat_guides: { rows: guides, read: reader, insert: nobody, write: nobody },
-      sat_items: { rows: items, read: (r) => hp.isStaff() || (!r.held && allowed(hp.meId)), insert: nobody, write: nobody },
+      // a test's questions only once the reader has started that module
+      sat_items: { rows: items, read: (r) => hp.isStaff() || (!r.held && allowed(hp.meId) && itemOpen(r)), insert: nobody, write: nobody },
       sat_keys: { rows: keys, read: () => hp.isStaff(), insert: nobody, write: nobody },
       sat_files: { rows: files, read: (r) => hp.isStaff() || (!r.staff_only && allowed(hp.meId)), insert: nobody, write: nobody },
       sat_attempts: { rows: attempts, read: attemptVisible, insert: nobody, write: nobody },
@@ -483,6 +484,8 @@
     },
     rpc: {
       sat_start: (args) => satStart(args),
+      sat_item_index: () => satIndex(),
+      sat_settle: (args) => satSettle(args),
       sat_answer: (args) => satAnswer(args),
       sat_submit: (args) => satSubmit(args),
       sat_review: (args) => satReview(args),
@@ -519,11 +522,41 @@
     };
   }
 
+  function itemOpen(r) {
+    const set = db.sat_sets.find((x) => x.id === r.set_id);
+    if (set?.kind === 'practice') return true;
+    return db.sat_attempts.some((a) => a.student_id === hp.meId && a.set_id === r.set_id && (a.module == null || r.module == null || a.module === r.module));
+  }
+
+  function satIndex() {
+    if (!(hp.isStaff() || allowed(hp.meId))) return ok([]);
+    return ok(db.sat_items.filter((i) => hp.isStaff() || !i.held).map((i) => ({
+      id: i.id, set_id: i.set_id, module: i.module, position: i.position, domain: i.domain, skill: i.skill, difficulty: i.difficulty, kind: i.kind, held: i.held,
+    })));
+  }
+
+  // Test modules left open 30 seconds past their deadline count as submitted
+  function closeExpired(student) {
+    let n = 0;
+    for (const a of db.sat_attempts.filter((x) => x.student_id === student && x.mode === 'test' && !x.submitted_at
+      && Date.parse(x.deadline_at) + 30_000 < Date.now())) {
+      finish(a);
+      n += 1;
+    }
+    return n;
+  }
+
+  function satSettle({ p_student: student }) {
+    if (!student || !(student === hp.meId || hp.canSee(student))) return fail('not_allowed', '42501');
+    return ok(closeExpired(student));
+  }
+
   function satStart({ p_set: setId, p_module: moduleArg = null, p_sitting: sittingArg = null }) {
     const me = hp.meId;
     if (!me || !(hp.isStaff() || allowed(me))) return fail('not_allowed', '42501');
     const s = db.sat_sets.find((x) => x.id === setId);
     if (!s) return fail('no_such_set', 'P0002');
+    closeExpired(me);
     const mine = db.sat_attempts.filter((a) => a.student_id === me && a.set_id === s.id).sort((x, y) => y.started_at.localeCompare(x.started_at) || y.id - x.id);
     let a;
     if (s.kind === 'practice') {
@@ -544,20 +577,24 @@
           minutes = RW.includes(s.domain) ? 32 : 35;
         } else return fail('no_such_module', 'P0002');
       }
-      if (s.kind === 'full_test' && idx > 0) {
+      // the open module of this set is always resumed
+      a = mine.find((x) => (x.module ?? null) === key && !x.submitted_at);
+      let sitting = null;
+      if (!a && s.kind === 'full_test' && idx === 0) {
+        if (sittingArg) return mine.some((x) => x.sitting === sittingArg) ? fail('already_taken', '22023') : fail('no_such_sitting', 'P0002');
+        sitting = crypto.randomUUID();
+      } else if (!a && s.kind === 'full_test') {
         if (!sittingArg) return fail('sitting_required', '22023');
         const prev = mods[idx - 1].key;
         if (!mine.some((x) => x.sitting === sittingArg && x.module === prev && x.submitted_at)) return fail('previous_module_open', '22023');
+        if (mine.some((x) => x.sitting === sittingArg && x.module === key)) return fail('already_taken', '22023');
+        sitting = sittingArg;
       }
-      a = sittingArg
-        ? mine.find((x) => (x.module ?? null) === key && x.sitting === sittingArg)
-        : mine.find((x) => (x.module ?? null) === key && x.mode === 'test' && !x.submitted_at);
-      if (a && a.submitted_at) return fail('already_taken', '22023');
       if (!a) {
         const started = now();
         a = {
           id: hp.id(), student_id: me, set_id: s.id, module: key,
-          sitting: s.kind === 'full_test' ? (sittingArg ?? crypto.randomUUID()) : sittingArg,
+          sitting,
           mode: 'test', started_at: started, deadline_at: new Date(Date.parse(started) + (minutes ?? 35) * 60_000).toISOString(),
           submitted_at: null, correct: null, total: null,
         };
@@ -571,6 +608,7 @@
   }
 
   function satAnswer({ p_attempt: attemptId, p_item: itemId, p_response: raw = null, p_flagged: flagged = null }) {
+    if (!(hp.isStaff() || allowed(hp.meId))) return fail('not_allowed', '42501');
     const a = db.sat_attempts.find((x) => x.id === Number(attemptId) && x.student_id === hp.meId);
     if (!a) return fail('no_such_attempt', 'P0002');
     if (a.submitted_at) return fail('submitted');
@@ -608,22 +646,26 @@
     return ok({ saved: true });
   }
 
+  function finish(a) {
+    if (a.submitted_at) return;
+    if (a.mode === 'test') {
+      for (const r of db.sat_responses.filter((x) => x.attempt_id === a.id)) {
+        const it = itemById(r.item_id);
+        const k = keyOf(r.item_id);
+        r.correct = isCorrect(it?.kind, r.response, k?.answer, k?.accept);
+      }
+    }
+    const list = itemsOf(a);
+    a.total = list.length;
+    a.correct = list.filter((i) => responseOf(a, i.id)?.correct).length;
+    a.submitted_at = now();
+  }
+
   function satSubmit({ p_attempt: attemptId }) {
+    if (!(hp.isStaff() || allowed(hp.meId))) return fail('not_allowed', '42501');
     const a = db.sat_attempts.find((x) => x.id === Number(attemptId) && x.student_id === hp.meId);
     if (!a) return fail('no_such_attempt', 'P0002');
-    if (!a.submitted_at) {
-      if (a.mode === 'test') {
-        for (const r of db.sat_responses.filter((x) => x.attempt_id === a.id)) {
-          const it = itemById(r.item_id);
-          const k = keyOf(r.item_id);
-          r.correct = isCorrect(it?.kind, r.response, k?.answer, k?.accept);
-        }
-      }
-      const list = itemsOf(a);
-      a.total = list.length;
-      a.correct = list.filter((i) => responseOf(a, i.id)?.correct).length;
-      a.submitted_at = now();
-    }
+    finish(a);
     return ok(reviewJson(a, true));
   }
 
@@ -631,6 +673,7 @@
     const a = db.sat_attempts.find((x) => x.id === Number(attemptId));
     if (!a) return fail('no_such_attempt', 'P0002');
     if (a.student_id === hp.meId) {
+      if (!(hp.isStaff() || allowed(hp.meId))) return fail('not_allowed', '42501');
       if (a.submitted_at) return ok(reviewJson(a, true));
       if (a.mode === 'practice') return ok(reviewJson(a, false));
       return fail('not_submitted');

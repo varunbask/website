@@ -25,7 +25,7 @@ import { shortDay } from '../dates.js';
 import {
   modulesOf, nextModule, BREAK_AFTER, BREAK_MINUTES, formatClock, clockWords, remainingMs, timerTone, timerAnnouncement,
   minutesText, satCrumbs, reviewHref, scoreText, pct, unansweredCount, submitConfirmText, sittings, sittingNext, fullScore,
-  domainBreakdown, sectionName, LETTERS, testHref, GRACE_MS,
+  domainBreakdown, sectionName, LETTERS, testHref, GRACE_MS, isOpen,
 } from '../sat-model.js';
 import {
   getContent, getItems, getAttempts, start, answer, submit, review, dropProgress, errorCode, attemptResponses,
@@ -736,7 +736,7 @@ export async function mount(ctx, where) {
   }
   if (!ctx.alive()) return;
   const sameModule = (a) => a.set_id === set.id && (a.module ?? null) === (wanted ?? null);
-  const open = attempts.find((a) => sameModule(a) && !a.submitted_at && (!full || !where.sitting || a.sitting === where.sitting));
+  const open = attempts.find((a) => sameModule(a) && isOpen(a) && (!full || !where.sitting || a.sitting === where.sitting));
   if (open) {
     try {
       run = await openRun(wanted, full ? open.sitting : null);

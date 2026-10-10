@@ -20,7 +20,7 @@ import { firstName, displayName } from '../format.js';
 import { shortDay } from '../dates.js';
 import {
   satPage, SECTIONS, domainsOf, progressFrom, attemptCounts, continueList, pct, practiceHref, testHref, reviewHref,
-  attemptLabel, attemptResult, timeUsed, validAnswer, answerText, isOpen, lastText,
+  attemptLabel, attemptResult, timeUsed, validAnswer, answerText, isOpen, lastText, firstAttemptIds,
 } from '../sat-model.js';
 import {
   getContent, getAttempts, getResponses, getAccess, setAccess, heldItems, releaseItem, getItems, getKeys, dropContent, errorCode,
@@ -155,7 +155,7 @@ async function home(ctx) {
   const counts = attemptCounts(responses);
   const parts = [];
   if (staff) parts.push(accessCard(ctx, student));
-  parts.push(continueCard(ctx, continueList(attempts), content, counts, { staff, name }));
+  parts.push(continueCard(ctx, continueList(attempts, ctx.now), content, counts, { staff, name }));
   parts.push(tiles());
   parts.push(progressCard(progress, ctx.now, { staff, name }));
   if (staff) parts.push(attemptsCard(ctx, attempts, content, counts, name));
@@ -234,6 +234,8 @@ function accessCard(ctx, student) {
 function attemptsCard(ctx, attempts, content, counts, name) {
   const titleId = uid('sat-attempts');
   const list = attempts.filter((a) => content.setsById.has(a.set_id));
+  // Retakes after seeing the answers are allowed: the first try is marked
+  const firsts = firstAttemptIds(list);
   const rows = list.map((a) => {
     const set = content.setsById.get(a.set_id);
     const total = content.counts.get(set.id)?.total ?? 0;
@@ -242,9 +244,10 @@ function attemptsCard(ctx, attempts, content, counts, name) {
       h('a', { class: 'sat-attempt-row', href: reviewHref(a.id), dataset: { focusKey: `sat-attempt-${a.id}` } },
         h('span', { class: 'sat-attempt-date num' }, shortDay(a.started_at, ctx.now)),
         h('span', { class: 'sat-attempt-title' }, attemptLabel(a, set),
-          h('span', { class: 'sat-attempt-kind' }, a.mode === 'practice' ? 'Practice' : 'Test')),
+          h('span', { class: 'sat-attempt-kind' }, a.mode === 'practice' ? 'Practice' : 'Test'),
+          firsts.has(a.id) ? h('span', { class: 'sat-first' }, 'First attempt') : null),
         h('span', { class: 'sat-attempt-score num' }, attemptResult(a, counts.get(a.id), total)),
-        h('span', { class: 'sat-attempt-time num' }, used ?? (isOpen(a) ? 'Open' : '')),
+        h('span', { class: 'sat-attempt-time num' }, used ?? (isOpen(a, ctx.now) ? 'Open' : '')),
         icon('caret-right')));
   });
   return h('section', { class: 'card sat-attempts', 'aria-labelledby': titleId },

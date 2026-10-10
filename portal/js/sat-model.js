@@ -100,7 +100,8 @@ export function sprValid(text) {
 // What the box keeps while typing: digits, one point, one slash, a leading
 // minus, cut to the limit
 export function sprInput(text) {
-  let s = String(text ?? '').replace(/[^0-9./-]/g, '');
+  // a minus sign or a dash typed (or pasted) for "-" counts as one
+  let s = String(text ?? '').replace(/[\u2212\u2012\u2013\u2014]/g, '-').replace(/[^0-9./-]/g, '');
   const negative = s.startsWith('-');
   s = s.replace(/-/g, '');
   const firstPoint = s.indexOf('.');
@@ -539,19 +540,21 @@ export function bestAndLast(attempts) {
   return { best, last: done[0] ?? null, attempts: done };
 }
 
-// Is an unsubmitted attempt still worth continuing? A practice run always
-// is; a test module until its deadline (a later one is picked up and
-// submitted when opened)
-export function isOpen(attempt) {
-  return Boolean(attempt) && !attempt.submitted_at;
+// Is an attempt still going? A practice run until it is finished; a test
+// module until 30 seconds past its deadline (the server then submits it, so
+// an abandoned test reads as taken)
+export function isOpen(attempt, now = Date.now()) {
+  if (!attempt || attempt.submitted_at) return false;
+  if (attempt.mode !== 'test' || !attempt.deadline_at) return true;
+  return Date.parse(attempt.deadline_at) + GRACE_MS >= Number(now instanceof Date ? now.getTime() : now);
 }
 
 // The unfinished runs and modules, newest first, one per set (the newest)
-export function continueList(attempts) {
+export function continueList(attempts, now = Date.now()) {
   const seen = new Set();
   const out = [];
   for (const a of [...(attempts ?? [])].sort((x, y) => String(y.started_at).localeCompare(String(x.started_at)))) {
-    if (!isOpen(a) || seen.has(a.set_id)) continue;
+    if (!isOpen(a, now) || seen.has(a.set_id)) continue;
     seen.add(a.set_id);
     out.push(a);
   }
@@ -656,4 +659,23 @@ export function lastText(iso, now = new Date()) {
   const t = relativeTime(iso, now).text;
   if (t === 'Just now' || t === 'Yesterday') return t.toLowerCase();
   return /ago$/.test(t) ? t : `on ${t}`;
+}
+
+// Each student's first attempt at a set (per module for a skill test, per
+// sitting for a full test: its first sitting's modules): the one taken before
+// they could have seen any answers. -> Set of attempt ids
+export function firstAttemptIds(attempts) {
+  const firstSitting = new Map();   // set id -> the sitting started first
+  const first = new Map();          // student|set|module -> attempt
+  const byStart = [...(attempts ?? [])].sort((a, b) => String(a.started_at).localeCompare(String(b.started_at)) || a.id - b.id);
+  for (const a of byStart) {
+    if (a.sitting) {
+      const k = `${a.student_id}|${a.set_id}`;
+      if (!firstSitting.has(k)) firstSitting.set(k, a.sitting);
+      if (firstSitting.get(k) !== a.sitting) continue;
+    }
+    const key = `${a.student_id}|${a.set_id}|${a.module ?? ''}`;
+    if (!first.has(key)) first.set(key, a);
+  }
+  return new Set([...first.values()].map((a) => a.id));
 }
