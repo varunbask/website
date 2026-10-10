@@ -200,17 +200,19 @@ function satHelp(role) {
       role === 'admin'
         ? 'Only you turn SAT on or off for a student, with the SAT access switch on that page. Tutors see whether it is on.'
         : 'Only the admin turns SAT on for a student. You can see whether it is on.',
-      'Practice sets marked Skill Builder are our own sets; Guide practice is the practice from the study guides.',
-      'Learn has a study guide for each official skill, with its practice sets, lesson PDF and Question Bank PDFs.',
+      'The SAT tab has four parts, each for one purpose. Learn is for learning a skill: a study guide, a lesson, and Check your understanding questions. Problem solving has the official Question Bank PDFs. Practice has a hard set and a mixed set for each skill. Tests are timed skill tests and full tests, with the official practice tests as PDFs.',
+      'Teacher files, on the SAT page, hold the printable tests and answer keys. Only tutors and the admin see them.',
       'Starting a set or a test yourself is a preview: it is saved as your own attempt and never changes the student’s progress.',
       ...(role === 'admin' ? ['Questions held back are hidden from students until you release them, with their answer if it needs fixing.'] : []),
     ]
     : [
-      ['Open ', link('SAT', '#/sat'), '. Start with Learn: a study guide for each skill, with practice, a lesson PDF and Question Bank PDFs.'],
-      'Practice: answer one question at a time and choose Check. You see right away whether you were right, the correct answer and an explanation.',
+      ['Open ', link('SAT', '#/sat'), '. It has four parts: Learn, Problem solving, Practice and Tests.'],
+      'Learn: for each skill, read the study guide and the lesson, then answer the Check your understanding questions. Each skill page then points you on to the official questions and to practice.',
+      'Problem solving: official College Board questions for each skill, as Easy, Medium and Hard PDFs. Answers are not included, so check them with your tutor.',
+      'Practice: each skill has a hard set and a practice set. Answer one question at a time and choose Check. You see right away whether you were right, the correct answer and an explanation.',
       'Tests are timed like the digital SAT. Answers save as you go, so you can reload the page and carry on. Mark for review flags a question to come back to. When time runs out, the module is submitted for you.',
       'After a test you see your score and can review every question with the correct answer and an explanation.',
-      'Library has lesson PDFs, the Question Bank and official practice tests.',
+      'The official practice tests are PDFs at the bottom of Tests. Take them on paper or in Bluebook.',
       'On a computer, press A, B, C or D to choose an answer, and Enter to check it or go to the next question.',
     ];
   return { id: 'sat', title: 'SAT', blocks: [{ type: 'list', items }] };

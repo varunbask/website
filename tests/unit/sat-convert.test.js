@@ -6,7 +6,7 @@ import { toDoc, docText, isCaption } from '../../tools/sat/lib/latex-doc.mjs';
 import { stripComments, splitItems } from '../../tools/sat/lib/tex.mjs';
 import { fileSets, setItems, setKeys, splitItem, testNumber, lessonPart, chapterTitle } from '../../tools/sat/lib/source.mjs';
 import { mcAnswer, sprAnswer } from '../../tools/sat/lib/keys.mjs';
-import { ids, slugify, trimSlug, titleCase, cleanName, classifyTopic } from '../../tools/sat/lib/catalog.mjs';
+import { ids, slugify, trimSlug, titleCase, cleanName, classifyTopic, generatedSetId, generatedSetTitle, checkSetTitle, neutralName } from '../../tools/sat/lib/catalog.mjs';
 import { classifyRw, matchTopics } from '../../tools/sat/lib/classify.mjs';
 import { repeatedWordSuspect } from '../../tools/sat/lib/checks.mjs';
 import { qbDifficulty } from '../../tools/sat/lib/files.mjs';
@@ -192,6 +192,23 @@ Teach.
     expect(lessonPart(raw).trim()).toBe(String.raw`\chapter{Made-Up Skill}
 Teach.`);
     expect(chapterTitle(raw)).toBe('Made-Up Skill');
+  });
+});
+
+describe('names by purpose', () => {
+  test('generated set ids: vp- becomes practice-, hard- stays', () => {
+    expect(generatedSetId('vp-lines')).toBe('practice-lines');
+    expect(generatedSetId('practice-lines')).toBe('practice-lines');
+    expect(generatedSetId('hard-lines')).toBe('hard-lines');
+  });
+  test('titles say what a set is for', () => {
+    expect(generatedSetTitle('Linear Functions', 'practice-alg-linear')).toBe('Linear Functions: practice set');
+    expect(generatedSetTitle('Linear Functions', 'hard-alg-linear')).toBe('Linear Functions: hard set');
+    expect(checkSetTitle('Basics')).toBe('Check your understanding: Basics');
+  });
+  test('no series name in file titles', () => {
+    expect(neutralName('Ultimate SAT Master Guide (full book, with keys)')).toBe('Master Guide (full book, with keys)');
+    expect(neutralName('Algebra Guide')).toBe('Algebra Guide');
   });
 });
 
@@ -383,6 +400,18 @@ describe('buildBundle on a made-up tree', () => {
 \sol{Question 1}
 \textbf{Answer: (C).} It is 2.
 \end{solutions}`);
+    writeFileSync(join(extra, 'new', 'algebra', 'lines-hard.tex'), String.raw`%SET id=hard-made-up-lines
+%SET title=Made-Up Lines Hard
+%SET skill=linear-functions
+%SET domain=algebra
+%SET position=3
+\begin{mcq}
+\item \diff{Hard} Slope of $y=5x$? \choices{$0$}{$1$}{$5$}{$3$}
+\end{mcq}
+\begin{solutions}
+\sol{Question 1}
+\textbf{Answer: (C).} It is 5.
+\end{solutions}`);
     mkdirSync(join(extra, 'guides'), { recursive: true });
     writeFileSync(join(extra, 'guides', 'cs-words-in-context.md'), '---\nskill: cs-words-in-context\ndomain: craft-and-structure\ntitle: Words in Context\nposition: 1\n---\n## Read around the blank\nPredict a **word** first.\n');
     const opts = { sat, qb, extra, out: join(root, 'out'), figures: false, lessons: false };
@@ -399,10 +428,10 @@ describe('buildBundle on a made-up tree', () => {
 
   test('sets: practice per chapter, a skill test per test, full tests with four modules', () => {
     const byId = new Map(first.content.sets.map((s) => [s.id, s]));
-    expect([...byId.keys()].sort()).toEqual(['alg-ch1', 'cs-ch1', 'cs-t1', 'cs-t2', 'full-01', 'vp-made-up-lines']);
+    expect([...byId.keys()].sort()).toEqual(['alg-ch1', 'cs-ch1', 'cs-t1', 'cs-t2', 'full-01', 'hard-made-up-lines', 'practice-made-up-lines']);
     expect(byId.get('cs-t1')).toMatchObject({ kind: 'skill_test', domain: 'craft-and-structure', title: 'Craft and Structure Test 1', modules: [{ key: 'rw', minutes: 32 }], origin: 'matthew' });
     expect(byId.get('full-01').modules.map((m) => m.key)).toEqual(['rw1', 'rw2', 'm1', 'm2']);
-    expect(byId.get('vp-made-up-lines')).toMatchObject({ kind: 'practice', origin: 'vp', skill: 'alg-linear-functions', position: 2 });
+    expect(byId.get('practice-made-up-lines')).toMatchObject({ kind: 'practice', origin: 'vp', skill: 'alg-linear-functions', position: 2 });
   });
 
   test('items: ids, kinds, passages, skill tests and full-test domains', () => {
@@ -416,7 +445,7 @@ describe('buildBundle on a made-up tree', () => {
     expect(items.get('full-01-rw1-01')).toMatchObject({ domain: 'expression-of-ideas', module: 'rw1' });
     expect(items.get('full-01-m2-01')).toMatchObject({ domain: 'geometry-and-trigonometry', module: 'm2' });
     expect(items.get('full-01-rw1-01').source).toMatchObject({ origin: 'matthew', file: '09-cumulative-master/practice-tests/exam-01-rw1.tex', set: 'Practice Test 1', q: 1 });
-    expect(items.get('vp-made-up-lines-01').source).toMatchObject({ origin: 'vp', file: 'new/algebra/lines.tex' });
+    expect(items.get('practice-made-up-lines-01').source).toMatchObject({ origin: 'vp', file: 'new/algebra/lines.tex' });
   });
 
   test('keys: one per item, letters A to D, grid-in forms', () => {
@@ -458,6 +487,8 @@ describe('buildBundle on a made-up tree', () => {
     expect(planned.content.items.find((i) => i.id === 'cs-ch1-01').skill).toBe('words-in-context');
     expect(planned.content.files[0].skill).toBe('words-in-context');
     expect(planned.report.taxonomy.source).toBe('plan');
+    // generated sets are titled from the official skill's name, by purpose
+    expect(sets.get('hard-made-up-lines')).toMatchObject({ skill: 'linear-functions', title: 'Linear Functions: hard set', origin: 'vp' });
   });
 
   test('explanations lose their em dashes; stems keep theirs', () => {
@@ -470,7 +501,7 @@ describe('buildBundle on a made-up tree', () => {
   });
 
   test('titles and captions lose their dashes too', () => {
-    expect(first.content.sets.find((s) => s.id === 'cs-ch1').title).toBe('Made-Up Words: Basics');
+    expect(first.content.sets.find((s) => s.id === 'cs-ch1').title).toBe('Check your understanding: Made-Up Words: Basics');
     const stem = first.content.items.find((i) => i.id === 'alg-ch1-02').stem.blocks;
     expect(stem).toContainEqual({ t: 'p', c: [{ x: 'Values by week, a made-up table.', m: ['i'] }] });
     expect(first.report.title_dash_changes).toBe(1);

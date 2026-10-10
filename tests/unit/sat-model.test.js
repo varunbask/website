@@ -1,10 +1,10 @@
 import { describe, test, expect } from 'vitest';
 import {
-  DOMAINS, SECTIONS, MODULE_TIMING, domainOf, sectionOf, moduleSection, originLabel,
+  DOMAINS, SECTIONS, MODULE_TIMING, domainOf, sectionOf, moduleSection, setPurpose, setTitle, titledSets, currentSetId,
   sprClean, sprValue, sprValid, sprInput, sprCorrect, sprLimit, mcValid, isCorrect, validAnswer, answerText, sprParts, sprForms,
   formatClock, clockWords, remainingMs, timerTone, timerAnnouncement, minutesText, timeUsed,
   satPage, satTitle, satCrumbs, practiceHref, testHref, reviewHref, learnHref,
-  setCounts, countsText, practiceSetsFor, skillsByDomain, testGroups, modulesOf, nextModule, libraryGroups, skillFiles, fileSkillMatches,
+  setCounts, countsText, checkSetsFor, generatedSetsFor, skillsByDomain, testGroups, modulesOf, nextModule, fileGroups, skillFiles, fileSkillMatches,
   bankSkill, SHARED_BANK,
   pct, progressFrom, attemptCounts, practiceLine, scoreText, bestAndLast, continueList, sittings, sittingNext, fullScore,
   domainBreakdown, filterReview, unansweredCount, submitConfirmText, attemptLabel, attemptResult, lastText,
@@ -32,10 +32,30 @@ describe('domains and sections', () => {
     expect(moduleSection('m', { domain: 'algebra' })).toBe('math');
   });
 
-  test('practice set labels never name a person', () => {
-    expect(originLabel('vp')).toBe('Skill Builder');
-    expect(originLabel('matthew')).toBe('Guide practice');
-    expect(originLabel(undefined)).toBe('Guide practice');
+  test('set titles say what a set is for, whoever made it', () => {
+    const skill = { slug: 'alg-lin', name: 'Linear Equations' };
+    const check = { id: 'alg-ch1', kind: 'practice', origin: 'matthew', skill: 'alg-lin', title: 'Check your understanding: Lines' };
+    const hard = { id: 'hard-alg-lin', kind: 'practice', origin: 'vp', skill: 'alg-lin', title: 'Whatever was stored' };
+    const mixed = { id: 'practice-alg-lin', kind: 'practice', origin: 'vp', skill: 'alg-lin', title: 'Skill Builder' };
+    expect(setTitle(check, skill, [check, hard, mixed])).toBe('Check your understanding: Linear Equations');
+    expect(setTitle(hard, skill)).toBe('Linear Equations: hard set');
+    expect(setTitle(mixed, skill)).toBe('Linear Equations: practice set');
+    // two chapter sets for one skill: the lesson title tells them apart
+    const second = { ...check, id: 'alg-ch2', title: 'Check your understanding: Slopes' };
+    expect(setTitle(second, skill, [check, second])).toBe('Check your understanding: Linear Equations, Slopes');
+    expect(setTitle({ id: 'x', kind: 'practice', origin: 'matthew', skill: 'nope', title: 'Plain chapter' }, null)).toBe('Check your understanding: Plain chapter');
+    expect(setTitle({ id: 't', kind: 'skill_test', title: 'Algebra Test 1' }, null)).toBe('Algebra Test 1');
+    const out = titledSets([check, hard], new Map([['alg-lin', skill]]));
+    expect(out.map((x) => x.title)).toEqual(['Check your understanding: Linear Equations', 'Linear Equations: hard set']);
+    expect(out[1].origin).toBe('vp');
+    for (const t of out.map((x) => x.title)) expect(t).not.toMatch(/Skill Builder|VP|Matthew|Guide practice/);
+    expect([check, hard, mixed].map(setPurpose)).toEqual(['Check your understanding', 'Hard set', 'Practice set']);
+  });
+
+  test('an old vp- set id is practice- now', () => {
+    expect(currentSetId('vp-alg-lin')).toBe('practice-alg-lin');
+    expect(currentSetId('hard-alg-lin')).toBe('hard-alg-lin');
+    expect(currentSetId('alg-ch1')).toBe('alg-ch1');
   });
 });
 
@@ -241,14 +261,15 @@ describe('routes', () => {
     expect(satPage(r('test'))).toMatchObject({ page: 'tests' });
     expect(satPage(r('review', '42', { show: 'wrong' }))).toMatchObject({ page: 'review', id: '42', show: 'wrong' });
     expect(satPage(r('review', '42', { show: 'bogus' })).show).toBe('all');
-    expect(satPage(r('library', null, { tab: 'bank' })).tab).toBe('bank');
-    expect(satPage(r('library', null, { tab: 'nope' })).tab).toBe('lessons');
+    expect(satPage(r('problems', null, { skill: 'alg-lin' }))).toMatchObject({ page: 'problems', skill: 'alg-lin' });
+    expect(satPage(r('practice', null, { skill: 'alg-lin' }))).toMatchObject({ page: 'practice', skill: 'alg-lin' });
+    expect(satPage(r('library', null, { tab: 'bank' })).page).toBe('library');
     expect(satPage(r('nope')).page).toBe('home');
   });
 
   test('titles and breadcrumbs', () => {
     expect(satTitle(r())).toBe('SAT');
-    expect(satTitle(r('library'))).toBe('SAT library');
+    expect(satTitle(r('problems'))).toBe('SAT problem solving');
     expect(satTitle(r('test', 'x'))).toBe('SAT test');
     expect(satCrumbs(r())).toEqual([{ label: 'SAT' }]);
     expect(satCrumbs(r('practice'))).toEqual([{ label: 'SAT', href: '#/sat' }, { label: 'Practice', href: '#/sat/practice' }]);
@@ -304,9 +325,12 @@ describe('the catalog', () => {
     expect(countsText({ easy: 0, medium: 2, hard: 0 })).toBe('Medium 2');
   });
 
-  test('practice sets of a skill: Skill Builder first', () => {
-    expect(practiceSetsFor(SETS, 'alg-lin').map((s) => s.id)).toEqual(['alg-sb1', 'alg-ch1']);
-    expect(practiceSetsFor(SETS, 'words')).toEqual([]);
+  test('a skill’s sets: its chapter questions apart from the generated sets, the hard set first', () => {
+    const sets = [...SETS, { id: 'practice-alg-lin', kind: 'practice', domain: 'algebra', skill: 'alg-lin', title: 'x', position: 1, origin: 'vp', modules: [] },
+      { id: 'hard-alg-lin', kind: 'practice', domain: 'algebra', skill: 'alg-lin', title: 'y', position: 5, origin: 'vp', modules: [] }];
+    expect(checkSetsFor(sets, 'alg-lin').map((s) => s.id)).toEqual(['alg-ch1']);
+    expect(generatedSetsFor(sets, 'alg-lin').map((s) => s.id)).toEqual(['hard-alg-lin', 'practice-alg-lin', 'alg-sb1']);
+    expect(generatedSetsFor(sets, 'words')).toEqual([]);
   });
 
   test('skills by domain, all eight domains listed', () => {
@@ -349,11 +373,9 @@ describe('the catalog', () => {
     { id: 'k1', collection: 'answer_key', title: 'Key 1', storage_path: 'k/1.pdf', staff_only: true, position: 2 },
   ];
 
-  test('the library tabs', () => {
-    const g = libraryGroups(FILES, SKILLS, SETS);
-    expect(g.lessons).toHaveLength(1);
-    expect(g.lessons[0].skills[0].files.map((f) => f.id)).toEqual(['l1', 'l2']);
-    expect(g.lessons[0].other.map((f) => f.id)).toEqual(['l3']);
+  test('the Question Bank by domain and skill; official and staff files apart', () => {
+    const g = fileGroups(FILES, SKILLS);
+    expect(g.lessons).toBeUndefined();
     const bank = g.bank[0].skills;
     expect(bank.map((s) => s.label)).toEqual(['Linear Equations in One Variable', 'Systems of two linear equations']);
     expect(Object.keys(bank[0].levels)).toEqual(['easy', 'hard']);
@@ -361,7 +383,7 @@ describe('the catalog', () => {
     expect(g.staff.map((f) => f.id)).toEqual(['t1', 'k1']);
   });
 
-  test('Command of Evidence: one set of Question Bank PDFs for both skills, listed once in the library', () => {
+  test('Command of Evidence: one set of Question Bank PDFs for both skills, listed once in Problem solving', () => {
     const skills = [
       { slug: 'evidence-textual', domain: 'information-and-ideas', name: 'Command of Evidence: Textual', position: 2 },
       { slug: 'evidence-quantitative', domain: 'information-and-ideas', name: 'Command of Evidence: Quantitative', position: 3 },
@@ -385,7 +407,7 @@ describe('the catalog', () => {
     expect(Object.keys(inf.bank)).toEqual(['easy']);
     expect(inf.bankLabel).toBeNull();
     expect(skillFiles([], skills[1], []).bankLabel).toBeNull();
-    const rows = libraryGroups(files, skills, []).bank[0].skills;
+    const rows = fileGroups(files, skills).bank[0].skills;
     expect(rows.map((r) => r.label)).toEqual(['Command of Evidence (textual and quantitative)', 'Inferences']);
     expect(Object.keys(rows[0].levels)).toEqual(['easy', 'medium', 'hard']);
   });

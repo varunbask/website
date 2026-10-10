@@ -1,6 +1,6 @@
 // SAT view, #/sat and its pages (sat-model.js satPage). This file is the
 // home page and the staff panels; the other pages live in sat-pages.js
-// (Learn, Practice, Tests, Library), sat-practice.js and sat-test.js (the
+// (Learn, Problem solving, Practice, Tests), sat-practice.js and sat-test.js (the
 // runners) and sat-review.js.
 //
 // A student sees SAT only once the admin turns it on (ctx.scope.sat, read by
@@ -10,8 +10,9 @@
 // the student's attempts with links to their reviews, and for the admin the
 // questions held back, each with Open, Release and Release with answer.
 //
-// The home page: Continue (a run or a test left open), the Learn, Practice,
-// Tests and Library cards (Learn first), and progress by section and domain.
+// The home page: Continue (a run or a test left open), the Learn, Problem
+// solving, Practice and Tests cards (each for one purpose), progress by
+// section and domain, and for staff the Teacher files.
 
 import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
@@ -40,12 +41,15 @@ export function mount(ctx) {
   switch (where.page) {
     case 'learn': return pages.learnIndex(ctx);
     case 'skill': return pages.skillPage(ctx, where.id);
+    case 'problems': return pages.problems(ctx);
     case 'practice': return pages.practiceList(ctx);
     case 'practice-run': return practice.mount(ctx, where);
     case 'tests': return pages.testsList(ctx);
     case 'test-run': return test.mount(ctx, where);
     case 'review': return review.mount(ctx, where);
-    case 'library': return pages.library(ctx, where.tab);
+    // The Library is gone: its lessons are in Learn, the Question Bank in
+    // Problem solving, the official tests in Tests
+    case 'library': ctx.go('#/sat', { replace: true }); return undefined;
     default: return home(ctx);
   }
 }
@@ -60,10 +64,10 @@ function notOn(ctx) {
 // Home
 
 const TILES = [
-  { key: 'learn', title: 'Learn', icon: 'book-open-text', href: '#/sat/learn', text: 'A study guide for every skill on the test, with its practice sets and PDFs.' },
-  { key: 'practice', title: 'Practice', icon: 'check-square', href: '#/sat/practice', text: 'Practice sets by skill. See the answer and an explanation right after each question.' },
-  { key: 'tests', title: 'Tests', icon: 'clock', href: '#/sat/tests', text: 'Timed skill tests and full-length practice tests, like the digital SAT.' },
-  { key: 'library', title: 'Library', icon: 'file-pdf', href: '#/sat/library', text: 'Lesson PDFs, the Question Bank and official practice tests.' },
+  { key: 'learn', title: 'Learn', icon: 'book-open-text', href: '#/sat/learn', text: 'Read the study guide and lesson for each skill, then check your understanding.' },
+  { key: 'problems', title: 'Problem solving', icon: 'file-pdf', href: '#/sat/problems', text: 'Official College Board questions for each skill, as Easy, Medium and Hard PDFs.' },
+  { key: 'practice', title: 'Practice', icon: 'check-square', href: '#/sat/practice', text: 'A hard set and a mixed set for each skill, with the answer and an explanation after each question.' },
+  { key: 'tests', title: 'Tests', icon: 'clock', href: '#/sat/tests', text: 'Timed skill tests and full-length practice tests, plus the official practice tests.' },
 ];
 
 function tiles() {
@@ -132,7 +136,7 @@ async function home(ctx) {
   const name = firstName(displayName(student));
   ctx.setHeader({
     title: 'SAT',
-    lede: staff ? `${name}’s SAT study, practice and tests.` : 'Study guides, practice sets and timed tests for the digital SAT.',
+    lede: staff ? `${name}’s SAT learning, problem solving, practice and tests.` : 'Learn each skill, solve official questions, practice and take timed tests for the digital SAT.',
   });
   const body = h('div', { class: 'sat-view sat-home' }, skeletonRows(4));
   host.append(body);
@@ -160,6 +164,7 @@ async function home(ctx) {
   parts.push(progressCard(progress, ctx.now, { staff, name }));
   if (staff) parts.push(attemptsCard(ctx, attempts, content, counts, name));
   if (ctx.role === 'admin') parts.push(heldCard(ctx));
+  if (staff) parts.push(pages.teacherFiles(ctx, content));
   body.replaceChildren(...parts.filter(Boolean));
   ctx.announce('SAT');
 }

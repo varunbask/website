@@ -4,13 +4,14 @@
 // #/sat routes. The views (views/sat*.js) draw what this works out.
 //
 // Routes (views/sat.js):
-//   #/sat                          home: Learn, Practice, Tests, Library, progress
-//   #/sat/learn[/<skill>]          study guides, one per official skill
-//   #/sat/practice[/<set id>]      the practice sets, or the practice runner
+//   #/sat                          home: Learn, Problem solving, Practice, Tests, progress
+//   #/sat/learn[/<skill>]          study guide, lesson and check-your-understanding set per skill
+//   #/sat/problems[?skill=]        the official Question Bank PDFs, by domain and skill
+//   #/sat/practice[/<set id>][?skill=]   the generated sets, or the practice runner
 //   #/sat/tests                    skill tests and full tests
 //   #/sat/test/<set id>[?module=&sitting=]   the timed runner
 //   #/sat/review/<attempt id>[?show=wrong|flagged]
-//   #/sat/library[?tab=lessons|bank|official|staff]
+//   #/sat/library                  old link: goes to #/sat
 
 import { relativeTime } from './dates.js';
 
@@ -65,10 +66,45 @@ export function moduleSection(key, set = null) {
   return sectionOf(set?.domain) ?? null;
 }
 
-// Practice sets: our own Skill Builder sets, or the practice in the guides
-export function originLabel(origin) {
-  return origin === 'vp' ? 'Skill Builder' : 'Guide practice';
+// Practice sets are named by what they are for, never by who made them.
+// origin only groups them: 'matthew' sets are a lesson's chapter questions
+// (Check your understanding), 'vp' sets are the generated hard and mixed sets.
+export const CHECK_PREFIX = 'Check your understanding';
+export const isHardSet = (set) => /^hard-/.test(String(set?.id ?? ''));
+export const isGeneratedSet = (set) => set?.kind === 'practice' && set?.origin === 'vp';
+export const isCheckSet = (set) => set?.kind === 'practice' && set?.origin !== 'vp';
+
+// What a practice set is for: 'Hard set', 'Practice set' or 'Check your understanding'
+export function setPurpose(set) {
+  if (isCheckSet(set)) return CHECK_PREFIX;
+  return isHardSet(set) ? 'Hard set' : 'Practice set';
 }
+
+// The title a student sees, worked out from the data so stored titles do not matter:
+//   check sets      "Check your understanding: <skill>" (+ the lesson's title when the skill has two)
+//   generated sets  "<skill>: hard set" or "<skill>: practice set"
+// Anything else (tests) keeps its own title.
+export function setTitle(set, skill, siblings = []) {
+  if (!set || set.kind !== 'practice') return set?.title ?? '';
+  const lesson = String(set.title ?? '').replace(new RegExp(`^${CHECK_PREFIX}:\\s*`, 'i'), '');
+  if (isCheckSet(set)) {
+    if (!skill) return `${CHECK_PREFIX}: ${lesson}`;
+    const twin = siblings.filter((s) => isCheckSet(s) && s.skill === set.skill).length > 1;
+    return twin && lesson && lesson !== skill.name ? `${CHECK_PREFIX}: ${skill.name}, ${lesson}` : `${CHECK_PREFIX}: ${skill.name}`;
+  }
+  const name = skill?.name ?? String(set.title ?? '').replace(/:\s*(hard|practice) set$/i, '');
+  return `${name}: ${isHardSet(set) ? 'hard set' : 'practice set'}`;
+}
+
+// The sets with their student-facing titles (a copy; ids and origin are kept)
+export function titledSets(sets, skillsBySlug) {
+  return (sets ?? []).map((set) => (set.kind === 'practice'
+    ? { ...set, title: setTitle(set, skillsBySlug?.get?.(set.skill) ?? null, sets) }
+    : set));
+}
+
+// An old generated set id (vp-<skill>) is now practice-<skill>
+export const currentSetId = (id) => String(id ?? '').replace(/^vp-/, 'practice-');
 
 // ---------------------------------------------------------------------------
 // Grid-in answers (student-produced responses)
@@ -255,31 +291,32 @@ export function timeUsed(attempt) {
 // ---------------------------------------------------------------------------
 // Routes
 
-export const SAT_SUBS = Object.freeze(['learn', 'practice', 'tests', 'test', 'review', 'library']);
+export const SAT_SUBS = Object.freeze(['learn', 'problems', 'practice', 'tests', 'test', 'review', 'library']);
 // The subs whose third segment is an id
 export const SAT_ID_SUBS = Object.freeze(['learn', 'practice', 'test', 'review']);
-export const LIBRARY_TABS = Object.freeze(['lessons', 'bank', 'official', 'staff']);
 export const REVIEW_FILTERS = Object.freeze(['all', 'wrong', 'flagged']);
 
-// What a #/sat route shows: { page, id, module, sitting, tab, show }
-//   page: home | learn | skill | practice | practice-run | tests | test-run | review | library
+// What a #/sat route shows: { page, id, module, sitting, skill, show }
+//   page: home | learn | skill | problems | practice | practice-run | tests | test-run | review | library
+//   (library is gone: the view sends it home)
 export function satPage(route) {
   const sub = route?.sub ?? null;
   const id = route?.id ? String(route.id) : null;
   const p = route?.params ?? {};
-  const base = { page: 'home', id: null, module: null, sitting: null, tab: null, show: 'all' };
+  const base = { page: 'home', id: null, module: null, sitting: null, skill: p.skill ? String(p.skill) : null, show: 'all' };
   switch (sub) {
     case 'learn': return { ...base, page: id ? 'skill' : 'learn', id };
     case 'practice': return { ...base, page: id ? 'practice-run' : 'practice', id };
     case 'tests': return { ...base, page: 'tests' };
     case 'test': return id ? { ...base, page: 'test-run', id, module: p.module || null, sitting: p.sitting || null } : { ...base, page: 'tests' };
     case 'review': return id ? { ...base, page: 'review', id, show: REVIEW_FILTERS.includes(p.show) ? p.show : 'all' } : { ...base, page: 'tests' };
-    case 'library': return { ...base, page: 'library', tab: LIBRARY_TABS.includes(p.tab) ? p.tab : 'lessons' };
+    case 'problems': return { ...base, page: 'problems' };
+    case 'library': return { ...base, page: 'library' };
     default: return base;
   }
 }
 
-const SUB_LABELS = { learn: 'Learn', practice: 'Practice', tests: 'Tests', test: 'Tests', review: 'Review', library: 'Library' };
+const SUB_LABELS = { learn: 'Learn', problems: 'Problem solving', practice: 'Practice', tests: 'Tests', test: 'Tests', review: 'Review' };
 
 // The view title before the data is in (the views set the set's own title)
 export function satTitle(route) {
@@ -304,6 +341,8 @@ export function satCrumbs(route, { title = null } = {}) {
 
 export const practiceHref = (setId) => `#/sat/practice/${encodeURIComponent(setId)}`;
 export const learnHref = (skill) => `#/sat/learn/${encodeURIComponent(skill)}`;
+export const problemsHref = (skill = null) => `#/sat/problems${skill ? `?skill=${encodeURIComponent(skill)}` : ''}`;
+export const practiceListHref = (skill = null) => `#/sat/practice${skill ? `?skill=${encodeURIComponent(skill)}` : ''}`;
 export const reviewHref = (attemptId, show = null) => `#/sat/review/${encodeURIComponent(attemptId)}${show && show !== 'all' ? `?show=${show}` : ''}`;
 export function testHref(setId, { module = null, sitting = null } = {}) {
   const params = new URLSearchParams();
@@ -343,11 +382,16 @@ export function countsText(c) {
   return DIFFICULTIES.filter((d) => c[d]).map((d) => `${DIFFICULTY_LABELS[d]} ${c[d]}`).join(', ');
 }
 
-// Practice sets of a skill: Skill Builder first, then by position
-export function practiceSetsFor(sets, skill) {
+// A skill's chapter questions ("Check your understanding"), by position
+export function checkSetsFor(sets, skill) {
+  return (sets ?? []).filter((s) => isCheckSet(s) && s.skill === skill).sort(byPosition);
+}
+
+// A skill's generated sets: the hard set first, then the practice set
+export function generatedSetsFor(sets, skill) {
   return (sets ?? [])
-    .filter((s) => s.kind === 'practice' && s.skill === skill)
-    .sort((a, b) => (a.origin === 'vp' ? 0 : 1) - (b.origin === 'vp' ? 0 : 1) || byPosition(a, b));
+    .filter((s) => isGeneratedSet(s) && s.skill === skill)
+    .sort((a, b) => (isHardSet(a) ? 0 : 1) - (isHardSet(b) ? 0 : 1) || byPosition(a, b));
 }
 
 // The skills of each domain, in order: [{ domain, skills: [skill] }] for all eight
@@ -410,26 +454,14 @@ export function bankSkill(skill) {
   return { slug, shared: Boolean(shared), label: SHARED_BANK_LABELS[slug] ?? null };
 }
 
-// The library tabs. Lessons and the Question Bank are grouped by domain, then
-// skill; the Question Bank gives each skill its Easy, Medium and Hard files.
-//   lessons  [{ domain, skills: [{ skill, files }] , other: [file] }]
+// The files that are not lessons, grouped for their pages. The Question Bank
+// is grouped by domain, then skill, each skill with its Easy, Medium and Hard files.
 //   bank     [{ domain, skills: [{ skill, label, levels: { easy, medium, hard } }] }]
-//   official [file]
-//   staff    [file] (test PDFs and answer keys; staff only)
-export function libraryGroups(files, skills, sets = []) {
+//   official [file]  (the official practice tests; they live under Tests)
+//   staff    [file]  (printable tests and answer keys; staff only)
+export function fileGroups(files, skills) {
   const list = [...(files ?? [])].sort(byPosition);
   const skillsOf = (domain) => (skills ?? []).filter((s) => s.domain === domain.slug).sort(byPosition);
-  const lessonSkill = (file, domainSkills) => domainSkills.find((s) => fileSkillMatches(file, s)
-    || sets.some((set) => set.skill === s.slug && file.storage_path === `lessons/${set.id}.pdf`)) ?? null;
-
-  const lessons = DOMAINS.map((domain) => {
-    const domainSkills = skillsOf(domain);
-    const mine = list.filter((f) => f.collection === 'lesson' && f.domain === domain.slug);
-    const rows = domainSkills.map((skill) => ({ skill, files: mine.filter((f) => lessonSkill(f, domainSkills) === skill) }))
-      .filter((r) => r.files.length);
-    const other = mine.filter((f) => !lessonSkill(f, domainSkills));
-    return { domain, skills: rows, other };
-  }).filter((g) => g.skills.length || g.other.length);
 
   const bank = DOMAINS.map((domain) => {
     const domainSkills = skillsOf(domain);
@@ -447,7 +479,6 @@ export function libraryGroups(files, skills, sets = []) {
   }).filter((g) => g.skills.length);
 
   return {
-    lessons,
     bank,
     official: list.filter((f) => f.collection === 'official_test'),
     staff: list.filter((f) => f.collection === 'test_pdf' || f.collection === 'answer_key'),

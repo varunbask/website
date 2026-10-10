@@ -11,7 +11,7 @@
 // answer keys; staff see everything (views/sat*.js decide what to show).
 
 import { sb } from './supabase.js';
-import { setCounts } from './sat-model.js';
+import { setCounts, titledSets } from './sat-model.js';
 
 export const SAT_BUCKET = 'sat-files';
 const SIGN_SECONDS = 600;
@@ -62,7 +62,7 @@ const guides = new Map();
 const items = new Map();
 
 async function loadContent() {
-  const [sets, skills, guideRows, files, index] = await Promise.all([
+  const [rawSets, skills, guideRows, files, index] = await Promise.all([
     selectAll(() => sb.from('sat_sets').select(SET_FIELDS).order('kind').order('position').order('id')),
     selectAll(() => sb.from('sat_skills').select('slug, domain, name, position').order('position').order('slug')),
     selectAll(() => sb.from('sat_guides').select('skill, domain, title, position').order('position').order('skill')),
@@ -70,11 +70,14 @@ async function loadContent() {
     // Labels only: a test's questions are not readable until it is started
     call('sat_item_index', {}).then((rows) => rows ?? []),
   ]);
+  const skillsBySlug = new Map(skills.map((s) => [s.slug, s]));
+  // Titles are worked out here from skill and purpose, so what was stored does not matter
+  const sets = titledSets(rawSets, skillsBySlug);
   return {
     sets,
     setsById: new Map(sets.map((s) => [s.id, s])),
     skills,
-    skillsBySlug: new Map(skills.map((s) => [s.slug, s])),
+    skillsBySlug,
     guides: guideRows,
     files,
     index: new Map(index.map((it) => [it.id, it])),

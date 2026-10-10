@@ -6,7 +6,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync, rmSync } from 'node:fs';
 import { join, relative, basename, resolve, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { DOMAINS, domainByN, domainBySlug, FULL_MODULES, MODULES, ids, slugify, trimSlug, titleCase, cleanName, matchName, nameKey, classifyTopic, qbSkills, pad2 } from './catalog.mjs';
+import { DOMAINS, domainByN, domainBySlug, FULL_MODULES, MODULES, ids, slugify, trimSlug, titleCase, cleanName, matchName, nameKey, classifyTopic, qbSkills, pad2, generatedSetId, generatedSetTitle, checkSetTitle, neutralName } from './catalog.mjs';
 import { fileSets, setItems, setKeys, splitItem, meaningfulRest, testNumber, bookTitle, chapterTitle, lessonPart, fullTestIndex } from './source.mjs';
 import { stripComments } from './tex.mjs';
 import { LatexConverter, inlineText, isCaption, docText, DOC_VERSION } from './latex-doc.mjs';
@@ -411,7 +411,7 @@ export async function buildBundle(opts) {
       const setId = ids.practice(domain.abbr, chapterN);
       const found = fileSets(raw);
       if (found.length !== 1) report.notes.push(`${rel(file)} holds ${found.length} question lists (expected 1)`);
-      const set = { id: setId, kind: 'practice', domain: domain.slug, skill, title: plainTitle(title) ?? setId, position: chapterN, modules: [], origin: 'matthew', labels: found.map((f) => f.label) };
+      const set = { id: setId, kind: 'practice', domain: domain.slug, skill, title: checkSetTitle(plainTitle(title) ?? setId), position: chapterN, modules: [], origin: 'matthew', labels: found.map((f) => f.label) };
       sets.push(set);
       found.forEach((rawSet, k) => {
         // a second list in one chapter would need its own set; none of the books has one
@@ -564,7 +564,7 @@ export async function buildBundle(opts) {
         const meta = {};
         for (const m of raw.matchAll(/^%\s*SET\s+([a-z_]+)\s*=\s*(.*?)\s*$/gim)) meta[m[1].toLowerCase()] = m[2];
         const domain = domainBySlug(meta.domain ?? domainDir);
-        const setId = meta.id ? trimSlug(slugify(meta.id)) : trimSlug(`vp-${slugify(basename(f, '.tex'))}`);
+        const setId = generatedSetId(meta.id ? trimSlug(slugify(meta.id)) : trimSlug(`practice-${slugify(basename(f, '.tex'))}`));
         if (!domain) {
           report.parse_failures.push({ file: relFile, set: meta.title ?? null, q: null, reason: 'unknown domain in %SET domain=' });
           continue;
@@ -581,7 +581,7 @@ export async function buildBundle(opts) {
           report.parse_failures.push({ file: relFile, set: meta.title ?? setId, q: null, reason: `set id ${setId} is already used` });
           continue;
         }
-        const set = { id: setId, kind: 'practice', domain: domain.slug, skill, title: meta.title ?? setId, position: Number(meta.position) || 0, modules: [], origin: 'vp', labels: [] };
+        const set = { id: setId, kind: 'practice', domain: domain.slug, skill, title: skillBySlug(skill) ? generatedSetTitle(skillBySlug(skill).name, setId) : (meta.title ?? setId), position: Number(meta.position) || 0, modules: [], origin: 'vp', labels: [] };
         sets.push(set);
         const before = items.length;
         if (found[0]) convertSet({ set, rawSet: found[0], module: null, section: domain.section, skill, preamble: books.find((b) => b.n === domain.n)?.preamble ?? rootPreamble, domainFor: () => ({ domain: domain.slug }), source: { origin: 'vp', file: relFile, set: set.title } });

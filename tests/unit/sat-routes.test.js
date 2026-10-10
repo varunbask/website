@@ -29,13 +29,13 @@ describe('the #/sat routes', () => {
   test('the home page stands without a sub; the runners and review take an id', () => {
     const table = routes.familyRoutes('student');
     for (const ok of ['#/sat', '#/sat/learn', '#/sat/learn/boundaries', '#/sat/practice', '#/sat/practice/alg-ch1', '#/sat/tests',
-      '#/sat/test/full-01?module=rw2&sitting=abc', '#/sat/review/42?show=wrong', '#/sat/library?tab=bank']) {
+      '#/sat/test/full-01?module=rw2&sitting=abc', '#/sat/review/42?show=wrong', '#/sat/library', '#/sat/problems', '#/sat/problems?skill=boundaries', '#/sat/practice?skill=boundaries']) {
       expect(fix(ok, table, { hasScope: true }), ok).toBeNull();
     }
     expect(parseHash('#/sat/practice/alg-ch1', table)).toMatchObject({ view: 'sat', sub: 'practice', id: 'alg-ch1' });
     // an id where none belongs is dropped; an unknown sub goes home
     expect(fix('#/sat/tests/9', table, { hasScope: true })).toBe('#/sat/tests');
-    expect(fix('#/sat/library/x?tab=bank', table, { hasScope: true })).toBe('#/sat/library?tab=bank');
+    expect(fix('#/sat/library/x', table, { hasScope: true })).toBe('#/sat/library');
     expect(fix('#/sat/nope', table, { hasScope: true })).toBe('#/overview');
     // staff without a student go to Students
     const staff = routes.staffRoutes();
@@ -108,6 +108,10 @@ describe('the SAT help', () => {
     const student = words(textOf('student', { sat: true }));
     expect(student).not.toMatch(/\bAI\b|grader|automatic|Matthew/i);
     expect(student).toMatch(/Check/);
+    for (const role of ['student', 'tutor', 'admin']) {
+      expect(words(textOf(role, { sat: true }))).not.toMatch(/Skill Builder|Guide practice|\bVP\b|Matthew|Library|Ultimate/);
+    }
+    expect(student).toMatch(/Learn[\s\S]*Problem solving[\s\S]*Practice[\s\S]*Tests/);
     for (const role of ['tutor', 'admin']) expect(words(textOf(role, { sat: true }))).not.toMatch(/[–—]/);
     expect(words(textOf('admin', { sat: true }))).toMatch(/held back/);
     expect(words(textOf('tutor', { sat: true }))).not.toMatch(/held back/);
@@ -116,6 +120,16 @@ describe('the SAT help', () => {
   test('the help view asks for the SAT section for staff and students with access', () => {
     const view = readFileSync(new URL('../../portal/js/views/help.js', import.meta.url), 'utf8');
     expect(view).toContain("ctx.page === 'staff' || (ctx.role === 'student' && ctx.scope?.sat === true)");
+  });
+});
+
+describe('no creator labels in the SAT views', () => {
+  test('the views and styles carry no origin pill, label or author name', () => {
+    for (const f of ['views/sat.js', 'views/sat-pages.js', 'views/sat-practice.js', 'views/sat-test.js', 'views/sat-review.js', 'sat-ui.js']) {
+      const src = readFileSync(new URL(`../../portal/js/${f}`, import.meta.url), 'utf8');
+      expect(src, f).not.toMatch(/originLabel|originPill|sat-origin|Skill Builder|Guide practice|Matthew|Ultimate SAT/);
+    }
+    expect(readFileSync(new URL('../../portal/css/sat.css', import.meta.url), 'utf8')).not.toMatch(/sat-origin|sat-kind/);
   });
 });
 
