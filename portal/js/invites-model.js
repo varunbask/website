@@ -111,9 +111,15 @@ export function parseFamilyLines(text) {
 //      links: [{ parent, student }] (keys), problems: [{ line, reason }] }
 export function planFamilies(rows, { people = [], parentLinks = [] } = {}) {
   const resolve = (name, role) => {
-    const same = people.filter((p) => p.role === role && lower(p.full_name) === lower(name));
-    if (same.length === 1) return { key: `id:${same[0].id}`, name: normName(same[0].full_name), role, id: String(same[0].id) };
-    if (same.length > 1) return { reason: `There are ${same.length} ${role}s named ${name} in the portal; link this one by hand` };
+    const exact = people.filter((p) => p.role === role && lower(p.full_name) === lower(name));
+    // Notes in brackets are not part of a name: "Grace" may also be "Grace (Gordon's Mom)"
+    const alike = people.filter((p) => p.role === role && bareName(p.full_name) === bareName(name));
+    if (exact.length === 1 && alike.length === 1) return { key: `id:${exact[0].id}`, name: normName(exact[0].full_name), role, id: String(exact[0].id) };
+    if (exact.length > 1) return { reason: `There are ${exact.length} ${role}s named ${name} in the portal; link this one by hand` };
+    if (alike.length > 1) {
+      return { reason: `There are ${alike.length} ${role}s named like ${name} in the portal (${alike.map((p) => normName(p.full_name)).join(' or ')}); link this one by hand on People` };
+    }
+    if (alike.length === 1) return { reason: `Is this ${normName(alike[0].full_name)}? Link them by hand on People to use that account` };
     const nameFirst = lower(name).split(' ')[0];
     const near = people.filter((p) => p.role === role && lower(p.full_name).split(' ')[0] === nameFirst);
     if (near.length) return { reason: `Is this ${near.map((p) => normName(p.full_name)).join(' or ')}? Write the full name to use that account` };
@@ -208,8 +214,10 @@ export function confirmWordFor(person, family = []) {
   return { word: firstOf(person?.full_name) || normName(person?.full_name), what: 'their first name' };
 }
 
-// Whether typed text matches a confirm word (case and spaces do not matter)
-export const confirmMatches = (typed, word) => Boolean(word) && lower(typed) === lower(word);
+// Whether typed text matches a confirm word. Case, spaces, accents and the
+// kind of apostrophe do not matter ("zoe" confirms "Zoë", "d'angelo" "D’Angelo")
+const fold = (s) => lower(s).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[\u2018\u2019\u02bc`]/g, "'");
+export const confirmMatches = (typed, word) => Boolean(fold(word)) && fold(typed) === fold(word);
 
 // Who an account belongs with, so two people with one name can be told apart:
 //   parent:  "Parent of Gordon; pays for Gordon", "Parent of Camila and Leo",

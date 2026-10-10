@@ -528,8 +528,9 @@ export function mount(ctx) {
     if (!matches.length && !choices.length) return null;
     const to = signup.email ?? 'their email';
     const label = (p) => `${displayName(p)} (${roleWord(p.role)})`;
-    // Sure: the one account a link was emailed to at this address, or the only one with the same full name
-    const sure = matches.length === 1 && matches[0].reason !== 'first';
+    // Sure: the only account with the same full name. A link once emailed to
+    // this address is a strong hint, never proof (it may have gone to the wrong person)
+    const sure = matches.length === 1 && matches[0].reason === 'name';
     const why = { email: `A link to this account was emailed to ${to}`, name: 'Same name', first: 'Same first name' };
 
     const useButton = (p, { check, primary = false }) => {
@@ -542,7 +543,7 @@ export function mount(ctx) {
         focusKey: `use-${signup.id}-${p.id}`,
         onClick: () => useAccount(signup, name, p, { check, trigger: use }),
       });
-      use.setAttribute('aria-label', `Use ${pname}’s account for ${name}`);
+      use.setAttribute('aria-label', `Use ${pname}’s account (${familyOf(p).text}) for ${name}`);
       return use;
     };
 
@@ -624,6 +625,7 @@ export function mount(ctx) {
       ? `${name} will see ${list(fam.names)}’s lessons, homework and bills.`
       : `${name} will sign in to ${pname}’s lessons and homework.`;
     const word = check ? confirmWordFor(p, fam.names) : null;
+    const typed = word?.word ? word : null;
     const ok = await ctx.confirm({
       title: `Use ${pname}’s account for ${name}?`,
       body: 'Make sure this is their family before you go on.',
@@ -632,7 +634,7 @@ export function mount(ctx) {
         sees,
         `This sign-up is removed, and ${to} gets an email with a link to set a password on ${pname}’s account.`,
       ],
-      requireText: word ? { label: `Type ${word.what}, ${word.word}, to confirm`, match: (t) => confirmMatches(t, word.word) } : null,
+      requireText: typed ? { label: `Type ${typed.what}, ${typed.word}, to confirm`, match: (t) => confirmMatches(t, typed.word) } : null,
       confirmLabel: 'Remove sign-up and email the link',
     });
     if (!ok || !ctx.alive()) return;
@@ -640,17 +642,23 @@ export function mount(ctx) {
     const near = li?.nextElementSibling ?? li?.previousElementSibling;
     const focus = { key: `invite-${p.id}`, fallback: near?.querySelector('button[data-focus-key^="approve-"]')?.dataset.focusKey ?? null };
     await busy(trigger, 'Sending…', async () => {
-      // The account's name exactly as shown: the server refuses a pair that changed since
+      // A pick confirmed by typing goes as a pick by hand, with the account's name
+      // exactly as shown (the server refuses it if that changed since). A certain
+      // match goes by name: the server checks the name again, and refuses it when
+      // another account now has that name too.
       const { status, body } = await peopleApi({
-        action: 'use_signup', signup_id: signup.id, profile_id: p.id, chosen: true, confirm_name: p.full_name ?? '',
+        action: 'use_signup', signup_id: signup.id, profile_id: p.id,
+        ...(check ? { chosen: true, confirm_name: p.full_name ?? '' } : {}),
       });
       if (!ctx.alive()) return;
       if (status === 200) {
         say(`Removed ${name}’s sign-up and emailed ${body.to ?? to} a link to ${pname}’s account. Once they choose a password, they sign in there.`, 'success');
       } else if (status === 502) {
-        say(`Removed ${name}’s sign-up, but the email didn’t send. Use Invite on ${pname}’s row under Everyone to send a new link.`, 'error');
+        say(`Removed ${name}’s sign-up, but the email didn’t send. Use New invite link on ${pname}’s row under Everyone to send a link.`, 'error');
       } else {
-        const why = status === 409 ? 'this changed since the page loaded. Refresh and try again.'
+        const why = status === 409 && body?.error === 'ambiguous'
+          ? `another account is now named like ${pname}. Refresh, check the families and pick the right one.`
+          : status === 409 ? 'this changed since the page loaded. Refresh and try again.'
           : status === 503 ? 'email is not set up, so nothing was changed.'
             : status === 401 ? 'sign in again as an admin.' : 'please try again.';
         say(`That didn’t work: ${why}`, 'error');
@@ -944,14 +952,15 @@ export function mount(ctx) {
       out);
   }
 
-  // Removes a person's unused links (keepId: the one just made stays).
-  // A removed link no longer opens anything. -> true when it worked
+  // Removes a person's unused links: all of them, or (keepId) those older than
+  // the one just made, so a newer link made meanwhile in another tab stays. A
+  // removed link no longer opens anything. -> true when it worked
   async function dropOpenLinks(person, keepId = null) {
     let q = sb.from('portal_invites').delete().eq('profile_id', person.id).is('used_at', null);
-    if (keepId !== null) q = q.neq('id', keepId);
+    if (keepId !== null) q = q.lt('id', keepId);
     const { error } = await q;
     if (error) return false;
-    data.invites = data.invites.filter((i) => i.profile_id !== person.id || i.used_at || i.id === keepId);
+    data.invites = data.invites.filter((i) => i.profile_id !== person.id || i.used_at || (keepId !== null && i.id >= keepId));
     return true;
   }
 
