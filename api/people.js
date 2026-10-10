@@ -21,7 +21,10 @@ async function run(request) {
   // Deleting a person revokes and removes their Google Calendar connection first
   const disconnectGoogle = (userId) => disconnectUser(userId, { repo: createGoogleRepo(db), config: googleConfig(), fetchImpl: fetch });
   try {
-    return await handlePeople(request, { repo, auth: db.auth.admin, verifyAdmin, disconnectGoogle });
+    // Logs carry actions, roles and counts, never names or addresses
+    const log = (line) => console.log(line);
+    const warn = (...parts) => console.warn(...parts);
+    return await handlePeople(request, { repo, auth: db.auth.admin, verifyAdmin, disconnectGoogle, log, warn });
   } catch (error) {
     console.error('[people]', error?.message ?? error?.name ?? 'Error');
     return Response.json({ error: 'failed' }, { status: 500 });

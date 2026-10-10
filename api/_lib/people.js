@@ -253,25 +253,29 @@ export async function handlePeople(request, {
     if (found.error || !to) return json(409, { error: 'no_email' });
     // Still waiting right before it goes (not approved in another tab meanwhile)
     if ((await repo.getProfile(signup.id))?.role !== 'pending') return json(409, { error: 'not_pending' });
-    // The sign-up holds their address; remove it first so the link can move the account to it
-    const removed = await auth.deleteUser(signup.id);
-    if (removed?.error) throw new Error(`deleteUser: ${removed.error.message ?? 'failed'}`);
+    // The link and its email first: anything failing here leaves the sign-up as it was
     const token = randomBytes(32).toString('base64url');
     const invite = await repo.createInvite(person.id, hashToken(token), caller.id);
     const children = person.role === 'parent' ? await repo.childrenOf(person.id) : [];
     const mail = buildInviteEmail({ name: person.full_name, role: person.role, children, link: inviteLink(token, env), to });
+    // The sign-up holds their address; remove it so the link can move the account to it
+    const removed = await auth.deleteUser(signup.id);
+    if (removed?.error) {
+      await repo.dropInvite(invite.id).catch(() => {});
+      throw new Error(`deleteUser: ${removed.error.message ?? 'failed'}`);
+    }
     try {
       if ((await send(mail, { env, fetchImpl })) === 'skipped') throw new Error('skipped');
     } catch {
       return json(502, { error: 'email_failed' });
     }
-    await repo.markEmailed(invite.id, to, new Date(now()).toISOString());
     // Only the link just emailed opens the account now: older unused links stop.
     // After the send, so a failure here never costs them the new link.
     try {
+      await repo.markEmailed(invite.id, to, new Date(now()).toISOString());
       await repo.dropOpenInvites(person.id, invite.id);
     } catch (error) {
-      warn?.('[people] dropOpenInvites', error?.message ?? error);
+      warn?.('[people] use_signup invite bookkeeping', error?.message ?? error);
     }
     return json(200, { ok: true, to });
   }
@@ -292,30 +296,38 @@ export async function handlePeople(request, {
     const found = await auth.getUserById(from.id);
     const to = normalizeEmail(found.data?.user?.email);
     if (found.error || !to || isPlaceholder(to)) return json(409, { error: 'no_email' });
-    // Unchanged right before it goes: same role, still signing in, still nothing linked
-    const again = await repo.getProfile(from.id);
-    if (!again || again.no_login || again.role !== from.role || await repo.hasLinks(from.id)) return json(409, { error: 'changed' });
-    // It holds their address; remove it first so the link can move the first account to it
-    const removed = await auth.deleteUser(from.id);
-    if (removed?.error) throw new Error(`deleteUser: ${removed.error.message ?? 'failed'}`);
-    if (holdings.avatars.length) {
-      await repo.removeFiles(AVATARS_BUCKET, holdings.avatars).catch((error) => warn?.('[people] merge photos', error?.message ?? error));
-    }
+    // The link and its email first: anything failing here leaves both accounts as they were
     const token = randomBytes(32).toString('base64url');
     const link = inviteLink(token, env);
     const invite = await repo.createInvite(into.id, hashToken(token), caller.id);
     const children = into.role === 'parent' ? await repo.childrenOf(into.id) : [];
     const mail = buildInviteEmail({ name: into.full_name, role: into.role, children, link, to });
+    // Unchanged right before it goes: same role, still signing in, still holding nothing
+    const again = await repo.getProfile(from.id);
+    if (!again || again.no_login || again.role !== from.role || !(await signinHoldings(repo, from.id)).empty) {
+      await repo.dropInvite(invite.id).catch(() => {});
+      return json(409, { error: 'changed' });
+    }
+    // It holds their address; remove it so the link can move the first account to it
+    const removed = await auth.deleteUser(from.id);
+    if (removed?.error) {
+      await repo.dropInvite(invite.id).catch(() => {});
+      throw new Error(`deleteUser: ${removed.error.message ?? 'failed'}`);
+    }
+    if (holdings.avatars.length) {
+      await repo.removeFiles(AVATARS_BUCKET, holdings.avatars).catch((error) => warn?.('[people] merge photos', error?.message ?? error));
+    }
     try {
       if ((await send(mail, { env, fetchImpl })) === 'skipped') throw new Error('skipped');
     } catch {
+      log?.(`[people] merge_signin role=${into.role} email=failed`);
       return json(502, { error: 'email_failed', to, link });
     }
-    await repo.markEmailed(invite.id, to, new Date(now()).toISOString());
     try {
+      await repo.markEmailed(invite.id, to, new Date(now()).toISOString());
       await repo.dropOpenInvites(into.id, invite.id);
     } catch (error) {
-      warn?.('[people] dropOpenInvites', error?.message ?? error);
+      warn?.('[people] merge invite bookkeeping', error?.message ?? error);
     }
     log?.(`[people] merge_signin role=${into.role}`);
     return json(200, { ok: true, to, link });
@@ -413,6 +425,10 @@ export function createPeopleRepo(db) {
         count('sessions', ['student_id', 'tutor_id']),
       ]);
       return counts.some((n) => n > 0);
+    },
+    // Removes one link (made for a merge or sign-up that then stopped)
+    async dropInvite(id) {
+      check(await db.from('portal_invites').delete().eq('id', id), 'dropInvite');
     },
     // Removes a person's unused links older than `keepId` (a removed link no
     // longer opens); a newer one made meanwhile in another tab stays

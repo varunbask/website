@@ -138,13 +138,16 @@ export function failureCode(error) {
 
 // ---------------------------------------------------------------------------
 // A separate sign-in that may be merged into an account added without a login
-// (/api/people merge_signin): only when it holds nothing that matters
-// elsewhere (lessons, homework, links, bills, files, a Google connection). Its
-// own photo and profile answers go with it. -> { empty, held: ['3 lessons', ...], avatars }
+// (/api/people merge_signin): only when it holds nothing that deleting it would
+// lose: lessons, homework, links, bills, files, a Google connection, SAT
+// access or practice, AI homework drafts, billing contact details or profile
+// details. Only its own photo goes with it. Every table that cascades from
+// profiles(id) is either counted here or listed with a reason in
+// tests/unit/merge-coverage.test.js. -> { empty, held: ['3 lessons', ...], avatars }
 
 export async function signinHoldings(repo, id) {
-  const [sessions, counts, refs, files, google] = await Promise.all([
-    repo.sessionsOf(id), repo.countsOf(id), repo.billingRefs(id), repo.filesOf(id, []), repo.googleCount(id),
+  const [sessions, counts, refs, files, google, stray] = await Promise.all([
+    repo.sessionsOf(id), repo.countsOf(id), repo.billingRefs(id), repo.filesOf(id, []), repo.googleCount(id), repo.strayCounts(id),
   ]);
   const held = [];
   const add = (n, one, many) => { if (n > 0) held.push(`${n} ${n === 1 ? one : many}`); };
@@ -160,6 +163,11 @@ export async function signinHoldings(repo, id) {
   add(refs.payments + refs.payouts + refs.adjustments, 'payment record', 'payment records');
   add(files.homework.length + files.materials.length, 'file', 'files');
   add(google, 'Google Calendar connection', 'Google Calendar connections');
+  add(stray.sat_access, 'SAT access', 'SAT access');
+  add(stray.sat_attempts, 'SAT practice run', 'SAT practice runs');
+  add(stray.homework_drafts, 'AI homework draft', 'AI homework drafts');
+  add(stray.billing_contacts, 'billing contact', 'billing contacts');
+  add(stray.profile_details, 'profile with grade, school, goals or notes', 'profiles with grade, school, goals or notes');
   return { empty: held.length === 0, held, avatars: files.avatars ?? [] };
 }
 
@@ -337,6 +345,12 @@ export function createDeleteRepo(db) {
     if (error) throw fail(`count ${what}`, error);
     return n ?? 0;
   }, 0);
+  // A count that fails closed: any error throws (for guards, never "empty")
+  const strict = async (table, apply) => {
+    const { count: n, error } = await apply(db.from(table).select('*', { count: 'exact', head: true }));
+    if (error) throw new Error(`count ${table}: ${error.message}`);
+    return n ?? 0;
+  };
   // Every row of a query, a page at a time
   const pages = async (make, what) => {
     const rows = [];
@@ -396,7 +410,21 @@ export function createDeleteRepo(db) {
     },
 
     async googleCount(id) {
-      return count('google_connections', (q) => q.eq('user_id', id));
+      return strict('google_connections', (q) => q.eq('user_id', id));
+    },
+
+    // What else a stray second sign-in could hold (signinHoldings). These
+    // tables exist, so any error fails closed: a guard never reads it as empty.
+    async strayCounts(id) {
+      const [satAccess, satAttempts, drafts, contacts, details] = await Promise.all([
+        strict('sat_access', (q) => q.eq('student_id', id)),
+        strict('sat_attempts', (q) => q.eq('student_id', id)),
+        strict('homework_drafts', (q) => q.or(either(id, 'student_id', 'created_by'))),
+        strict('billing_contacts', (q) => q.eq('parent_id', id)),
+        strict('student_profiles', (q) => q.eq('student_id', id)
+          .or('grade_level.not.is.null,school.not.is.null,goals.not.is.null,learning_notes.not.is.null')),
+      ]);
+      return { sat_access: satAccess, sat_attempts: satAttempts, homework_drafts: drafts, billing_contacts: contacts, profile_details: details };
     },
 
     // Money rows that restrict the delete, voided ones included

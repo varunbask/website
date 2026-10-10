@@ -462,6 +462,7 @@ export function mount(ctx) {
             body: `This may be ${maybe.map(({ person: p }) => displayName(p)).join(' or ')}, added without a login. Approving gives ${name} a second, empty account, without those lessons and bills. To use theirs, choose Use this account on the card instead.`,
             details: maybe.map(({ person: p }) => `${displayName(p)}: ${familyOf(p).text}.`),
             confirmLabel: 'Approve as a new person',
+            tone: 'primary',
           });
           if (!ok || !ctx.alive()) return;
         }
@@ -661,7 +662,18 @@ export function mount(ctx) {
         action: 'use_signup', signup_id: signup.id, profile_id: p.id,
         ...(check ? { chosen: true, confirm_name: p.full_name ?? '' } : {}),
       });
-      if (!ctx.alive()) return;
+      if (status === 200 || status === 502) {
+        // This page's caches, then every other tab's
+        ctx.store.invalidateAll();
+        announceDataChanged();
+      }
+      // The page may have been redrawn meanwhile (a live update): say what happened anyway
+      if (!ctx.alive()) {
+        if (status === 200) ctx.toast({ text: `Removed ${name}’s sign-up and emailed ${body.to ?? to} a link to ${pname}’s account.` });
+        else if (status === 502) ctx.toast({ text: `Removed ${name}’s sign-up, but the email didn’t send. Use New invite link on ${pname}’s row under Everyone.` });
+        else ctx.toast({ text: `${name}’s sign-up was not changed. Check Waiting for approval and try again.` });
+        return;
+      }
       if (status === 200) {
         say(`Removed ${name}’s sign-up and emailed ${body.to ?? to} a link to ${pname}’s account. Once they choose a password, they sign in there.`, 'success');
       } else if (status === 502) {
@@ -1106,7 +1118,7 @@ export function mount(ctx) {
             details: [
               `${name}: ${fam.text}.`,
               `${dupName}’s sign-in${dup.email ? ` (${dup.email})` : ''} moves to ${name}, where the lessons, tutors and bills are.`,
-              `The separate ${dupName} account is removed. It must hold nothing of its own (the portal checks); its own photo or profile answers go with it.`,
+              `The separate ${dupName} account is removed. The portal first checks it holds nothing (lessons, homework, links, bills, profile details, SAT practice); only its own photo goes with it.`,
               `${dup.email ?? 'Their email'} gets a link to set a password on ${name}’s account.`,
             ],
             requireText: word?.word ? { label: `Type ${word.what}, ${word.word}, to confirm`, match: (t) => confirmMatches(t, word.word) } : null,
@@ -1115,8 +1127,23 @@ export function mount(ctx) {
           if (!ok || !ctx.alive()) return;
           await busy(merge, 'Merging…', async () => {
             const { status, body } = await peopleApi({ action: 'merge_signin', from_id: dup.id, into_id: person.id, confirm_name: person.full_name ?? '' });
-            if (!ctx.alive()) return;
-            if (status === 200 || status === 502) {
+            const merged = status === 200 || (status === 502 && body?.link);
+            if (merged) {
+              // This page's caches, then every other tab's
+              ctx.store.invalidateAll();
+              announceDataChanged();
+            }
+            // The page may have been redrawn meanwhile (a live update): say what happened anyway
+            if (!ctx.alive()) {
+              ctx.toast({
+                text: status === 200
+                  ? `Merged ${dupName} into ${name}. ${body.to ?? 'Their email'} got a link to set a password there.`
+                  : merged ? `Merged ${dupName} into ${name}, but the email didn’t send. Use New invite link on ${name}’s row to send a link.`
+                    : `The merge of ${dupName} into ${name} may not have finished. Check People before trying again.`,
+              });
+              return;
+            }
+            if (merged) {
               say(status === 200
                 ? `Merged. ${body.to ?? dupName} got a link to set a password on ${name}’s account; once they do, they sign in there.`
                 : `Merged, but the email didn’t send. Copy the link below and send it to ${body.to ?? 'them'}.`, status === 200 ? 'success' : 'error');
@@ -1159,12 +1186,16 @@ export function mount(ctx) {
               return;
             }
             const why = status === 409 && body?.error === 'has_data'
-              ? `${dupName}’s account has ${(body.held ?? []).join(', ')}, so it is not an empty duplicate. Move or remove those first.`
+              ? `${dupName}’s account has ${(body.held ?? []).join(', ')}, so it is not an empty duplicate. Move or clear those first, then merge.`
               : status === 409 && body?.error === 'no_email' ? `${dupName}’s account has no email to move.`
                 : status === 409 ? 'this changed since the page loaded. Refresh and try again.'
                   : status === 503 ? 'email is not set up, so nothing was changed.'
-                    : status === 401 ? 'sign in again as an admin.' : 'please try again.';
-            say(`That didn’t work: ${why}`, 'error');
+                    : status === 401 ? 'sign in again as an admin.'
+                      : status === 502 ? 'we couldn’t tell whether it finished. Refresh People to check before trying again.'
+                        : 'nothing was changed. Please try again.';
+            // Shown here, next to the button, not at the top of a long list
+            const alertIcon = icon('warning-circle');
+            out.replaceChildren(h('p', { class: 'field-error', role: 'alert' }, alertIcon, h('span', {}, `That didn’t work: ${why}`)));
           });
         },
       });

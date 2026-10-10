@@ -52,6 +52,8 @@ function fakes({ invite = undefined, children = ['Maya Lin'], updateError = null
     billingRefs: vi.fn(async () => ({ payments: 0, payouts: 0, adjustments: 0 })),
     filesOf: vi.fn(async () => ({ homework: [], materials: [], avatars: [] })),
     googleCount: vi.fn(async () => 0),
+    strayCounts: vi.fn(async () => ({ sat_access: 0, sat_attempts: 0, homework_drafts: 0, billing_contacts: 0, profile_details: 0 })),
+    dropInvite: vi.fn(async (id) => { state.droppedInvite = id; }),
     removeFiles: vi.fn(async () => {}),
     noLoginPeople: vi.fn(async (role) => Object.values(profiles ?? {
       [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace', role: 'parent', no_login: true },
@@ -281,7 +283,8 @@ describe('use_signup: someone signed up who was already added without a login', 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, to: 'grace.lin@example.com' });
     expect(f.state.deleted).toBe(SIGNUP);
-    expect(f.auth.deleteUser.mock.invocationCallOrder[0]).toBeLessThan(f.repo.createInvite.mock.invocationCallOrder[0]);
+    // the link exists before the sign-up goes, so a failure in between costs nothing
+    expect(f.repo.createInvite.mock.invocationCallOrder[0]).toBeLessThan(f.auth.deleteUser.mock.invocationCallOrder[0]);
     expect(f.state.created).toMatchObject({ profileId: NOLOGIN, createdBy: 'admin-id' });
     expect(f.state.created.tokenHash).toMatch(/^[0-9a-f]{64}$/);
     const [mail] = f.state.sent;
@@ -472,7 +475,7 @@ describe('merge_signin: a second account that signs in, merged into one added wi
     expect(out).toMatchObject({ ok: true, to: '46405@students.ausd.net' });
     expect(out.link).toMatch(/\/portal\/join\.html#t=[A-Za-z0-9_-]{43}$/);
     expect(f.state.deleted).toBe(STRAY);
-    expect(f.auth.deleteUser.mock.invocationCallOrder[0]).toBeLessThan(f.repo.createInvite.mock.invocationCallOrder[0]);
+    expect(f.repo.createInvite.mock.invocationCallOrder[0]).toBeLessThan(f.auth.deleteUser.mock.invocationCallOrder[0]);
     expect(f.state.created.profileId).toBe(KID);
     const [mail] = f.state.sent;
     expect(mail.to).toBe('46405@students.ausd.net');
@@ -517,10 +520,34 @@ describe('merge_signin: a second account that signs in, merged into one added wi
     const placeholder = setup();
     placeholder.auth.getUserById.mockResolvedValueOnce({ data: { user: { email: `no-login+x@${PLACEHOLDER_DOMAIN}` } }, error: null });
     expect(await (await handlePeople(post(body), placeholder.deps)).json()).toEqual({ error: 'no_email' });
+    // something lands on the second account between the first check and the delete
     const linked = setup();
-    linked.repo.hasLinks.mockResolvedValueOnce(true);
+    linked.repo.sessionsOf.mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: 9, student_id: STRAY, tutor_id: 't', starts_at: '2026-10-11T00:00:00Z' }]);
     expect(await (await handlePeople(post(body), linked.deps)).json()).toEqual({ error: 'changed' });
+    expect(linked.state.droppedInvite).toBe(99);
     for (const x of [placeholder, linked]) expect(x.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test('SAT practice, AI drafts, billing contacts and profile details all keep a second account', async () => {
+    const f = setup();
+    f.repo.strayCounts.mockResolvedValueOnce({ sat_access: 1, sat_attempts: 2, homework_drafts: 1, billing_contacts: 1, profile_details: 1 });
+    expect(await (await handlePeople(post(body), f.deps)).json()).toEqual({
+      error: 'has_data',
+      held: ['1 SAT access', '2 SAT practice runs', '1 AI homework draft', '1 billing contact', '1 profile with grade, school, goals or notes'],
+    });
+    expect(f.auth.deleteUser).not.toHaveBeenCalled();
+  });
+
+  test('a failure before the delete leaves both accounts; a failed delete drops the new link', async () => {
+    const invite = setup();
+    invite.repo.createInvite.mockRejectedValueOnce(new Error('db down'));
+    await expect(handlePeople(post(body), invite.deps)).rejects.toThrow('db down');
+    expect(invite.auth.deleteUser).not.toHaveBeenCalled();
+    const del = setup();
+    del.auth.deleteUser.mockResolvedValueOnce({ error: { message: 'auth down' } });
+    await expect(handlePeople(post(body), del.deps)).rejects.toThrow('deleteUser');
+    expect(del.state.droppedInvite).toBe(99);
+    expect(del.state.sent).toEqual([]);
   });
 
   test('its own photo goes with it; an email that fails still hands back the link', async () => {
