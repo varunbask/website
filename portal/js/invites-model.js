@@ -233,3 +233,26 @@ export function familyText({ role, children = [], paying = [], parents = [] } = 
   if (!parents.length) return 'Student; no parent linked yet';
   return `Student; ${parents.length === 1 ? 'parent' : 'parents'} ${list(parents)}`;
 }
+
+// Accounts that sign in separately but look like someone added without a
+// login (a sign-up approved as a new person by mistake): the same role, never
+// staff, and the name rule of signupMatches (notes in brackets left out).
+// Accounts with tutors or a family linked are left out (they hold something,
+// so they are not a stray duplicate). -> [{ person, reason: 'name' | 'first' }]
+export function signinMatches(person, people = [], { links = [] } = {}) {
+  if (!person?.no_login || !['student', 'parent'].includes(person.role)) return [];
+  const name = bareName(person.full_name);
+  if (!name) return [];
+  const words = name.split(' ');
+  const linked = new Set((links ?? []).flatMap((l) => [l.student_id, l.parent_id, l.tutor_id]).filter(Boolean).map(String));
+  const out = [];
+  for (const p of people) {
+    if (p.no_login || p.role !== person.role || p.id === person.id || linked.has(String(p.id))) continue;
+    const other = bareName(p.full_name);
+    if (!other) continue;
+    const otherWords = other.split(' ');
+    if (other === name) out.push({ person: p, reason: 'name' });
+    else if (otherWords[0] === words[0] && (words.length === 1 || otherWords.length === 1)) out.push({ person: p, reason: 'first' });
+  }
+  return out.sort((a, b) => (a.reason === b.reason ? lower(a.person.full_name).localeCompare(lower(b.person.full_name)) : a.reason === 'name' ? -1 : 1));
+}

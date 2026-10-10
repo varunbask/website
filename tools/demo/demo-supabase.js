@@ -745,6 +745,23 @@
       db.portal_invites.push(create('portal_invites', { profile_id: target.id, token_hash: 'f'.repeat(64), emailed_to: signup.email, emailed_at: new Date().toISOString() }));
       return reply(200, { ok: true, to: signup.email });
     }
+    if (body.action === 'merge_signin') {
+      if (role() !== 'admin') return reply(401, { error: 'unauthorized' });
+      const from = db.profiles.find((p) => p.id === body.from_id);
+      const into = db.profiles.find((p) => p.id === body.into_id);
+      const named = (v) => String(v ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+      if (!from || from.no_login || !['student', 'parent'].includes(from.role)) return reply(409, { error: 'not_signin' });
+      if (!into || !into.no_login || into.role !== from.role) return reply(409, { error: 'not_no_login' });
+      if (!named(body.confirm_name) || named(body.confirm_name) !== named(into.full_name)) return reply(409, { error: 'no_match' });
+      const held = [];
+      if (db.sessions.some((x) => x.student_id === from.id || x.tutor_id === from.id)) held.push('lessons');
+      if (db.parent_students.some((l) => l.parent_id === from.id || l.student_id === from.id) || db.tutor_students.some((l) => l.student_id === from.id)) held.push('links');
+      if (held.length) return reply(409, { error: 'has_data', held });
+      db.profiles = db.profiles.filter((p) => p !== from);
+      db.portal_invites = db.portal_invites.filter((i) => i.profile_id !== into.id || i.used_at);
+      db.portal_invites.push(create('portal_invites', { profile_id: into.id, token_hash: 'e'.repeat(64), emailed_to: from.email, emailed_at: new Date().toISOString() }));
+      return reply(200, { ok: true, to: from.email, link: `${location.origin}/portal/join.html#t=${'D'.repeat(43)}` });
+    }
     if (body.action === 'join') {
       if (problem) return bad();
       const email = String(body.email ?? '').trim().toLowerCase();

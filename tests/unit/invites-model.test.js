@@ -2,7 +2,7 @@ import { describe, test, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   newInviteToken, inviteLink, inviteMessage, namesText, readToken, joinCopy, joinProblem, joinError, inviteState,
-  parseFamilyLines, planFamilies, signupMatches, signupChoices, bareName, confirmWordFor, confirmMatches, familyText,
+  parseFamilyLines, planFamilies, signupMatches, signupChoices, bareName, confirmWordFor, confirmMatches, familyText, signinMatches,
 } from '../../portal/js/invites-model.js';
 
 describe('invite links', () => {
@@ -209,5 +209,33 @@ describe('two parents with one name (the Grace case)', () => {
     expect(familyText({ role: 'student', parents: ['Grace Young'] })).toBe('Student; parent Grace Young');
     expect(familyText({ role: 'student', parents: ['Ann', 'Bo'] })).toBe('Student; parents Ann and Bo');
     expect(familyText({ role: 'student' })).toBe('Student; no parent linked yet');
+  });
+});
+
+describe('a second sign-in that looks like someone added without a login (the Gordon case)', () => {
+  const gordon = { id: 'g', full_name: 'Gordon', role: 'student', no_login: true };
+  const people = [
+    gordon,
+    { id: 'gy', full_name: 'Gordon Young', role: 'student', no_login: false, email: '46405@students.ausd.net' },
+    { id: 'gl', full_name: 'Gordon Lee', role: 'student', no_login: false },
+    { id: 'gp', full_name: 'Gordon', role: 'parent', no_login: false },
+    { id: 'gt', full_name: 'Gordon', role: 'tutor', no_login: false },
+    { id: 'g2', full_name: 'Gordon (twin)', role: 'student', no_login: true },
+  ];
+
+  test('signed-in accounts of the same role with that name, never staff or others added without a login', () => {
+    expect(signinMatches(gordon, people).map((m) => `${m.person.id}:${m.reason}`)).toEqual(['gl:first', 'gy:first']);
+  });
+
+  test('an account with tutors or a family linked is not a stray duplicate', () => {
+    const links = [{ tutor_id: 't1', student_id: 'gl' }];
+    expect(signinMatches(gordon, people, { links }).map((m) => m.person.id)).toEqual(['gy']);
+  });
+
+  test('a full name match comes first; nothing for people who already sign in', () => {
+    const amy = { id: 'a', full_name: 'Amy Chen (Ryan)', role: 'student', no_login: true };
+    const list = [amy, { id: 'a1', full_name: 'Amy', role: 'student', no_login: false }, { id: 'a2', full_name: 'Amy Chen', role: 'student', no_login: false }];
+    expect(signinMatches(amy, list).map((m) => `${m.person.id}:${m.reason}`)).toEqual(['a2:name', 'a1:first']);
+    expect(signinMatches({ ...amy, no_login: false }, list)).toEqual([]);
   });
 });

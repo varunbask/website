@@ -42,7 +42,7 @@ import { h, uid } from '../dom.js';
 import { icon } from '../icons.js';
 import {
   newInviteToken, inviteLink, inviteMessage, INVITE_DAYS, parseFamilyLines, planFamilies, signupMatches, signupChoices,
-  confirmWordFor, confirmMatches, familyText,
+  confirmWordFor, confirmMatches, familyText, signinMatches,
 } from '../invites-model.js';
 import {
   INVITE_FILTERS, INVITE_FILTER_LABELS, inviteStatuses, inviteCounts, hasNoLoginPeople, filterByInvite,
@@ -63,6 +63,12 @@ import {
   problemText, withoutPerson,
 } from '../delete-person-model.js';
 import { announceDataChanged } from '../data-sync.js';
+
+// The result of the last merge (with its one-time link), kept outside the view
+// so a redraw (this page's own refresh, or a live update) cannot lose it; the
+// merged person's row shows it until it is dismissed.
+//   { intoId, intoName, dupName, to, link, emailed, focus }
+let mergeNotice = null;
 
 // ---------------------------------------------------------------------------
 // Pure logic
@@ -454,6 +460,18 @@ export function mount(ctx) {
       focusKey: `approve-${person.id}`,
       onClick: async () => {
         const next = choice.firstElementChild.value;
+        // It may be someone added without a login: approving makes a second, empty account
+        const maybe = ['student', 'parent'].includes(next) ? signupMatches({ ...person, requested_role: next }, data.people, { invites: data.invites }) : [];
+        if (maybe.length) {
+          const ok = await ctx.confirm({
+            title: `Approve ${name} as a new ${roleWord(next)}?`,
+            body: `This may be ${maybe.map(({ person: p }) => displayName(p)).join(' or ')}, added without a login. Approving gives ${name} a second, empty account, without those lessons and bills. To use theirs, choose Use this account on the card instead.`,
+            details: maybe.map(({ person: p }) => `${displayName(p)}: ${familyOf(p).text}.`),
+            confirmLabel: 'Approve as a new person',
+            tone: 'primary',
+          });
+          if (!ok || !ctx.alive()) return;
+        }
         if (next === 'admin') {
           const ok = await ctx.confirm({
             title: `Make ${name} an admin?`,
@@ -650,7 +668,18 @@ export function mount(ctx) {
         action: 'use_signup', signup_id: signup.id, profile_id: p.id,
         ...(check ? { chosen: true, confirm_name: p.full_name ?? '' } : {}),
       });
-      if (!ctx.alive()) return;
+      if (status === 200 || status === 502) {
+        // This page's caches, then every other tab's
+        ctx.store.invalidateAll();
+        announceDataChanged();
+      }
+      // The page may have been redrawn meanwhile (a live update): say what happened anyway
+      if (!ctx.alive()) {
+        if (status === 200) ctx.toast({ text: `Removed ${name}’s sign-up and emailed ${body.to ?? to} a link to ${pname}’s account.` });
+        else if (status === 502) ctx.toast({ text: `Removed ${name}’s sign-up, but the email didn’t send. Use New invite link on ${pname}’s row under Everyone.` });
+        else ctx.toast({ text: `${name}’s sign-up was not changed. Check Waiting for approval and try again.` });
+        return;
+      }
       if (status === 200) {
         say(`Removed ${name}’s sign-up and emailed ${body.to ?? to} a link to ${pname}’s account. Once they choose a password, they sign in there.`, 'success');
       } else if (status === 502) {
@@ -1067,6 +1096,146 @@ export function mount(ctx) {
     return h('div', { class: 'ppl-invite' },
       h('div', { class: 'ppl-invite-row' }, pill({ label: 'No sign-in yet', tone: 'warning', icon: 'clock' }), note, make, cancel),
       panel);
+  }
+
+  // Someone added without a login who also signs in under a second account
+  // (their sign-up was approved as a new person): merge it in. The second
+  // account must hold nothing (the server checks); it is removed and its email
+  // gets a link to this account, where the lessons and bills are.
+  function mergeOffer(person) {
+    const found = signinMatches(person, data.people, { links: [...data.parentLinks, ...data.tutorLinks] });
+    if (!found.length) return null;
+    const name = displayName(person);
+    const fam = familyOf(person);
+    const out = h('div', { class: 'ppl-merge-out' });
+    const rows = found.map(({ person: dup, reason }) => {
+      const dupName = displayName(dup);
+      const merge = button({
+        label: `Merge ${dupName} into ${name}`,
+        size: 'sm',
+        variant: 'secondary',
+        icon: 'users-three',
+        focusKey: `merge-${dup.id}-${person.id}`,
+        onClick: async () => {
+          const word = confirmWordFor(person, person.role === 'parent' ? fam.names : [name]);
+          const ok = await ctx.confirm({
+            title: `Merge ${dupName}’s sign-in into ${name}?`,
+            body: 'Make sure they are the same person before you go on.',
+            details: [
+              `${name}: ${fam.text}.`,
+              `${dupName}’s sign-in${dup.email ? ` (${dup.email})` : ''} moves to ${name}, where the lessons, tutors and bills are.`,
+              `The separate ${dupName} account is removed. The portal first checks it holds nothing (lessons, homework, links, bills, profile details, SAT practice); only its own photo goes with it.`,
+              `${dup.email ?? 'Their email'} gets a link to set a password on ${name}’s account.`,
+            ],
+            requireText: word?.word ? { label: `Type ${word.what}, ${word.word}, to confirm`, match: (t) => confirmMatches(t, word.word) } : null,
+            confirmLabel: 'Merge and email the link',
+          });
+          if (!ok || !ctx.alive()) return;
+          await busy(merge, 'Merging…', async () => {
+            const { status, body } = await peopleApi({ action: 'merge_signin', from_id: dup.id, into_id: person.id, confirm_name: person.full_name ?? '' });
+            const merged = status === 200 || (status === 502 && body?.link);
+            if (merged) {
+              // Kept outside the view first, so any redraw from here on shows it on the row
+              mergeNotice = { intoId: person.id, intoName: name, dupName, to: body.to ?? null, link: body.link ?? '', emailed: status === 200, focus: true };
+              // This page's caches, then every other tab's
+              ctx.store.invalidateAll();
+              announceDataChanged();
+            }
+            // The page may have been redrawn meanwhile (a live update): say what happened anyway
+            if (!ctx.alive()) {
+              ctx.toast({
+                text: status === 200
+                  ? `Merged ${dupName} into ${name}. ${body.to ?? 'Their email'} got a link to set a password there.`
+                  : merged ? `Merged ${dupName} into ${name}, but the email didn’t send. Copy the link shown on ${name}’s row and send it to them.`
+                    : `The merge of ${dupName} into ${name} may not have finished. Check People before trying again.`,
+              });
+              return;
+            }
+            if (merged) {
+              say(status === 200
+                ? `Merged. ${body.to ?? dupName} got a link to set a password on ${name}’s account; once they do, they sign in there.`
+                : `Merged, but the email didn’t send. Copy the link on ${name}’s row and send it to ${body.to ?? 'them'}.`, status === 200 ? 'success' : 'error');
+              // Fresh data shows the second account gone and the new link; the notice survives the redraw
+              await render({ key: `merge-link-${person.id}` });
+              syncCounts();
+              return;
+            }
+            const why = status === 409 && body?.error === 'has_data'
+              ? `${dupName}’s account has ${(body.held ?? []).join(', ')}, so it is not an empty duplicate. Move or clear those first, then merge.`
+              : status === 409 && body?.error === 'no_email' ? `${dupName}’s account has no email to move.`
+                : status === 409 ? 'this changed since the page loaded. Refresh and try again.'
+                  : status === 503 ? 'email is not set up, so nothing was changed.'
+                    : status === 401 ? 'sign in again as an admin.'
+                      : status === 502 ? 'we couldn’t tell whether it finished. Refresh People to check before trying again.'
+                        : 'nothing was changed. Please try again.';
+            // Shown here, next to the button, not at the top of a long list
+            const alertIcon = icon('warning-circle');
+            out.replaceChildren(h('p', { class: 'field-error', role: 'alert' }, alertIcon, h('span', {}, `That didn’t work: ${why}`)));
+          });
+        },
+      });
+      return h('div', { class: 'ppl-merge-option' },
+        h('span', { class: 'ppl-dupe-who' },
+          h('span', { class: 'ppl-dupe-name' }, `${dupName}${dup.email ? ` (${dup.email})` : ''}`),
+          h('span', { class: 'ppl-dupe-why' }, `${reason === 'name' ? 'Same name' : 'Same first name'}; signs in separately, with no tutors or family linked`)),
+        merge);
+    });
+    const icn = icon('warning-circle', { size: 20 });
+    icn.classList.add('callout-icon');
+    const wrap = h('div', { class: 'callout tone-warning ppl-merge', role: 'note' },
+      icn,
+      h('div', { class: 'callout-body' },
+        h('p', { class: 'callout-title' }, `${name} may also sign in under a second account`),
+        h('p', { class: 'callout-text' }, `If it’s the same person, merge it in: their sign-in moves here, where ${name}’s lessons and bills are, and the empty second account is removed.`),
+        ...rows,
+        out));
+    return wrap;
+  }
+
+  // The last merge into this person: its one-time link, until dismissed
+  function mergeNoticeFor(person) {
+    const n = mergeNotice;
+    if (!n || n.intoId !== person.id) return null;
+    const field = h('input', {
+      class: 'input ppl-invite-link', type: 'text', readonly: true, value: n.link,
+      'aria-label': `Link for ${n.intoName}`, dataset: { focusKey: `merge-link-${person.id}` },
+    });
+    field.addEventListener('focus', () => field.select());
+    const copy = button({
+      label: 'Copy link', size: 'sm', icon: 'copy',
+      onClick: async () => {
+        try {
+          await navigator.clipboard.writeText(n.link);
+          say('Link copied.', 'success');
+        } catch {
+          say('Your browser blocked copying. Select the link and copy it yourself.', 'error');
+        }
+      },
+    });
+    const wrap = h('div', { class: `callout ${n.emailed ? 'tone-success' : 'tone-warning'} ppl-merge`, role: 'status' });
+    const dismiss = button({
+      label: 'Done', size: 'sm', variant: 'ghost',
+      onClick: () => {
+        mergeNotice = null;
+        const next = wrap.closest('li.ppl-person')?.querySelector('[data-focus-key^="invite-"]');
+        wrap.remove();
+        next?.focus();
+      },
+    });
+    const icn = icon(n.emailed ? 'check-circle' : 'warning-circle', { size: 20 });
+    icn.classList.add('callout-icon');
+    wrap.append(icn, h('div', { class: 'callout-body' },
+      h('p', { class: 'callout-title' }, `${n.dupName} is merged into ${n.intoName}`),
+      h('p', { class: 'callout-text' }, n.emailed
+        ? `${n.to ?? 'Their email'} got a link to set a password on ${n.intoName}’s account, with its lessons and bills. You can also copy it here (it works once, for 30 days, and is shown only until you press Done).`
+        : `The email to ${n.to ?? 'them'} didn’t send. Copy this link and send it to them (it works once, for 30 days, and is shown only until you press Done).`),
+      field,
+      h('div', { class: 'ppl-invite-actions' }, copy, dismiss)));
+    if (n.focus) {
+      n.focus = false;
+      queueMicrotask(() => { if (field.isConnected) field.focus(); });
+    }
+    return wrap;
   }
 
   // Where focus goes when emailing a link takes the person out of the filtered
@@ -1742,6 +1911,8 @@ export function mount(ctx) {
           staffColor),
         h('div', { class: 'ppl-controls' }, workspace, roleSelect(person), remove)),
       inviteControls(person),
+      mergeNoticeFor(person),
+      mergeOffer(person),
       isStudent
         ? h('div', { class: 'ppl-links' },
           linkGroup(person, 'tutor', linkedTo(person.id, data.tutorLinks, 'tutor_id', data.byId), tutors),
