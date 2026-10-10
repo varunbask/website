@@ -3,7 +3,7 @@ import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   handlePeople, placeholderEmail, isPlaceholder, normalizeEmail, normalizeName, inviteLink, inviteProblem, namesText,
-  buildInviteEmail, PLACEHOLDER_DOMAIN, createPeopleRepo, signupMayBe,
+  buildInviteEmail, PLACEHOLDER_DOMAIN, createPeopleRepo, signupMayBe, signupChosen,
 } from '../../api/_lib/people.js';
 import { signupMatches } from '../../portal/js/invites-model.js';
 import { hashToken } from '../../api/_lib/testimonials.js';
@@ -43,6 +43,7 @@ function fakes({ invite = undefined, children = ['Maya Lin'], updateError = null
     })[id] ?? null),
     hasLinks: vi.fn(async () => links),
     createInvite: vi.fn(async (profileId, tokenHash, createdBy) => { state.created = { profileId, tokenHash, createdBy }; return { id: 99 }; }),
+    dropOpenInvites: vi.fn(async (profileId, keepId) => { state.dropped = { profileId, keepId }; }),
     finishJoin: vi.fn(async (id, email) => { state.profiles[id] = { ...(state.profiles[id] ?? {}), email, no_login: false }; }),
   };
   const auth = {
@@ -277,6 +278,40 @@ describe('use_signup: someone signed up who was already added without a login', 
     expect(hashToken(token)).toBe(f.state.created.tokenHash);
     expect(mail.text).toContain('Maya’s lessons');
     expect(f.state.emailed).toMatchObject({ id: 99, to: 'grace.lin@example.com' });
+    // only the link just emailed still opens the account
+    expect(f.state.dropped).toEqual({ profileId: NOLOGIN, keepId: 99 });
+  });
+
+  test('two parents named Grace: notes in brackets are not part of the name', async () => {
+    const f = fakes({ profiles: {
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Young', role: 'pending', requested_role: 'parent', no_login: false },
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Grace (Gordon’s Mom)', role: 'parent', no_login: true },
+    } });
+    expect((await handlePeople(post(body), f.deps)).status).toBe(200);
+    expect(f.state.created.profileId).toBe(NOLOGIN);
+  });
+
+  test('an account picked by hand is used only when the request names it exactly as it is now', async () => {
+    const profiles = {
+      [SIGNUP]: { id: SIGNUP, full_name: 'Grace Young', role: 'pending', requested_role: 'parent', no_login: false },
+      [NOLOGIN]: { id: NOLOGIN, full_name: 'Mrs. Lee', role: 'parent', no_login: true },
+    };
+    const byName = fakes({ profiles });
+    expect(await (await handlePeople(post(body), byName.deps)).json()).toEqual({ error: 'no_match' });
+    const stale = fakes({ profiles });
+    expect(await (await handlePeople(post({ ...body, chosen: true, confirm_name: 'Mrs. Kim' }), stale.deps)).json()).toEqual({ error: 'no_match' });
+    const missing = fakes({ profiles });
+    expect(await (await handlePeople(post({ ...body, chosen: true }), missing.deps)).json()).toEqual({ error: 'no_match' });
+    for (const x of [byName, stale, missing]) expect(x.auth.deleteUser).not.toHaveBeenCalled();
+    const picked = fakes({ profiles });
+    expect((await handlePeople(post({ ...body, chosen: true, confirm_name: ' mrs.  lee ' }), picked.deps)).status).toBe(200);
+    expect(picked.state.created.profileId).toBe(NOLOGIN);
+  });
+
+  test('a hand pick still needs the role they asked for', () => {
+    expect(signupChosen({ requested_role: 'student' }, { role: 'parent', full_name: 'Grace' }, 'Grace')).toBe(false);
+    expect(signupChosen({ requested_role: null }, { role: 'parent', full_name: 'Grace' }, 'grace')).toBe(true);
+    expect(signupChosen({ requested_role: 'parent' }, { role: 'parent', full_name: 'Grace' }, '')).toBe(false);
   });
 
   test('admins only, and nothing changes when email is not set up', async () => {
@@ -347,11 +382,16 @@ describe('use_signup: someone signed up who was already added without a login', 
       { id: 'c', full_name: 'Mary', role: 'parent', no_login: true },
       { id: 'd', full_name: 'Mary', role: 'student', no_login: true },
       { id: 'e', full_name: 'Amy Park', role: 'parent', no_login: true },
+      { id: 'f', full_name: 'Grace', role: 'parent', no_login: true },
+      { id: 'g', full_name: 'Grace (Gordon’s Mom)', role: 'parent', no_login: true },
+      { id: 'h', full_name: 'Grace Lin (Camila)', role: 'parent', no_login: true },
     ];
     for (const signup of [
       { id: 'x', full_name: 'Amy Chen', requested_role: 'student' }, { id: 'x', full_name: 'amy', requested_role: null },
       { id: 'x', full_name: 'Amy Park', requested_role: 'student' }, { id: 'x', full_name: 'Mary Smith', requested_role: 'parent' },
       { id: 'x', full_name: 'Mary', requested_role: null }, { id: 'x', full_name: 'Zoe', requested_role: 'student' },
+      { id: 'x', full_name: 'Grace Young', requested_role: 'parent' }, { id: 'x', full_name: 'Grace Lin', requested_role: 'parent' },
+      { id: 'x', full_name: 'Grace', requested_role: 'parent' },
     ]) {
       const card = signupMatches(signup, people).map((m) => m.person.id).sort();
       const server = people.filter((p) => signupMayBe(signup, p)).map((p) => p.id).sort();

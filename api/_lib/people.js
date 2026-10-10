@@ -14,10 +14,12 @@ import { handleDelete, createDeleteRepo } from './people-delete.js';
 //   { action: 'create', full_name, role }        admin: a student or parent with no sign-in -> { id }
 //   { action: 'email', t, to }                   admin: email the personal link to `to`
 //   { action: 'join', t, email, password }       the person: choose an email and password (once)
-//   { action: 'use_signup', signup_id, profile_id }
+//   { action: 'use_signup', signup_id, profile_id, chosen?, confirm_name? }
 //                                                admin: someone signed up who was already added without
 //                                                a login; remove the sign-up and email them a link to
-//                                                that account instead
+//                                                that account instead. The pair must match by name
+//                                                (signupMayBe), or be picked by hand: chosen true with
+//                                                confirm_name, the account's name as People showed it
 //   { action: 'delete_preview', id }             admin: what deleting a person would remove, and what
 //                                                refuses it (api/_lib/people-delete.js)
 //   { action: 'delete_person', id, confirm_name } admin: delete them for good, with everything of theirs
@@ -67,16 +69,29 @@ export function inviteLink(token, env = process.env) {
 // The rule People uses to flag a sign-up that may be someone added without a
 // login (portal/js/invites-model.js signupMatches): the same full name, or the
 // same first name when one of the two is only a first name, and the role they
-// asked for. The server checks it again before removing a sign-up.
+// asked for. Notes in brackets are not part of a name ("Grace (Gordon's Mom)"
+// is "Grace"). The server checks it again before removing a sign-up.
+const lowerName = (s) => String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+export const bareName = (s) => lowerName(String(s ?? '').replace(/\([^()]*\)/g, ' '));
+
 export function signupMayBe(signup, person) {
-  const lower = (s) => String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
   if (signup?.requested_role && signup.requested_role !== person?.role) return false;
-  const a = lower(signup?.full_name);
-  const b = lower(person?.full_name);
+  const a = bareName(signup?.full_name);
+  const b = bareName(person?.full_name);
   if (!a || !b) return false;
   if (a === b) return true;
   const [aw, bw] = [a.split(' '), b.split(' ')];
   return aw[0] === bw[0] && (aw.length === 1 || bw.length === 1);
+}
+
+// A pair the admin picked by hand (People > Waiting for approval > another
+// account): any student or parent of the role asked for, when the request
+// names the account exactly as it is now, so a stale page or an edited id
+// cannot pair anyone else
+export function signupChosen(signup, person, confirmName) {
+  if (signup?.requested_role && signup.requested_role !== person?.role) return false;
+  const named = lowerName(confirmName);
+  return Boolean(named) && named === lowerName(person?.full_name);
 }
 
 // Why a link cannot be used, or null
@@ -216,7 +231,8 @@ export async function handlePeople(request, {
     if (!signup || signup.role !== 'pending') return json(409, { error: 'not_pending' });
     if (!person || !person.no_login || !ROLES.includes(person.role)) return json(409, { error: 'not_no_login' });
     // The pair is checked here too, so a stale or edited request cannot pair anyone else
-    if (!signupMayBe(signup, person)) return json(409, { error: 'no_match' });
+    const paired = data.chosen === true ? signupChosen(signup, person, data.confirm_name) : signupMayBe(signup, person);
+    if (!paired) return json(409, { error: 'no_match' });
     // A sign-up still waiting has nothing linked to it; anything linked means it is not a bare sign-up
     if (await repo.hasLinks(signup.id)) return json(409, { error: 'has_links' });
     const found = await auth.getUserById(signup.id);
@@ -229,6 +245,8 @@ export async function handlePeople(request, {
     if (removed?.error) throw new Error(`deleteUser: ${removed.error.message ?? 'failed'}`);
     const token = randomBytes(32).toString('base64url');
     const invite = await repo.createInvite(person.id, hashToken(token), caller.id);
+    // Only the link just emailed works now: older unused links to this account stop
+    await repo.dropOpenInvites(person.id, invite.id);
     const children = person.role === 'parent' ? await repo.childrenOf(person.id) : [];
     const mail = buildInviteEmail({ name: person.full_name, role: person.role, children, link: inviteLink(token, env), to });
     try {
@@ -332,6 +350,11 @@ export function createPeopleRepo(db) {
         count('sessions', ['student_id', 'tutor_id']),
       ]);
       return counts.some((n) => n > 0);
+    },
+    // Removes a person's unused links except `keepId` (a removed link no longer opens)
+    async dropOpenInvites(profileId, keepId) {
+      check(await db.from('portal_invites').delete().eq('profile_id', profileId).is('used_at', null)
+        .neq('id', keepId), 'dropOpenInvites');
     },
     async createInvite(profileId, tokenHash, createdBy) {
       return check(await db.from('portal_invites').insert({ profile_id: profileId, token_hash: tokenHash, created_by: createdBy })
